@@ -6,8 +6,16 @@ Browse, filter, and view game simulation results.
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
+import os
+import sys
 
-# Import utilities
+# Add the app root directory to Python path (parent of pages/)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+# Now import utilities
 from utils.data_loader import (
     load_game_summaries,
     get_game_images,

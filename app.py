@@ -4,8 +4,15 @@ Landing page with recent games ticker, feature cards, and about section.
 """
 
 import streamlit as st
+import os
+import sys
 
-# Import utilities
+# Add the app root directory to Python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
+# Now import utilities
 from utils.data_loader import load_game_summaries, get_game_images, get_deserved_winner
 from utils.team_mappings import get_short_name
 
