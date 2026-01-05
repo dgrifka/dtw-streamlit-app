@@ -4,7 +4,7 @@ Interactive web app for exploring MLB game simulation results.
 
 ## Live App
 
-🔗 **[View the live app](https://dtw-app.streamlit.app)**
+🔗 **[View the live app](https://dtw-str.streamlit.app)**
 
 ## Features
 
