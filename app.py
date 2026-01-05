@@ -6,16 +6,8 @@ Landing page with recent games ticker, feature cards, and about section.
 import streamlit as st
 
 # Import utilities
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
-
-from utils import (
-    load_game_summaries,
-    get_game_images,
-    get_deserved_winner,
-    get_short_name,
-)
+from utils.data_loader import load_game_summaries, get_game_images, get_deserved_winner
+from utils.team_mappings import get_short_name
 
 # Page configuration
 st.set_page_config(
@@ -202,81 +194,86 @@ def render_ticker(df):
 
 
 def render_feature_cards():
-    """Render the main feature cards with sample images."""
+    """Render clickable navigation cards for each section."""
     
-    st.markdown("### Explore the Simulator")
+    st.markdown("### Explore")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        # Spray Chart Card
+        # Game Simulations Card - MAIN FEATURE
         st.markdown("""
         <div class="feature-card">
-            <div class="feature-title">🎯 Spray Charts</div>
+            <div class="feature-title">📊 Game Simulations</div>
             <div class="feature-desc">
-                Stadium-specific visualization showing batted ball locations 
-                with predicted outcomes based on exit velocity, launch angle, and spray angle.
+                Browse all 2025 games with deserve-to-win analysis. 
+                Filter by team, date, or find the biggest upsets.
             </div>
         </div>
         """, unsafe_allow_html=True)
         
-        # Placeholder for sample image - user will provide
-        st.image("https://dtw-streamlit.s3.amazonaws.com/sample-images/sample_spray.png", 
-                 use_container_width=True)
-    
-    with col2:
-        # Run Distribution Card
-        st.markdown("""
-        <div class="feature-card">
-            <div class="feature-title">📊 Run Distributions</div>
-            <div class="feature-desc">
-                See how runs were distributed across 10,000 simulations. 
-                Was the actual score typical or a lucky/unlucky outlier?
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Placeholder for sample image
+        # Sample image for Game Simulations
         st.image("https://dtw-streamlit.s3.amazonaws.com/sample-images/sample_rd.png",
                  use_container_width=True)
+        
+        # Navigation button
+        st.page_link("pages/1_Game_Simulations.py", 
+                     label="🔍 Browse Games", 
+                     use_container_width=True)
+    
+    with col2:
+        # Team Rankings Card - COMING SOON
+        st.markdown("""
+        <div class="feature-card" style="opacity: 0.7;">
+            <div class="feature-title">🏆 Team Rankings</div>
+            <div class="feature-desc">
+                Aggregate deserve-to-win percentages across the season.
+                See which teams are lucky vs. unlucky.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Placeholder image
+        st.image("https://dtw-streamlit.s3.amazonaws.com/sample-images/sample_spray.png",
+                 use_container_width=True)
+        
+        st.button("🔜 Coming Soon", disabled=True, use_container_width=True)
     
     col3, col4 = st.columns(2)
     
     with col3:
-        # Expected Bases Card
+        # Playoff Probabilities Card - COMING SOON
         st.markdown("""
-        <div class="feature-card">
-            <div class="feature-title">📈 Expected Bases</div>
+        <div class="feature-card" style="opacity: 0.7;">
+            <div class="feature-title">🎯 Playoff Probabilities</div>
             <div class="feature-desc">
-                Player rankings by expected bases — who made the best contact 
-                regardless of whether they got lucky or unlucky?
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.image("https://dtw-streamlit.s3.amazonaws.com/sample-images/sample_estimated_bases.png",
-                 use_container_width=True)
-    
-    with col4:
-        # Player Contributions Card  
-        st.markdown("""
-        <div class="feature-card">
-            <div class="feature-title">👥 Player Contributions</div>
-            <div class="feature-desc">
-                See each player's contribution to their team's expected run production,
-                split by batted balls vs. walks.
+                Monte Carlo simulations of the rest of the season
+                using deserve-to-win team strengths.
             </div>
         </div>
         """, unsafe_allow_html=True)
         
         st.image("https://dtw-streamlit.s3.amazonaws.com/sample-images/sample_player_contributions.png",
                  use_container_width=True)
+        
+        st.button("🔜 Coming Soon", disabled=True, use_container_width=True, key="playoff_btn")
     
-    # CTA Button
-    st.markdown("<br>", unsafe_allow_html=True)
-    col_left, col_center, col_right = st.columns([1, 2, 1])
-    with col_center:
-        st.page_link("pages/1_Game_Simulations.py", label="🔍 Browse All Game Simulations", use_container_width=True)
+    with col4:
+        # Batted Ball Explorer Card - COMING SOON
+        st.markdown("""
+        <div class="feature-card" style="opacity: 0.7;">
+            <div class="feature-title">⚾ Batted Ball Explorer</div>
+            <div class="feature-desc">
+                Search individual batted balls. See outcome probabilities
+                for any exit velocity, launch angle, and spray angle.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.image("https://dtw-streamlit.s3.amazonaws.com/sample-images/sample_estimated_bases.png",
+                 use_container_width=True)
+        
+        st.button("🔜 Coming Soon", disabled=True, use_container_width=True, key="explorer_btn")
 
 
 def render_about_section():

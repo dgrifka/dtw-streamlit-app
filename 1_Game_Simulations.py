@@ -7,19 +7,14 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 
-# Import utilities (Streamlit handles path when running)
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from utils import (
+# Import utilities
+from utils.data_loader import (
     load_game_summaries,
     get_game_images,
     get_deserved_winner,
     filter_games,
-    get_all_teams,
-    get_short_name,
 )
+from utils.team_mappings import get_all_teams, get_short_name
 
 st.set_page_config(
     page_title="Game Simulations | DTW Simulator",
