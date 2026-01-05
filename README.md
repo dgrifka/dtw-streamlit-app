@@ -66,8 +66,7 @@ dtw-streamlit-app/
 
 ## Related Projects
 
-- [baseball_simulator_model](https://github.com/dgrifka/baseball_simulator_model) — Orchestration & posting
-- [baseball_game_simulator](https://github.com/dgrifka/baseball_game_simulator) — Core simulation engine
+- [baseball_game_simulator](https://github.com/dgrifka/baseball_game_simulator) — Core simulation engine (public)
 
 ## Author
 
