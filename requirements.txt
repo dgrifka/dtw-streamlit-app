@@ -1,0 +1,6 @@
+# Core
+streamlit>=1.28.0
+
+# Data handling
+pandas>=2.0.0
+pyarrow>=14.0.0  # Required for parquet support
