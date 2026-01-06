@@ -74,6 +74,53 @@ TEAM_COLORS = {
     'Nationals': ('#AB0003', '#14225A'),
 }
 
+# Team logo URLs (ESPN CDN - reliable and consistent sizing)
+TEAM_LOGOS = {
+    'D-backs': 'https://a.espncdn.com/i/teamlogos/mlb/500/ari.png',
+    'Braves': 'https://a.espncdn.com/i/teamlogos/mlb/500/atl.png',
+    'Orioles': 'https://a.espncdn.com/i/teamlogos/mlb/500/bal.png',
+    'Red Sox': 'https://a.espncdn.com/i/teamlogos/mlb/500/bos.png',
+    'Cubs': 'https://a.espncdn.com/i/teamlogos/mlb/500/chc.png',
+    'White Sox': 'https://a.espncdn.com/i/teamlogos/mlb/500/chw.png',
+    'Reds': 'https://a.espncdn.com/i/teamlogos/mlb/500/cin.png',
+    'Guardians': 'https://a.espncdn.com/i/teamlogos/mlb/500/cle.png',
+    'Rockies': 'https://a.espncdn.com/i/teamlogos/mlb/500/col.png',
+    'Tigers': 'https://a.espncdn.com/i/teamlogos/mlb/500/det.png',
+    'Astros': 'https://a.espncdn.com/i/teamlogos/mlb/500/hou.png',
+    'Royals': 'https://a.espncdn.com/i/teamlogos/mlb/500/kc.png',
+    'Angels': 'https://a.espncdn.com/i/teamlogos/mlb/500/laa.png',
+    'Dodgers': 'https://a.espncdn.com/i/teamlogos/mlb/500/lad.png',
+    'Marlins': 'https://a.espncdn.com/i/teamlogos/mlb/500/mia.png',
+    'Brewers': 'https://a.espncdn.com/i/teamlogos/mlb/500/mil.png',
+    'Twins': 'https://a.espncdn.com/i/teamlogos/mlb/500/min.png',
+    'Mets': 'https://a.espncdn.com/i/teamlogos/mlb/500/nym.png',
+    'Yankees': 'https://a.espncdn.com/i/teamlogos/mlb/500/nyy.png',
+    'Athletics': 'https://a.espncdn.com/i/teamlogos/mlb/500/oak.png',
+    'Phillies': 'https://a.espncdn.com/i/teamlogos/mlb/500/phi.png',
+    'Pirates': 'https://a.espncdn.com/i/teamlogos/mlb/500/pit.png',
+    'Padres': 'https://a.espncdn.com/i/teamlogos/mlb/500/sd.png',
+    'Giants': 'https://a.espncdn.com/i/teamlogos/mlb/500/sf.png',
+    'Mariners': 'https://a.espncdn.com/i/teamlogos/mlb/500/sea.png',
+    'Cardinals': 'https://a.espncdn.com/i/teamlogos/mlb/500/stl.png',
+    'Rays': 'https://a.espncdn.com/i/teamlogos/mlb/500/tb.png',
+    'Rangers': 'https://a.espncdn.com/i/teamlogos/mlb/500/tex.png',
+    'Blue Jays': 'https://a.espncdn.com/i/teamlogos/mlb/500/tor.png',
+    'Nationals': 'https://a.espncdn.com/i/teamlogos/mlb/500/wsh.png',
+}
+
+
+def get_team_logo_url(team_name: str) -> str:
+    """
+    Get the logo URL for a team.
+    Accepts either full name ('New York Yankees') or short name ('Yankees').
+    
+    Example:
+        get_team_logo_url('Yankees') -> 'https://a.espncdn.com/i/teamlogos/mlb/500/nyy.png'
+        get_team_logo_url('New York Yankees') -> 'https://a.espncdn.com/i/teamlogos/mlb/500/nyy.png'
+    """
+    # If it's a full name, convert to short name first
+    short_name = TEAM_NAME_MAPPING.get(team_name, team_name)
+    return TEAM_LOGOS.get(short_name, '')
 
 def get_short_name(full_name: str) -> str:
     """Convert full team name to short name for image filenames."""
