@@ -39,11 +39,42 @@ def filter_to_regular_season(df: pd.DataFrame, season: int) -> pd.DataFrame:
     return df.copy()
 
 
+def redistribute_tie_probability(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Redistribute tie probability equally between home and away win probabilities.
+    
+    This ensures home_wp + away_wp = 1.0 for each game, which is necessary
+    for luck differential to sum to zero across all teams.
+    
+    Args:
+        df: DataFrame with home_wp, away_wp, and optionally tie_wp columns
+        
+    Returns:
+        DataFrame with adjusted home_wp and away_wp columns
+    """
+    df = df.copy()
+    
+    # Calculate tie probability if not present
+    if 'tie_wp' in df.columns:
+        tie_wp = df['tie_wp']
+    else:
+        # Infer tie probability from the gap
+        tie_wp = 1 - (df['home_wp'] + df['away_wp'])
+        tie_wp = tie_wp.clip(lower=0)  # Handle floating point errors
+    
+    # Redistribute tie probability equally
+    df['home_wp'] = df['home_wp'] + 0.5 * tie_wp
+    df['away_wp'] = df['away_wp'] + 0.5 * tie_wp
+    
+    return df
+
+
 def reshape_to_team_games(df: pd.DataFrame) -> pd.DataFrame:
     """
     Reshape game-level data to team-game level.
     
     Each game produces two rows: one for the home team, one for the away team.
+    Tie probability is redistributed before reshaping to ensure luck sums to zero.
     
     Args:
         df: Game summaries with home/away columns
@@ -55,9 +86,12 @@ def reshape_to_team_games(df: pd.DataFrame) -> pd.DataFrame:
         - date: Game date
         - team_score: Runs scored by this team
         - opponent_score: Runs scored by opponent
-        - win_prob: This team's win probability
+        - win_prob: This team's win probability (adjusted for ties)
         - won: 1 if team won, 0 if lost
     """
+    # Redistribute tie probability first
+    df = redistribute_tie_probability(df)
+    
     # Home team perspective
     home_games = df[['gamePk', 'date', 'home', 'home_score', 'away_score', 'home_wp']].copy()
     home_games.columns = ['gamePk', 'date', 'team', 'team_score', 'opponent_score', 'win_prob']

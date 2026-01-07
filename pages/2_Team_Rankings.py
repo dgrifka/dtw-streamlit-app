@@ -43,11 +43,19 @@ st.set_page_config(
 # -----------------------------------------------------------------------------
 
 @st.cache_data(ttl=86400)  # Cache logos for 24 hours
-def load_team_logo(logo_url: str) -> np.ndarray | None:
+def load_team_logo(logo_url: str, target_size: int = 500) -> np.ndarray | None:
     """
     Download and process a team logo image.
     
-    Returns numpy array with transparent background, or None if failed.
+    All logos are resized to a consistent size to ensure uniform display,
+    since some ESPN logos are different dimensions (e.g., Royals is 4096x4096).
+    
+    Args:
+        logo_url: URL to the logo image
+        target_size: Size to normalize all logos to (default 500x500)
+    
+    Returns:
+        numpy array with transparent background, or None if failed.
     """
     if not logo_url:
         return None
@@ -58,6 +66,11 @@ def load_team_logo(logo_url: str) -> np.ndarray | None:
         
         # Convert to RGBA
         img = img.convert('RGBA')
+        
+        # Resize to consistent dimensions if needed
+        if img.size != (target_size, target_size):
+            img = img.resize((target_size, target_size), Image.Resampling.LANCZOS)
+        
         data = np.array(img)
         
         # Make white/near-white pixels transparent
@@ -115,15 +128,17 @@ def plot_luck_differential(luck_stats: pd.DataFrame) -> plt.Figure:
     if max_abs_val == 0:
         max_abs_val = 1  # Avoid division by zero
     
-    # Add team logos at the base of each bar
+    # Add team logos - ALL positioned at y=0, just above or below the axis
     for i, (idx, row) in enumerate(df.iterrows()):
         logo = get_logo_image(row['short_name'], zoom=0.045)
         if logo:
-            # Position logo based on bar direction
+            # All logos positioned at y=0
+            # Positive bars: logo just below x-axis
+            # Negative bars: logo just above x-axis
             if row['luck_differential'] >= 0:
-                alignment = (0.5, 1.2)  # Below x-axis for positive bars
+                alignment = (0.5, 1.15)  # Below x-axis
             else:
-                alignment = (0.5, -0.2)  # Above x-axis for negative bars
+                alignment = (0.5, -0.15)  # Above x-axis
             
             ab = AnnotationBbox(
                 logo,
@@ -135,16 +150,14 @@ def plot_luck_differential(luck_stats: pd.DataFrame) -> plt.Figure:
             ax.add_artist(ab)
     
     # Styling
-    ax.set_title('Luck Differential: Actual Wins vs Expected Wins', fontsize=18, fontweight='bold', pad=15)
+    fig.suptitle('Luck Differential: Actual Wins vs Expected Wins', fontsize=20, fontweight='bold', y=0.91)
     ax.axhline(y=0, color='black', linestyle='-', linewidth=0.8)
-    ax.grid(True, axis='y', linestyle='--', alpha=0.35)
-    ax.set_axisbelow(True)
     
     # Y-axis
     y_max = int(max_abs_val) + 2
     y_ticks = np.arange(-y_max, y_max + 1, 2)
     ax.set_yticks(y_ticks)
-    ax.set_yticklabels([f"{int(y):+d}" for y in y_ticks], fontsize=12, fontweight='bold')
+    ax.set_yticklabels([f"{int(y):+d}" for y in y_ticks], fontsize=14, fontweight='bold')
     ax.set_ylim(-max_abs_val * 1.3, max_abs_val * 1.3)
     
     # Remove x-axis ticks (logos serve as labels)
@@ -154,28 +167,33 @@ def plot_luck_differential(luck_stats: pd.DataFrame) -> plt.Figure:
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     
-    # Add annotations for lucky/unlucky directions
-    ax.annotate(
-        'More Wins\nThan Expected',
-        xy=(len(df) * 0.82, max_abs_val * 0.75),
-        fontsize=11,
-        color='#008000',
-        ha='center',
-        va='center',
-        fontweight='bold'
-    )
-    ax.annotate(
-        'Fewer Wins\nThan Expected',
-        xy=(len(df) * 0.18, -max_abs_val * 0.75),
-        fontsize=11,
+    # Grid (applied after all other elements)
+    ax.set_axisbelow(True)
+    ax.grid(True, axis='y', linestyle='--', alpha=0.5)
+    
+    # Add subtitle annotations below title with arrows
+    fig.text(
+        0.25, 0.825,
+        '← Fewer Wins Than Expected',
+        fontsize=15,
         color='#8B0000',
         ha='center',
         va='center',
         fontweight='bold'
     )
+    fig.text(
+        0.75, 0.825,
+        'More Wins Than Expected →',
+        fontsize=15,
+        color='#008000',
+        ha='center',
+        va='center',
+        fontweight='bold'
+    )
     
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.88])  # Leave room at top for title and subtitle
     return fig
+
 
 
 def plot_lucky_vs_unlucky(luck_stats: pd.DataFrame) -> plt.Figure:
