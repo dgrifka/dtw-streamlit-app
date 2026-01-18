@@ -325,7 +325,7 @@ def plot_lucky_vs_unlucky(luck_stats: pd.DataFrame, data_date: str = None) -> pl
 
     # Add watermark
     fig.text(0.99, 0.0815, 'Data for Model: Statcast | By: @mlb_simulator', 
-            fontsize=15, ha='right', va='bottom', 
+            fontsize=11, ha='right', va='bottom', 
             color='gray', alpha=0.7,
             transform=fig.transFigure)
     
@@ -457,6 +457,7 @@ plt.close(fig2)
 
 st.divider()
 st.subheader("📋 Full Rankings Table")
+st.caption("Some games may be excluded due to incomplete Statcast data or unsupported ballparks.")
 
 # Prepare display dataframe
 display_df = luck_stats[[
