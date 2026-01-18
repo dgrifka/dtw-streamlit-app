@@ -13,7 +13,7 @@ GAME_SUMMARIES_URL = f"{S3_BASE_URL}/data/game_summaries.parquet"
 IMAGES_BASE_URL = f"{S3_BASE_URL}/sim-images"
 
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour, then refresh
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_game_summaries() -> pd.DataFrame:
     """
     Load game summaries from public S3 bucket.
@@ -112,7 +112,7 @@ def get_deserved_winner(row: pd.Series) -> dict:
         'was_upset': deserved != actual and actual != "Tie"
     }
 
-
+@st.cache_data
 def filter_games(
     df: pd.DataFrame,
     teams: list = None,

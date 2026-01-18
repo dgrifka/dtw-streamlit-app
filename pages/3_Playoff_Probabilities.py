@@ -29,7 +29,7 @@ st.markdown("""
 - Playoff odds for each team
 - Division winner probabilities
 - Wild card race projections
-- "What if" scenario explorer
+- AL/NL Rooting Guide
 """)
 
 if not df.empty:
