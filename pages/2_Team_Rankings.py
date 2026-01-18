@@ -39,6 +39,22 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
+# HELPER FUNCTIONS
+# -----------------------------------------------------------------------------
+
+def get_data_freshness_date(df: pd.DataFrame) -> str:
+    """
+    Get the most recent game date from the data for display purposes.
+    
+    Returns:
+        Formatted date string like "Jan 15, 2025"
+    """
+    if df.empty:
+        return "N/A"
+    latest_date = df['date'].max()
+    return latest_date.strftime("%b %d, %Y")
+
+# -----------------------------------------------------------------------------
 # LOGO CACHING
 # -----------------------------------------------------------------------------
 
@@ -96,7 +112,7 @@ def get_logo_image(team_short_name: str, zoom: float = 0.055) -> OffsetImage | N
 # CHART FUNCTIONS
 # -----------------------------------------------------------------------------
 
-def plot_luck_differential(luck_stats: pd.DataFrame) -> plt.Figure:
+def plot_luck_differential(luck_stats: pd.DataFrame, data_date: str = None) -> plt.Figure:
     """
     Create bar chart of luck differential with team logos.
     
@@ -150,7 +166,13 @@ def plot_luck_differential(luck_stats: pd.DataFrame) -> plt.Figure:
             ax.add_artist(ab)
     
     # Styling
-    fig.suptitle('Luck Differential: Actual Wins vs Expected Wins', fontsize=20, fontweight='bold', y=0.91)
+    # Main title
+    fig.suptitle('Luck Differential: Actual Wins vs Expected Wins', fontsize=20, fontweight='bold', y=0.93)
+
+    # Add date subtitle if provided
+    if data_date:
+        fig.text(0.5, 0.87, f'Through {data_date}', fontsize=12, ha='center', va='center', 
+                fontstyle='italic', color='gray')
     ax.axhline(y=0, color='black', linestyle='-', linewidth=0.8)
     
     # Y-axis
@@ -191,12 +213,19 @@ def plot_luck_differential(luck_stats: pd.DataFrame) -> plt.Figure:
         fontweight='bold'
     )
     
-    plt.tight_layout(rect=[0, 0, 1, 0.88])  # Leave room at top for title and subtitle
+    plt.tight_layout(rect=[0, 0.02, 1, 0.86])  # Extra bottom margin for watermark
+
+    # Add watermark
+    fig.text(0.99, 0.0515, 'Data for Model: Statcast | By: @mlb_simulator', 
+            fontsize=15, ha='right', va='bottom', 
+            color='gray', alpha=0.7,
+            transform=fig.transFigure)
+
     return fig
 
 
 
-def plot_lucky_vs_unlucky(luck_stats: pd.DataFrame) -> plt.Figure:
+def plot_lucky_vs_unlucky(luck_stats: pd.DataFrame, data_date: str = None) -> plt.Figure:
     """
     Create scatter plot of lucky wins vs unlucky losses with team logos.
     """
@@ -204,7 +233,7 @@ def plot_lucky_vs_unlucky(luck_stats: pd.DataFrame) -> plt.Figure:
     df['short_name'] = df['team'].apply(get_short_name)
     
     # Create figure
-    fig, ax = plt.subplots(figsize=(10, 10), dpi=100)
+    fig, ax = plt.subplots(figsize=(10, 10), dpi=150)
     
     # Calculate logo size based on data range
     x_range = df['lucky_wins'].max() - df['lucky_wins'].min()
@@ -242,7 +271,16 @@ def plot_lucky_vs_unlucky(luck_stats: pd.DataFrame) -> plt.Figure:
                    ha='center', va='center', fontweight='bold', fontsize=10)
     
     # Styling
-    ax.set_title('Lucky Wins vs Unlucky Losses', fontsize=18, fontweight='bold', pad=15)
+
+    # Main title
+    fig.suptitle('Lucky Wins vs Unlucky Losses', fontsize=20, fontweight='bold', y=0.995)
+
+    # Add date subtitle if provided
+    if data_date:
+        fig.text(0.5, 0.955, f'Through {data_date}', fontsize=12, ha='center', va='center', 
+                fontstyle='italic', color='gray')
+
+
     ax.set_xlabel('Lucky Wins (won as underdog)', fontsize=14, fontweight='bold', labelpad=10)
     ax.set_ylabel('Unlucky Losses (lost as favorite)', fontsize=14, fontweight='bold', labelpad=10)
     
@@ -250,8 +288,8 @@ def plot_lucky_vs_unlucky(luck_stats: pd.DataFrame) -> plt.Figure:
     ax.set_axisbelow(True)
     
     # Set limits with padding
-    ax.set_xlim(left=0, right=df['lucky_wins'].max() * 1.15 + 1)
-    ax.set_ylim(bottom=0, top=df['unlucky_losses'].max() * 1.15 + 1)
+    ax.set_xlim(left=0, right=df['lucky_wins'].max() * 1.1 + 1)
+    ax.set_ylim(bottom=0, top=df['unlucky_losses'].max() * 1.1 + 1)
     
     # Add mean lines
     mean_lucky = df['lucky_wins'].mean()
@@ -284,6 +322,13 @@ def plot_lucky_vs_unlucky(luck_stats: pd.DataFrame) -> plt.Figure:
     ax.spines['right'].set_visible(False)
     
     plt.tight_layout()
+
+    # Add watermark
+    fig.text(0.99, 0.0815, 'Data for Model: Statcast | By: @mlb_simulator', 
+            fontsize=15, ha='right', va='bottom', 
+            color='gray', alpha=0.7,
+            transform=fig.transFigure)
+    
     return fig
 
 
@@ -336,6 +381,9 @@ if regular_season_only:
 if filtered_df.empty:
     st.warning(f"No games found for {selected_season}.")
     st.stop()
+
+# Get data freshness date for chart labels
+data_date = get_data_freshness_date(filtered_df)
 
 # -----------------------------------------------------------------------------
 # CALCULATE METRICS
@@ -391,7 +439,7 @@ st.divider()
 st.subheader("📈 Luck Differential")
 st.caption("Teams on the right have won more games than expected; teams on the left have won fewer.")
 
-fig1 = plot_luck_differential(luck_stats)
+fig1 = plot_luck_differential(luck_stats, data_date=data_date)
 st.pyplot(fig1)
 plt.close(fig1)
 
@@ -399,7 +447,7 @@ st.divider()
 st.subheader("📉 Lucky Wins vs Unlucky Losses")
 st.caption("Lucky win = won when underdog (<50% win prob). Unlucky loss = lost when favorite (>50% win prob).")
 
-fig2 = plot_lucky_vs_unlucky(luck_stats)
+fig2 = plot_lucky_vs_unlucky(luck_stats, data_date=data_date)
 st.pyplot(fig2)
 plt.close(fig2)
 
