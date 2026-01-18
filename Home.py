@@ -127,7 +127,7 @@ def render_feature_cards():
     
     with col1:
         st.page_link("pages/1_Game_Simulations.py", 
-                     label="📊 **Game Simulations** - Browse all games", 
+                     label="📊 **Game Simulations**", 
                      use_container_width=True)
         st.image("https://dtw-streamlit.s3.amazonaws.com/sample-images/sample_rd.png",
                  width=300)
@@ -135,7 +135,7 @@ def render_feature_cards():
     
     with col2:
         st.page_link("pages/2_Team_Rankings.py",
-                     label="🏆 **Team Rankings** - Coming Soon",
+                     label="🏆 **Team Rankings**",
                      use_container_width=True)
         st.image("https://dtw-streamlit.s3.amazonaws.com/sample-images/sample_spray.png",
                  width=300)
@@ -161,51 +161,57 @@ def render_feature_cards():
 
 
 def render_about_section():
-    """Render the about/methodology section."""
-    st.markdown("### About")
+    """Render about section with all content visible (no tabs)."""
     
-    tab1, tab2, tab3 = st.tabs(["How It Works", "Articles", "Links"])
+    # -----------------------------
+    # How It Works
+    # -----------------------------
+    st.subheader("⚙️ How It Works")
     
-    with tab1:
+    st.markdown("""
+    1. **Get the data** — Pull all batted ball events from a completed MLB game via the MLB Stats API
+    2. **Predict outcomes** — Use a gradient boosting model trained on Statcast data to predict hit probability for each batted ball
+    3. **Simulate 10,000 times** — Resample each batted ball outcome based on predicted probabilities, including walks, strikeouts, and baserunning
+    4. **Calculate win probability** — Count how often each team wins across all simulations
+    """)
+    
+    st.divider()
+    
+    # -----------------------------
+    # Read More
+    # -----------------------------
+    st.subheader("📚 Read More")
+    
+    st.markdown("""
+    📝 **[Who Deserved to Win? Building an MLB Game Outcome Simulator](https://medium.com/@dmgrifka_64770/who-deserved-to-win-building-an-mlb-game-outcome-simulator-b4a8d4bca2a9)**  
+    Original methodology, motivation, and results from the 2024 season.
+    
+    📝 **[Applying Bayesian Hierarchical Methods to MLB Season Win Probabilities](https://medium.com/@dmgrifka_64770/applying-bayesian-hierarchical-methods-to-mlb-season-win-probabilties-with-pystan-468572abb932)**  
+    Using deserve-to-win results to estimate true team strength with PyStan.
+    """)
+    
+    st.divider()
+    
+    # -----------------------------
+    # Connect
+    # -----------------------------
+    st.subheader("🔗 Connect")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Social Media**")
         st.markdown("""
-        **The Deserve-to-Win Simulator** re-simulates every MLB game 10,000 times using actual batted ball data.
-        
-        For each batted ball in the game, we use:
-        - **Exit Velocity** — How hard the ball was hit
-        - **Launch Angle** — The vertical angle off the bat  
-        - **Spray Angle** — The horizontal direction
-        - **Ballpark Factors** — Stadium-specific effects
-        
-        A Gradient Boosting model (77% accuracy) predicts the probability distribution of outcomes 
-        (single, double, out, etc.) for each batted ball. We then resample from these distributions 
-        to simulate alternative game outcomes.
+        🐦 **Twitter:** [@mlb_simulator](https://x.com/mlb_simulator)  
+        🦋 **Bluesky:** [@mlb-simulator.bsky.social](https://bsky.app/profile/mlb-simulator.bsky.social)
         """)
     
-    with tab2:
+    with col2:
+        st.markdown("**Code & Portfolio**")
         st.markdown("""
-        📝 **[Who Deserved to Win? Building an MLB Game Outcome Simulator](https://medium.com/@dmgrifka_64770/who-deserved-to-win-building-an-mlb-game-outcome-simulator-b4a8d4bca2a9)**  
-        Original methodology, motivation, and results from the 2024 season.
-        
-        📝 **[Applying Bayesian Hierarchical Methods to MLB Season Win Probabilities](https://medium.com/@dmgrifka_64770/applying-bayesian-hierarchical-methods-to-mlb-season-win-probabilties-with-pystan-468572abb932)**  
-        Using deserve-to-win results to estimate true team strength with PyStan.
+        💻 **Simulator Code:** [baseball_game_simulator](https://github.com/dgrifka/baseball_game_simulator)  
+        🌐 **Portfolio:** [dgrifka.github.io](https://dgrifka.github.io)
         """)
-    
-    with tab3:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("### Social Media")
-            st.markdown("""
-            🐦 **Twitter:** [@mlb_simulator](https://x.com/mlb_simulator)  
-            🦋 **Bluesky:** [@mlb-simulator.bsky.social](https://bsky.app/profile/mlb-simulator.bsky.social)
-            """)
-        
-        with col2:
-            st.markdown("### Code & Portfolio")
-            st.markdown("""
-            💻 **Simulator Code:** [baseball_game_simulator](https://github.com/dgrifka/baseball_game_simulator)  
-            🌐 **Portfolio:** [dgrifka.github.io](https://dgrifka.github.io)
-            """)
 
 
 def main():
@@ -213,16 +219,6 @@ def main():
     
     st.markdown('<p class="hero-title">⚾ MLB Deserve-to-Win Simulator</p>', unsafe_allow_html=True)
     st.markdown('<p class="hero-subtitle">Who <em>should</em> have won? 10,000 simulations per game using exit velocity, launch angle, and spray angle.</p>', unsafe_allow_html=True)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.link_button("🐦 Twitter", "https://x.com/mlb_simulator", use_container_width=True)
-    with col2:
-        st.link_button("🦋 Bluesky", "https://bsky.app/profile/mlb-simulator.bsky.social", use_container_width=True)
-    with col3:
-        st.link_button("💻 GitHub", "https://github.com/dgrifka/baseball_game_simulator", use_container_width=True)
-    with col4:
-        st.link_button("🌐 Portfolio", "https://dgrifka.github.io", use_container_width=True)
     
     st.divider()
     
@@ -239,7 +235,6 @@ def main():
     st.markdown("""
     <div class="footer">
         Built by <a href="https://dgrifka.github.io">Derek Grifka</a> · 
-        Data from MLB Stats API · 
         Model trained on Statcast data
     </div>
     """, unsafe_allow_html=True)
