@@ -18,7 +18,7 @@ from datetime import datetime
 # Playoff start dates by season (regular season ends the day before)
 PLAYOFF_START_DATES = {
     2025: datetime(2025, 9, 30),
-    # Add future seasons as needed
+    2026: datetime(2026, 9, 29),
 }
 
 

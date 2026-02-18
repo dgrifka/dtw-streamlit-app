@@ -13,6 +13,18 @@ Interactive web app for exploring MLB game simulation results.
   - Filter by team, date range, season
   - Sort by date, biggest upsets, closest simulations
   - View all 4 visualizations for each game
+- **Team Rankings**: Season-long luck metrics with pre-rendered charts
+  - Luck differential bar chart (actual wins vs expected wins)
+  - Lucky wins vs unlucky losses scatter plot
+  - Full data table with CSV download
+
+### Planned Features
+- **Playoff Probabilities**: Monte Carlo rest-of-season projections
+- **Batted Ball Explorer**: Search individual batted balls by EV/LA/spray angle
+
+## Architecture
+
+Charts on the Team Rankings page are pre-rendered by the [simulator pipeline](https://github.com/dgrifka/baseball_game_simulator) and served as static images from S3. This avoids downloading 60 team logos and running matplotlib on every page load.
 
 ## Local Development
 ```bash
