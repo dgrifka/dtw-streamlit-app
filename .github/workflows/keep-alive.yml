@@ -1,0 +1,14 @@
+name: Keep Alive
+
+on:
+  schedule:
+    # Ping every 6 hours to prevent Streamlit Community Cloud sleep (12h timeout)
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit app
+        run: curl -sf --max-time 120 https://dtw-streamlit.app > /dev/null
