@@ -11,4 +11,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping Streamlit app
-        run: curl -sf --max-time 120 https://dtw-streamlit.app > /dev/null
+        run: curl -sfL --max-time 120 https://dtw-str.streamlit.app > /dev/null
