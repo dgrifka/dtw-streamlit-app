@@ -69,6 +69,17 @@ def get_deserved_winner(row: pd.Series) -> dict:
     }
 
 
+@st.cache_data(ttl=3600)
+def load_playoff_probabilities(season: int):
+    """Load playoff probability results from S3 (1-hour cache)."""
+    url = f"{S3_BASE_URL}/playoff-probabilities/{season}/latest/results.parquet"
+    try:
+        df = pd.read_parquet(url)
+        return df
+    except Exception:
+        return None
+
+
 def filter_games(
     df: pd.DataFrame,
     teams: list = None,

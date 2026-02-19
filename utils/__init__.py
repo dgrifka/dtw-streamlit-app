@@ -2,6 +2,7 @@
 
 from .data_loader import (
     load_game_summaries,
+    load_playoff_probabilities,
     build_image_url,
     get_game_images,
     get_deserved_winner,
