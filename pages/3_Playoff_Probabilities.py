@@ -59,11 +59,7 @@ st.markdown(
 # Determine season
 from datetime import datetime
 current_year = datetime.now().year
-available_seasons = [current_year, current_year - 1]
-
-col1, col2 = st.columns([1, 3])
-with col1:
-    selected_season = st.selectbox("Season", options=available_seasons, index=0)
+selected_season = current_year
 
 # Load probability table from S3
 results_df = load_playoff_probabilities(selected_season)
@@ -78,8 +74,8 @@ has_data = results_df is not None and not results_df.empty
 
 if not has_data and not has_prob_chart:
     st.info(
-        "Playoff probabilities are generated daily during the MLB season "
-        "(March-October). Check back when games are being played!"
+        f"{current_year} playoff probabilities will appear here once the season begins. "
+        "Pre-season projections based on prior-year team strength may also be available."
     )
     st.stop()
 
