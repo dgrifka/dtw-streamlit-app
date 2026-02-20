@@ -157,6 +157,49 @@ else:
 
 
 # -----------------------------------------------------------------------------
+# ROOTING GUIDE (game days only)
+# -----------------------------------------------------------------------------
+
+rooting_al_url = f"{S3_PLAYOFF_URL}/{selected_season}/latest/rooting_guide_al.png"
+rooting_nl_url = f"{S3_PLAYOFF_URL}/{selected_season}/latest/rooting_guide_nl.png"
+has_rooting_al = _image_exists(rooting_al_url)
+has_rooting_nl = _image_exists(rooting_nl_url)
+
+if has_rooting_al or has_rooting_nl:
+    st.divider()
+    st.subheader("🏟️ Today's Rooting Guide")
+    st.caption(
+        "Who should your team root for today? Each cell shows the team to root for "
+        "and the impact on your playoff odds. Based on conditional probability analysis "
+        "of 50,000 simulated seasons."
+    )
+
+    rooting_tab_al, rooting_tab_nl = st.tabs(["American League", "National League"])
+
+    with rooting_tab_al:
+        if has_rooting_al:
+            st.image(rooting_al_url, use_container_width=True)
+        else:
+            st.info("No AL rooting guide available today.")
+
+    with rooting_tab_nl:
+        if has_rooting_nl:
+            st.image(rooting_nl_url, use_container_width=True)
+        else:
+            st.info("No NL rooting guide available today.")
+
+    with st.expander("How to read the rooting guide"):
+        st.markdown("""
+        - **Green (Your game)**: This is your team's own game — root for yourselves!
+        - **Orange (Medium, ≥1.5%)**: This game has a meaningful impact on your playoff odds
+        - **Yellow (Low, ≥0.75%)**: A smaller but real impact
+        - **Grey with asterisk (Lesser evil)**: Both outcomes hurt your team — this is the less bad option
+        - **Dash (—)**: This game has negligible impact on your playoff odds
+        - **BYE impacts**: For top contenders, shows impact on first-round bye probability
+        """)
+
+
+# -----------------------------------------------------------------------------
 # DATA TABLE
 # -----------------------------------------------------------------------------
 
