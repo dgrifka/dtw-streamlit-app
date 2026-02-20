@@ -11,6 +11,11 @@ import urllib.request
 import urllib.error
 import os
 import sys
+import time
+
+# Hourly cache-busting version — S3 ignores query params on unsigned requests,
+# but Streamlit's st.image() caches by URL string, so rotating this forces re-fetch.
+_cache_version = int(time.time() // 3600)
 
 # Add parent directory to path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -79,8 +84,8 @@ else:
 results_df = load_playoff_probabilities(selected_season)
 
 # Check for chart availability
-prob_chart_url = f"{S3_PLAYOFF_URL}/{selected_season}/latest/playoff_probabilities.png"
-strength_chart_url = f"{S3_PLAYOFF_URL}/{selected_season}/latest/team_strength.png"
+prob_chart_url = f"{S3_PLAYOFF_URL}/{selected_season}/latest/playoff_probabilities.png?v={_cache_version}"
+strength_chart_url = f"{S3_PLAYOFF_URL}/{selected_season}/latest/team_strength.png?v={_cache_version}"
 
 has_prob_chart = _image_exists(prob_chart_url)
 has_strength_chart = _image_exists(strength_chart_url)
@@ -174,8 +179,8 @@ else:
 # ROOTING GUIDE (game days only)
 # -----------------------------------------------------------------------------
 
-rooting_al_url = f"{S3_PLAYOFF_URL}/{selected_season}/latest/rooting_guide_al.png"
-rooting_nl_url = f"{S3_PLAYOFF_URL}/{selected_season}/latest/rooting_guide_nl.png"
+rooting_al_url = f"{S3_PLAYOFF_URL}/{selected_season}/latest/rooting_guide_al.png?v={_cache_version}"
+rooting_nl_url = f"{S3_PLAYOFF_URL}/{selected_season}/latest/rooting_guide_nl.png?v={_cache_version}"
 has_rooting_al = _image_exists(rooting_al_url)
 has_rooting_nl = _image_exists(rooting_nl_url)
 
