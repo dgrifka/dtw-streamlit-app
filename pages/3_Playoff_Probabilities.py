@@ -56,10 +56,24 @@ st.markdown(
     "**Bayesian team strength estimates** from the deserve-to-win model."
 )
 
-# Determine season
+# Determine season — auto-detect which years have data in S3
 from datetime import datetime
 current_year = datetime.now().year
-selected_season = current_year
+
+available_seasons = []
+for year in range(current_year, current_year - 3, -1):
+    url = f"{S3_PLAYOFF_URL}/{year}/latest/results.parquet"
+    if _image_exists(url):
+        available_seasons.append(year)
+
+if available_seasons:
+    selected_season = st.selectbox(
+        "Season", available_seasons,
+        index=0,
+        label_visibility="collapsed" if len(available_seasons) == 1 else "visible",
+    )
+else:
+    selected_season = current_year  # fall through to pre-season message
 
 # Load probability table from S3
 results_df = load_playoff_probabilities(selected_season)
@@ -74,7 +88,7 @@ has_data = results_df is not None and not results_df.empty
 
 if not has_data and not has_prob_chart:
     st.info(
-        f"{current_year} playoff probabilities will appear here once the season begins. "
+        f"{selected_season} playoff probabilities will appear here once the season begins. "
         "Pre-season projections based on prior-year team strength may also be available."
     )
     st.stop()
