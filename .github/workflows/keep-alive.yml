@@ -2,13 +2,58 @@ name: Keep Alive
 
 on:
   schedule:
-    # Ping every 6 hours to prevent Streamlit Community Cloud sleep (12h timeout)
-    - cron: '0 */6 * * *'
+    - cron: '0 */4 * * *'  # Every 4 hours (3x within 12h sleep window)
   workflow_dispatch: # Allow manual trigger
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Streamlit app
-        run: curl -sf --max-time 120 https://dtw-str.streamlit.app/healthz > /dev/null
+      - name: Install Selenium
+        run: pip install selenium
+
+      - name: Keep Streamlit app alive
+        run: |
+          python3 << 'EOF'
+          from selenium import webdriver
+          from selenium.webdriver.chrome.options import Options
+          from selenium.webdriver.common.by import By
+          import time
+
+          options = Options()
+          options.add_argument("--headless=new")
+          options.add_argument("--no-sandbox")
+          options.add_argument("--disable-dev-shm-usage")
+
+          driver = webdriver.Chrome(options=options)
+          driver.set_page_load_timeout(120)
+
+          try:
+              print("Loading https://dtw-str.streamlit.app ...")
+              driver.get("https://dtw-str.streamlit.app")
+              time.sleep(15)
+
+              # Check if the app is sleeping (wake-up button present)
+              buttons = driver.find_elements(By.TAG_NAME, "button")
+              wake_clicked = False
+              for btn in buttons:
+                  if "get this app back up" in btn.text.lower():
+                      print("App is sleeping — clicking wake-up button...")
+                      btn.click()
+                      time.sleep(45)  # Wait for app container to restart
+                      wake_clicked = True
+                      break
+
+              if not wake_clicked:
+                  print("App is already awake")
+
+              # Keep the browser open briefly to register as a viewer
+              time.sleep(10)
+              print(f"Page title: {driver.title}")
+              print("Keep-alive successful!")
+          except Exception as e:
+              print(f"Keep-alive failed: {e}")
+              raise
+          finally:
+              driver.quit()
+          EOF
