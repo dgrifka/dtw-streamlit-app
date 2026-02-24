@@ -80,6 +80,18 @@ def load_playoff_probabilities(season: int):
         return None
 
 
+@st.cache_data(ttl=3600)
+def load_batted_balls(season: int) -> pd.DataFrame:
+    """Load batted ball data from public S3 bucket with 1-hour cache."""
+    url = f"{S3_BASE_URL}/data/batted_balls_{season}.parquet"
+    try:
+        df = pd.read_parquet(url)
+        df['date_parsed'] = pd.to_datetime(df['date'], format='%m/%d/%Y', errors='coerce')
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
 def filter_games(
     df: pd.DataFrame,
     teams: list = None,
