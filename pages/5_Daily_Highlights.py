@@ -16,7 +16,7 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from utils.data_loader import load_batted_balls
+from utils.data_loader import load_batted_balls, get_available_batted_ball_seasons
 
 # Page config
 st.set_page_config(
@@ -37,8 +37,11 @@ st.markdown("Best and worst batted ball outcomes for each game day.")
 # Season selector
 col_season, _ = st.columns([1, 3])
 with col_season:
-    current_year = pd.Timestamp.now().year
-    season = st.selectbox("Season", options=[current_year], index=0)
+    available_seasons = get_available_batted_ball_seasons()
+    if available_seasons:
+        season = st.selectbox("Season", options=available_seasons, index=0)
+    else:
+        season = pd.Timestamp.now().year
 
 # Load data
 df = load_batted_balls(season)
@@ -104,8 +107,8 @@ COLUMN_CONFIG = {
     "Launch Angle": st.column_config.NumberColumn(format="%d°"),
     "Est. Bases": st.column_config.NumberColumn(format="%.2f"),
     "xBA": st.column_config.NumberColumn(format="%.3f"),
-    "HR%": st.column_config.NumberColumn(format="%.1%%"),
-    "Out%": st.column_config.NumberColumn(format="%.1%%"),
+    "HR%": st.column_config.NumberColumn(format="%.2f%%"),
+    "Out%": st.column_config.NumberColumn(format="%.2f%%"),
 }
 
 
@@ -117,6 +120,10 @@ def format_table(data, cols):
     ]
     available = [c for c in source_cols if c in data.columns]
     display = data.head(MAX_DISPLAY_ROWS)[available].copy()
+    # Convert probabilities to percentage scale
+    for col in ['hr_prob', 'out_prob']:
+        if col in display.columns:
+            display[col] = display[col] * 100
     rename_map = {
         "player": "Player",
         "team": "Team",

@@ -16,7 +16,7 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from utils.data_loader import load_batted_balls
+from utils.data_loader import load_batted_balls, get_available_batted_ball_seasons
 
 # Page config
 st.set_page_config(
@@ -37,8 +37,11 @@ st.markdown("Search and filter individual batted balls to see model-predicted ou
 # Season selector
 col_season, _ = st.columns([1, 3])
 with col_season:
-    current_year = pd.Timestamp.now().year
-    season = st.selectbox("Season", options=[current_year], index=0)
+    available_seasons = get_available_batted_ball_seasons()
+    if available_seasons:
+        season = st.selectbox("Season", options=available_seasons, index=0)
+    else:
+        season = pd.Timestamp.now().year
 
 # Load data
 df = load_batted_balls(season)
@@ -108,14 +111,23 @@ with f6:
         value=(eb_min, eb_max), step=0.05
     )
 
-# Row 3: Spray Direction, Sort By
-f7, f8 = st.columns(2)
+# Row 3: Date Range, Spray Direction, Sort By
+f7, f8, f9 = st.columns(3)
 
 with f7:
+    available_dates = sorted(df['date_parsed'].dropna().dt.date.unique())
+    date_range = st.date_input(
+        "Date Range",
+        value=(available_dates[0], available_dates[-1]),
+        min_value=available_dates[0],
+        max_value=available_dates[-1],
+    )
+
+with f8:
     spray_options = ["All"] + [d for d in ["Pull", "Center", "Oppo"] if d in df['spray_direction'].values]
     spray_filter = st.selectbox("Spray Direction", options=spray_options)
 
-with f8:
+with f9:
     sort_options = {
         "Estimated Bases (High → Low)": ("estimated_bases", False),
         "Estimated Bases (Low → High)": ("estimated_bases", True),
@@ -155,6 +167,12 @@ filtered = filtered[
 if spray_filter != "All":
     filtered = filtered[filtered['spray_direction'] == spray_filter]
 
+if isinstance(date_range, tuple) and len(date_range) == 2:
+    filtered = filtered[
+        (filtered['date_parsed'].dt.date >= date_range[0]) &
+        (filtered['date_parsed'].dt.date <= date_range[1])
+    ]
+
 # Sort
 sort_col, sort_asc = sort_options[sort_label]
 filtered = filtered.sort_values(sort_col, ascending=sort_asc).reset_index(drop=True)
@@ -179,6 +197,8 @@ display = filtered.head(MAX_DISPLAY_ROWS)[[
     'actual_result', 'estimated_bases', 'xba', 'hr_prob', 'date', 'opponent'
 ]].copy()
 
+display['hr_prob'] = display['hr_prob'] * 100
+
 display.columns = [
     'Team', 'Player', 'Exit Velo', 'Launch Angle', 'Spray',
     'Result', 'Est. Bases', 'xBA', 'HR%', 'Date', 'Opponent'
@@ -193,7 +213,7 @@ st.dataframe(
         'Launch Angle': st.column_config.NumberColumn(format="%d°"),
         'Est. Bases': st.column_config.NumberColumn(format="%.2f"),
         'xBA': st.column_config.NumberColumn(format="%.3f"),
-        'HR%': st.column_config.NumberColumn(format="%.1%%"),
+        'HR%': st.column_config.NumberColumn(format="%.2f%%"),
     }
 )
 

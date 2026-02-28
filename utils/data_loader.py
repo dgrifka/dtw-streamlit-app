@@ -81,12 +81,50 @@ def load_playoff_probabilities(season: int):
 
 
 @st.cache_data(ttl=3600)
+def get_available_batted_ball_seasons() -> list[int]:
+    """Auto-detect which seasons have batted ball data on S3."""
+    import urllib.request
+    current_year = pd.Timestamp.now().year
+    available = []
+    for year in range(current_year, current_year - 3, -1):
+        url = f"{S3_BASE_URL}/data/batted_balls_{year}.parquet"
+        try:
+            req = urllib.request.Request(url, method='HEAD')
+            resp = urllib.request.urlopen(req, timeout=5)
+            if resp.status == 200:
+                available.append(year)
+        except Exception:
+            pass
+    return available
+
+
+@st.cache_data(ttl=3600)
 def load_batted_balls(season: int) -> pd.DataFrame:
     """Load batted ball data from public S3 bucket with 1-hour cache."""
     url = f"{S3_BASE_URL}/data/batted_balls_{season}.parquet"
     try:
         df = pd.read_parquet(url)
         df['date_parsed'] = pd.to_datetime(df['date'], format='%m/%d/%Y', errors='coerce')
+        # Normalize actual_result to title case (MLB API returns lowercase)
+        if 'actual_result' in df.columns:
+            df['actual_result'] = (
+                df['actual_result']
+                .str.replace('_', ' ')
+                .str.title()
+            )
+        # Clip extreme probabilities (GBC overfitting edge cases)
+        prob_cols = ['out_prob', 'single_prob', 'double_prob', 'triple_prob', 'hr_prob']
+        if all(col in df.columns for col in prob_cols):
+            for col in prob_cols:
+                df[col] = df[col].clip(0.001, 0.999)
+            # Renormalize so probabilities sum to 1
+            prob_sum = df[prob_cols].sum(axis=1)
+            for col in prob_cols:
+                df[col] = df[col] / prob_sum
+            # Recalculate derived columns from clipped probabilities
+            df['estimated_bases'] = (df['single_prob'] * 1 + df['double_prob'] * 2
+                                     + df['triple_prob'] * 3 + df['hr_prob'] * 4)
+            df['xba'] = (1 - df['out_prob']).round(3)
         return df
     except Exception:
         return pd.DataFrame()
