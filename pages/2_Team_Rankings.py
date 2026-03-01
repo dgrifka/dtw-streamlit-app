@@ -174,14 +174,25 @@ with stat_col4:
 chart_suffix = "" if regular_season_only else "_full"
 
 st.divider()
-st.subheader("📈 Luck Differential")
-st.caption("Teams on the right have won more games than expected; teams on the left have won fewer.")
+st.subheader("📈 Luck Overview")
 
-luck_diff_url = f"{S3_CHARTS_URL}/{selected_season}/luck_differential{chart_suffix}.png"
-if _image_exists(luck_diff_url):
-    st.image(luck_diff_url, use_container_width=True)
-else:
-    st.info("Charts are generated during the MLB season. Check back when games are being played.")
+luck_tab_net, luck_tab_wp = st.tabs(["Net Lucky Wins", "Wins - xWins"])
+
+with luck_tab_net:
+    st.caption("Net lucky wins = lucky wins minus unlucky losses. Teams on the right have more luck-driven wins.")
+    net_lucky_url = f"{S3_CHARTS_URL}/{selected_season}/net_lucky_wins{chart_suffix}.png"
+    if _image_exists(net_lucky_url):
+        st.image(net_lucky_url, use_container_width=True)
+    else:
+        st.info("Net Lucky Wins chart not yet available. Check back when games are being played.")
+
+with luck_tab_wp:
+    st.caption("Teams on the right have won more games than expected; teams on the left have won fewer.")
+    luck_diff_url = f"{S3_CHARTS_URL}/{selected_season}/luck_differential{chart_suffix}.png"
+    if _image_exists(luck_diff_url):
+        st.image(luck_diff_url, use_container_width=True)
+    else:
+        st.info("Charts are generated during the MLB season. Check back when games are being played.")
 
 st.divider()
 st.subheader("📉 Lucky Wins vs Unlucky Losses")

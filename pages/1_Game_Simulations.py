@@ -64,13 +64,18 @@ def main():
     if df.empty:
         st.error("Could not load game data. Please try again later.")
         st.stop()
-    
-    # Get all unique teams
-    all_teams = sorted(set(df['home'].tolist() + df['away'].tolist()))
-    
+
     # ============ FILTERS SECTION ============
     st.markdown("### 🔍 Search & Filter")
-    
+
+    # Season filter
+    available_seasons = sorted(df['season'].unique(), reverse=True)
+    selected_season = st.selectbox("Season", options=available_seasons, index=0)
+    season_df = df[df['season'] == selected_season].copy()
+
+    # Get all unique teams for the selected season
+    all_teams = sorted(set(season_df['home'].tolist() + season_df['away'].tolist()))
+
     # Row 1: Team and Opponent
     col1, col2, col3 = st.columns(3)
     
@@ -83,7 +88,7 @@ def main():
     
     with col2:
         if selected_team != "All Teams":
-            team_games = df[(df['home'] == selected_team) | (df['away'] == selected_team)]
+            team_games = season_df[(season_df['home'] == selected_team) | (season_df['away'] == selected_team)]
             opponents = set()
             for _, row in team_games.iterrows():
                 if row['home'] == selected_team:
@@ -101,7 +106,7 @@ def main():
             st.selectbox("Opponent", options=["Select a team first"], disabled=True)
     
     with col3:
-        month_options = get_month_options(df)
+        month_options = get_month_options(season_df)
         selected_month = st.selectbox(
             "Month",
             options=["All Months"] + list(month_options.keys()),
@@ -113,8 +118,8 @@ def main():
     
     with col4:
         if selected_month == "All Months":
-            min_date = df['date'].min().date()
-            max_date = df['date'].max().date()
+            min_date = season_df['date'].min().date()
+            max_date = season_df['date'].max().date()
             date_range = st.date_input(
                 "Date Range",
                 value=(min_date, max_date),
@@ -143,7 +148,7 @@ def main():
     st.divider()
     
     # ============ APPLY FILTERS ============
-    filtered = df.copy()
+    filtered = season_df.copy()
     
     if selected_team != "All Teams":
         filtered = filtered[

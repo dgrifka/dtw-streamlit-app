@@ -197,13 +197,17 @@ if has_rooting_al or has_rooting_nl:
 
     with rooting_tab_al:
         if has_rooting_al:
-            st.image(rooting_al_url, use_container_width=True)
+            _, center, _ = st.columns([1, 5, 1])
+            with center:
+                st.image(rooting_al_url, use_container_width=True)
         else:
             st.info("No AL rooting guide available today.")
 
     with rooting_tab_nl:
         if has_rooting_nl:
-            st.image(rooting_nl_url, use_container_width=True)
+            _, center, _ = st.columns([1, 5, 1])
+            with center:
+                st.image(rooting_nl_url, use_container_width=True)
         else:
             st.info("No NL rooting guide available today.")
 
