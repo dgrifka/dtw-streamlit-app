@@ -194,14 +194,14 @@ st.markdown(f"**{total_results:,} batted balls found**" +
 # Prepare display DataFrame
 display = filtered.head(MAX_DISPLAY_ROWS)[[
     'team', 'player', 'launch_speed', 'launch_angle', 'spray_direction',
-    'actual_result', 'estimated_bases', 'xba', 'hr_prob', 'date', 'opponent'
+    'actual_result', 'estimated_bases', 'xba', 'hr_prob', 'date', 'opponent', 'venue'
 ]].copy()
 
 display['hr_prob'] = display['hr_prob'] * 100
 
 display.columns = [
     'Team', 'Player', 'Exit Velo', 'Launch Angle', 'Spray',
-    'Result', 'Est. Bases', 'xBA', 'HR%', 'Date', 'Opponent'
+    'Result', 'Est. Bases', 'xBA', 'HR%', 'Date', 'Opponent', 'Stadium'
 ]
 
 st.dataframe(
