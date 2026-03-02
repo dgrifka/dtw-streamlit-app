@@ -12,6 +12,8 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
+import requests
+
 from utils.data_loader import load_game_summaries, get_game_images, get_deserved_winner
 from utils.team_mappings import get_short_name
 
@@ -39,7 +41,14 @@ st.markdown("""
     .hero-subtitle {
         font-size: 1.2rem;
         color: #4A5568;
+        margin-bottom: 0.75rem;
+    }
+
+    .hero-explainer {
+        font-size: 1.0rem;
+        color: #718096;
         margin-bottom: 1.5rem;
+        line-height: 1.6;
     }
     
     .feature-card {
@@ -77,6 +86,23 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+
+def _get_playoff_image_url(current_season):
+    """Return a working playoff image URL, falling back to prior/current year."""
+    from datetime import datetime
+    current_year = datetime.now().year
+    # Try current season, current calendar year, then one year back from each
+    candidates = dict.fromkeys([current_season, current_year, current_season - 1, current_year - 1])
+    for season in candidates:
+        url = f"https://dtw-streamlit.s3.amazonaws.com/playoff-probabilities/{season}/latest/team_strength.png"
+        try:
+            r = requests.head(url, timeout=3)
+            if r.status_code == 200:
+                return url
+        except requests.RequestException:
+            continue
+    return None
 
 
 def render_recent_games(df):
@@ -119,45 +145,102 @@ def render_recent_games(df):
                         st.switch_page("pages/_Game_Detail.py")
 
 
-def render_feature_cards():
-    """Render navigation cards for each section."""
+def render_feature_cards(current_season):
+    """Render navigation cards for each section in a 3+2 layout."""
     st.markdown("### Explore")
-    
-    col1, col2 = st.columns(2)
-    
+
+    # Row 1: 3 columns
+    col1, col2, col3 = st.columns(3)
+
     with col1:
-        st.page_link("pages/1_Game_Simulations.py", 
-                     label="📊 **Game Simulations**", 
+        st.page_link("pages/1_Game_Simulations.py",
+                     label="📊 **Game Simulations**",
                      use_container_width=True)
         st.image("https://dtw-streamlit.s3.amazonaws.com/sample-images/sample_rd.png",
-                 width=300)
-        st.caption("Browse all 2025 games with deserve-to-win analysis. Filter by team, date, or find the biggest upsets.")
-    
+                 width="stretch")
+        st.caption(f"Browse all {current_season} games with deserve-to-win analysis. Filter by team, date, or find the biggest upsets.")
+
     with col2:
         st.page_link("pages/2_Team_Rankings.py",
                      label="🏆 **Team Rankings**",
                      use_container_width=True)
-        st.image("https://dtw-streamlit.s3.amazonaws.com/sample-images/sample_spray.png",
-                 width=300)
+        st.image(f"https://dtw-streamlit.s3.amazonaws.com/team-rankings/{current_season}/net_lucky_wins.png",
+                 width="stretch")
         st.caption("Aggregate deserve-to-win percentages across the season. See which teams are lucky vs. unlucky.")
-    
-    col3, col4 = st.columns(2)
-    
+
     with col3:
         st.page_link("pages/3_Playoff_Probabilities.py",
-                     label="🎯 **Playoff Probabilities** - Coming Soon",
+                     label="🎯 **Playoff Probabilities**",
                      use_container_width=True)
-        st.image("https://dtw-streamlit.s3.amazonaws.com/sample-images/sample_player_contributions.png",
-                 width=300)
+        playoff_img = _get_playoff_image_url(current_season)
+        if playoff_img:
+            st.image(playoff_img, width="stretch")
         st.caption("Monte Carlo simulations of the rest of the season using deserve-to-win team strengths.")
-    
+
+    # Row 2: 2 columns
+    col4, col5 = st.columns(2)
+
     with col4:
         st.page_link("pages/4_Batted_Ball_Explorer.py",
-                     label="⚾ **Batted Ball Explorer** - Coming Soon",
+                     label="⚾ **Batted Ball Explorer**",
                      use_container_width=True)
-        st.image("https://dtw-streamlit.s3.amazonaws.com/sample-images/sample_estimated_bases.png",
-                 width=300)
+        st.markdown("""
+        <table style="width:100%; border-collapse:collapse; background:#F7FAFC; border-radius:8px; font-size:0.75rem; overflow:hidden;">
+          <tr style="border-bottom:1px solid #E2E8F0;">
+            <th style="padding:6px 8px; text-align:left; color:#1E3A5F;">Player</th>
+            <th style="padding:6px 8px; text-align:right; color:#1E3A5F;">EV</th>
+            <th style="padding:6px 8px; text-align:right; color:#1E3A5F;">LA</th>
+            <th style="padding:6px 8px; text-align:left; color:#1E3A5F;">Result</th>
+            <th style="padding:6px 8px; text-align:right; color:#1E3A5F;">Est. Bases</th>
+          </tr>
+          <tr style="border-bottom:1px solid #EDF2F7;">
+            <td style="padding:4px 8px;">A. Judge</td><td style="padding:4px 8px; text-align:right;">112.3</td><td style="padding:4px 8px; text-align:right;">28°</td><td style="padding:4px 8px;">Home Run</td><td style="padding:4px 8px; text-align:right; font-weight:600;">3.45</td>
+          </tr>
+          <tr style="border-bottom:1px solid #EDF2F7;">
+            <td style="padding:4px 8px;">S. Ohtani</td><td style="padding:4px 8px; text-align:right;">108.7</td><td style="padding:4px 8px; text-align:right;">15°</td><td style="padding:4px 8px;">Single</td><td style="padding:4px 8px; text-align:right; font-weight:600;">1.82</td>
+          </tr>
+          <tr style="border-bottom:1px solid #EDF2F7;">
+            <td style="padding:4px 8px;">M. Betts</td><td style="padding:4px 8px; text-align:right;">105.1</td><td style="padding:4px 8px; text-align:right;">32°</td><td style="padding:4px 8px;">Double</td><td style="padding:4px 8px; text-align:right; font-weight:600;">2.14</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 8px;">J. Soto</td><td style="padding:4px 8px; text-align:right;">101.9</td><td style="padding:4px 8px; text-align:right;">-8°</td><td style="padding:4px 8px; color:#999;">Out</td><td style="padding:4px 8px; text-align:right; font-weight:600;">0.67</td>
+          </tr>
+        </table>
+        """, unsafe_allow_html=True)
         st.caption("Search individual batted balls. See outcome probabilities for any exit velocity, launch angle, and spray angle.")
+
+    with col5:
+        st.page_link("pages/5_Daily_Highlights.py",
+                     label="⭐ **Daily Highlights**",
+                     use_container_width=True)
+        st.markdown("""
+        <div style="background:#F7FAFC; border-radius:8px; padding:8px 10px; font-size:0.75rem;">
+          <div style="font-weight:600; color:#1E3A5F; margin-bottom:4px;">🔥 Top Estimated Bases</div>
+          <table style="width:100%; border-collapse:collapse; margin-bottom:8px;">
+            <tr style="border-bottom:1px solid #EDF2F7;">
+              <td style="padding:3px 4px;">A. Judge</td><td style="padding:3px 4px; text-align:right;">112.3 mph</td><td style="padding:3px 4px; text-align:right;">28°</td><td style="padding:3px 4px; text-align:right; font-weight:600;">3.45</td>
+            </tr>
+            <tr>
+              <td style="padding:3px 4px;">S. Ohtani</td><td style="padding:3px 4px; text-align:right;">108.7 mph</td><td style="padding:3px 4px; text-align:right;">25°</td><td style="padding:3px 4px; text-align:right; font-weight:600;">3.12</td>
+            </tr>
+          </table>
+          <div style="display:flex; gap:12px;">
+            <div style="flex:1;">
+              <div style="font-weight:600; color:#1E3A5F; margin-bottom:4px;">😤 Unluckiest Outs</div>
+              <table style="width:100%; border-collapse:collapse;">
+                <tr><td style="padding:2px 4px;">R. Acuña Jr.</td><td style="padding:2px 4px; text-align:right; color:#999;">106.2 · .412 xBA</td></tr>
+              </table>
+            </div>
+            <div style="flex:1;">
+              <div style="font-weight:600; color:#1E3A5F; margin-bottom:4px;">🍀 Luckiest Hits</div>
+              <table style="width:100%; border-collapse:collapse;">
+                <tr><td style="padding:2px 4px;">F. Freeman</td><td style="padding:2px 4px; text-align:right; color:#999;">78.3 · .089 xBA</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.caption("Best and worst batted balls from each game day — top estimated bases, unluckiest outs, and luckiest hits.")
 
 
 def render_about_section():
@@ -169,10 +252,10 @@ def render_about_section():
     st.subheader("⚙️ How It Works")
     
     st.markdown("""
-    1. **Get the data** — Pull all batted ball events from a completed MLB game via the MLB Stats API
-    2. **Predict outcomes** — Use a gradient boosting model trained on Statcast data to predict hit probability for each batted ball
-    3. **Simulate 10,000 times** — Resample each batted ball outcome based on predicted probabilities, including walks, strikeouts, and baserunning
-    4. **Calculate win probability** — Count how often each team wins across all simulations
+    1. 📡 **Get the data** — Pull all batted ball events from a completed MLB game via the MLB Stats API
+    2. 🤖 **Predict outcomes** — Use a gradient boosting model trained on Statcast data to predict hit probability for each batted ball
+    3. 🔄 **Simulate 10,000 times** — Resample each batted ball outcome based on predicted probabilities, including walks, strikeouts, and baserunning
+    4. 📊 **Calculate win probability** — Count how often each team wins across all simulations
     """)
     
     st.divider()
@@ -219,14 +302,17 @@ def main():
     
     st.markdown('<p class="hero-title">⚾ MLB Deserve-to-Win Simulator</p>', unsafe_allow_html=True)
     st.markdown('<p class="hero-subtitle">Who <em>should</em> have won? 10,000 simulations per game using exit velocity, launch angle, and spray angle.</p>', unsafe_allow_html=True)
-    
+    st.markdown('<p class="hero-explainer">Every batted ball has a probability of being a hit based on how hard it was hit, at what angle, and where on the field it went. We re-roll each batted ball 10,000 times using those probabilities to see how often each team <em>should</em> have won — separating skill from luck.</p>', unsafe_allow_html=True)
+
     st.divider()
-    
+
+    current_season = int(df['season'].max()) if not df.empty else 2026
+
     if not df.empty:
         render_recent_games(df)
         st.divider()
-    
-    render_feature_cards()
+
+    render_feature_cards(current_season)
     
     st.divider()
     
