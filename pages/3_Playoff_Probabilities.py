@@ -214,6 +214,7 @@ if has_rooting_al or has_rooting_nl:
     with st.expander("How to read the rooting guide"):
         st.markdown("""
         - **Green (Your game)**: This is your team's own game — root for yourselves!
+        - **Red (High, ≥5%)**: This game has a large impact on your playoff odds
         - **Orange (Medium, ≥1.5%)**: This game has a meaningful impact on your playoff odds
         - **Yellow (Low, ≥0.75%)**: A smaller but real impact
         - **Grey with asterisk (Lesser evil)**: Both outcomes hurt your team — this is the less bad option
