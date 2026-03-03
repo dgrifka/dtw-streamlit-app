@@ -130,6 +130,31 @@ def load_batted_balls(season: int) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=3600)
+def load_player_evaluations(season: int, player_type: str = "hitter") -> pd.DataFrame:
+    """Load player evaluation rankings from S3 (1-hour cache).
+
+    Args:
+        season: MLB season year
+        player_type: 'hitter' or 'pitcher'
+
+    Returns:
+        DataFrame with columns: player, team, n_batted_balls, raw_rate,
+        posterior_mean, hdi_low, hdi_high, shrinkage
+    """
+    url = f"{S3_BASE_URL}/player-evaluations/{season}/latest/{player_type}_rankings.parquet"
+    try:
+        df = pd.read_parquet(url)
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+def get_player_evaluation_image_url(season: int, chart_name: str) -> str:
+    """Build URL for a player evaluation chart image on S3."""
+    return f"{S3_BASE_URL}/player-evaluations/{season}/latest/{chart_name}.png"
+
+
 def filter_games(
     df: pd.DataFrame,
     teams: list = None,
