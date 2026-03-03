@@ -16,7 +16,7 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from utils.data_loader import load_game_summaries, get_game_images, get_deserved_winner
-from utils.team_mappings import get_all_teams, get_short_name
+from utils.team_mappings import get_all_teams, get_short_name, get_team_logo_url, get_team_color
 
 st.set_page_config(
     page_title="Game Simulations | DTW Simulator",
@@ -24,9 +24,17 @@ st.set_page_config(
     layout="wide"
 )
 
+# MLB logo for default state
+MLB_LOGO_URL = "https://a.espncdn.com/i/teamlogos/leagues/500/mlb.png"
+
 # Custom CSS
 st.markdown("""
 <style>
+    /* Slightly narrower sidebar */
+    [data-testid="stSidebar"] {
+        min-width: 200px;
+        max-width: 200px;
+    }
     .game-card {
         background: #f8f9fa;
         border-radius: 8px;
@@ -39,6 +47,29 @@ st.markdown("""
         padding: 1rem;
         border-radius: 8px;
         margin-bottom: 1rem;
+    }
+    /* Upset toggle styling */
+    .upset-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: #FFF8E1;
+        border: 2px solid #FFB300;
+        border-radius: 24px;
+        padding: 0.4rem 1rem;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 0.95rem;
+        color: #E65100;
+        transition: all 0.15s ease;
+    }
+    .upset-toggle.active {
+        background: #FF6F00;
+        border-color: #E65100;
+        color: white;
+    }
+    .upset-toggle .dice {
+        font-size: 1.4rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -66,9 +97,8 @@ def main():
         st.stop()
 
     # ============ FILTERS SECTION ============
-    st.markdown("### 🔍 Search & Filter")
 
-    # Season filter
+    # Season filter (needed early to determine team logo)
     available_seasons = sorted(df['season'].unique(), reverse=True)
     selected_season = st.selectbox("Season", options=available_seasons, index=0)
     season_df = df[df['season'] == selected_season].copy()
@@ -76,16 +106,43 @@ def main():
     # Get all unique teams for the selected season
     all_teams = sorted(set(season_df['home'].tolist() + season_df['away'].tolist()))
 
-    # Row 1: Team and Opponent
+    # Header with logo
+    header_col, logo_col = st.columns([5, 1])
+    with header_col:
+        st.markdown("### Search & Filter")
+    with logo_col:
+        # Show MLB logo by default, team logo when filtered
+        # (selected_team not yet defined on first render, will update via rerun)
+        if 'team_filter' not in st.session_state:
+            st.session_state['team_filter'] = "All Teams"
+
+        display_logo = MLB_LOGO_URL
+        if st.session_state.get('team_filter', 'All Teams') != "All Teams":
+            team_logo = get_team_logo_url(st.session_state['team_filter'])
+            if team_logo:
+                display_logo = team_logo
+
+        st.markdown(
+            f'<div style="display:flex; justify-content:flex-end; align-items:center; height:100%;">'
+            f'<img src="{display_logo}" style="height:48px; width:48px; object-fit:contain;">'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+    # Row 1: Team, Opponent, Month
     col1, col2, col3 = st.columns(3)
-    
+
     with col1:
         selected_team = st.selectbox(
             "Team",
             options=["All Teams"] + all_teams,
             help="Filter games involving this team"
         )
-    
+        # Sync to session state for logo display
+        if st.session_state.get('team_filter') != selected_team:
+            st.session_state['team_filter'] = selected_team
+            st.rerun()
+
     with col2:
         if selected_team != "All Teams":
             team_games = season_df[(season_df['home'] == selected_team) | (season_df['away'] == selected_team)]
@@ -104,7 +161,7 @@ def main():
         else:
             selected_opponent = "All Opponents"
             st.selectbox("Opponent", options=["Select a team first"], disabled=True)
-    
+
     with col3:
         month_options = get_month_options(season_df)
         selected_month = st.selectbox(
@@ -112,10 +169,10 @@ def main():
             options=["All Months"] + list(month_options.keys()),
             help="Quick filter by month"
         )
-    
-    # Row 2: Date Range and Toggles
+
+    # Row 2: Date Range, Upsets Only, Sort By
     col4, col5, col6 = st.columns(3)
-    
+
     with col4:
         if selected_month == "All Months":
             min_date = season_df['date'].min().date()
@@ -131,13 +188,13 @@ def main():
             st.date_input("Date Range", disabled=True, value=datetime.now().date(),
                          help="Clear month filter to use date range")
             date_range = None
-    
+
     with col5:
-        upsets_only = st.checkbox(
-            "🎲 Upsets Only",
+        upsets_only = st.toggle(
+            "Upsets Only  🎲",
             help="Show only games where the 'wrong' team won"
         )
-    
+
     with col6:
         sort_option = st.selectbox(
             "Sort By",
@@ -146,7 +203,7 @@ def main():
         )
     
     st.divider()
-    
+
     # ============ APPLY FILTERS ============
     filtered = season_df.copy()
     
@@ -240,23 +297,28 @@ def main():
                     home_short = get_short_name(row['home'])
                     winner_info = get_deserved_winner(row)
                     upset_marker = " 🎲" if winner_info['was_upset'] else ""
-                    
+
                     away_wp = int(round(row['away_wp'] * 100))
                     home_wp = int(round(row['home_wp'] * 100))
-                    
-                    # Highlight selected team if filtering
+
+                    # Highlight selected team and determine opponent color accent
                     away_display = away_short
                     home_display = home_short
+                    border_style = "border: 1px solid #e0e0e0;"
+
                     if selected_team != "All Teams":
                         if row['home'] == selected_team:
                             home_display = f"<b>{home_short}</b>"
+                            opp_color = get_team_color(row['away'])[0]
                         else:
                             away_display = f"<b>{away_short}</b>"
-                    
-                    # Game card
+                            opp_color = get_team_color(row['home'])[0]
+                        border_style = f"border: 1px solid #e0e0e0; border-left: 4px solid {opp_color};"
+
+                    # Game card with optional opponent color accent
                     st.markdown(f"""
-                    <div style="background: #f8f9fa; border-radius: 8px; padding: 1rem; 
-                                margin-bottom: 0.5rem; border: 1px solid #e0e0e0;">
+                    <div style="background: #f8f9fa; border-radius: 8px; padding: 1rem;
+                                margin-bottom: 0.5rem; {border_style}">
                         <div style="font-size: 0.8rem; color: #666;">
                             {row['date'].strftime('%A, %b %d, %Y')}
                         </div>
@@ -271,8 +333,8 @@ def main():
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
-                    
-                    # View button - USE SESSION STATE
+
+                    # View button
                     if st.button("View Details", key=f"game_{row['gamePk']}", use_container_width=True):
                         st.session_state['selected_game_pk'] = int(row['gamePk'])
                         st.switch_page("pages/_Game_Detail.py")

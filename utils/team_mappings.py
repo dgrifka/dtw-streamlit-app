@@ -54,7 +54,7 @@ TEAM_COLORS = {
     'Tigers': ('#0C2340', '#FA4616'),
     'Astros': ('#002D62', '#EB6E1F'),
     'Royals': ('#004687', '#BD9B60'),
-    'Angels': ('#003263', '#BA0021'),
+    'Angels': ('#BA0021', '#003263'),
     'Dodgers': ('#005A9C', '#EF3E42'),
     'Marlins': ('#00A3E0', '#EF3340'),
     'Brewers': ('#0A2351', '#B6922E'),

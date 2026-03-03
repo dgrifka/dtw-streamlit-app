@@ -29,6 +29,12 @@ st.set_page_config(
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
+
+    /* Slightly narrower sidebar */
+    [data-testid="stSidebar"] {
+        min-width: 200px;
+        max-width: 200px;
+    }
     
     .hero-title {
         font-size: 2.75rem;
