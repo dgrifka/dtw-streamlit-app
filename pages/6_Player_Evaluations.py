@@ -37,7 +37,11 @@ st.set_page_config(
 st.title("Player Evaluations")
 st.markdown(
     "Bayesian rankings of hitters and pitchers by contact quality "
-    "(estimated bases per batted ball), with credible intervals."
+    "(estimated bases per batted ball), with credible intervals. "
+    "The model estimates each player's true underlying contact quality by pooling "
+    "information across all players — players with fewer batted balls are pulled "
+    "toward the league average, while players with more data retain estimates "
+    "closer to their observed performance."
 )
 
 # Season selector
@@ -65,10 +69,43 @@ if df.empty:
     st.stop()
 
 # -----------------------------------------------------------------------------
-# CHART IMAGE FROM S3
+# METHODOLOGY (above chart so readers understand what they're looking at)
 # -----------------------------------------------------------------------------
 
 st.divider()
+
+with st.expander("How does this work?"):
+    st.markdown("""
+**What is a hierarchical model?**
+
+Instead of treating each player independently, a hierarchical model learns a "league-wide"
+baseline and estimates how much each player deviates from it. This is called **partial pooling** —
+every player's estimate is informed by both their own data and the overall population.
+
+**Why does this matter?**
+
+A player with 20 batted balls and a high raw average might just be on a hot streak. The model
+recognizes the small sample and **pulls ("shrinks") their estimate toward the league average**.
+A player with 400+ batted balls keeps an estimate much closer to their raw observed rate,
+because there's enough data to trust it.
+
+**Reading the chart:**
+
+- **Circle**: the model's best estimate of a player's true contact quality (posterior mean)
+- **Thick line**: 50% credible interval — there's a 50% chance the true value falls in this range
+- **Thin line**: 89% credible interval — a wider range capturing more uncertainty
+- Players with fewer batted balls have wider intervals, reflecting greater uncertainty
+
+**Column definitions:**
+
+- **Est. Bases (Bayesian)**: Posterior mean — the model's best estimate of true contact quality
+- **Est. Bases (Raw)**: Simple observed mean estimated bases per batted ball
+- **Shrinkage**: Difference between Bayesian and raw estimates (negative = shrunk downward)
+""")
+
+# -----------------------------------------------------------------------------
+# CHART IMAGE FROM S3
+# -----------------------------------------------------------------------------
 
 chart_name = f"top_{type_key}s"
 chart_url = get_player_evaluation_image_url(season, chart_name)
@@ -161,53 +198,3 @@ st.dataframe(
     column_config=COLUMN_CONFIG,
 )
 
-# -----------------------------------------------------------------------------
-# SHRINKAGE CHART
-# -----------------------------------------------------------------------------
-
-st.divider()
-st.subheader("Shrinkage Visualization")
-st.caption(
-    "Shows how the Bayesian model adjusts raw observed rates. "
-    "Players with fewer batted balls are pulled more toward the league average."
-)
-
-shrinkage_name = f"top_{type_key}s_shrinkage"
-shrinkage_url = get_player_evaluation_image_url(season, shrinkage_name)
-
-try:
-    st.image(shrinkage_url, use_container_width=True)
-except Exception:
-    st.info("Shrinkage chart not available.")
-
-# -----------------------------------------------------------------------------
-# METHODOLOGY
-# -----------------------------------------------------------------------------
-
-st.divider()
-with st.expander("Methodology"):
-    st.markdown("""
-    **Bayesian Hierarchical Model**
-
-    Each player's "true" contact quality is estimated using a Bayesian hierarchical
-    model with partial pooling. Players with few batted balls are shrunk toward the
-    league average; players with many batted balls retain their observed rate.
-
-    **Model Details:**
-    - **Metric**: Estimated bases per batted ball (model-predicted expected bases
-      based on exit velocity, launch angle, spray angle, and ballpark factors)
-    - **Non-centered parameterization** to avoid sampling issues with small samples
-    - **89% Highest Density Interval (HDI)** credible intervals (ArviZ convention)
-    - Population-level parameters estimated: league mean, between-player SD, within-player SD
-
-    **Column Definitions:**
-    - **Est. Bases (Bayesian)**: Posterior mean — the model's best estimate of true contact quality
-    - **Est. Bases (Raw)**: Simple observed mean estimated bases per batted ball
-    - **HDI Low / HDI High**: 89% credible interval bounds
-    - **Shrinkage**: Difference between Bayesian and raw estimates (negative = shrunk downward)
-    - **Batted Balls**: Number of balls put in play (excluding strikeouts, walks)
-
-    **Interpretation:**
-    - For **hitters**: higher = better quality contact
-    - For **pitchers**: lower = better at suppressing quality contact
-    """)
