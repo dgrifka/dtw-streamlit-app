@@ -193,6 +193,21 @@ def get_player_evaluation_image_url(season: int, chart_name: str) -> str:
     return f"{S3_BASE_URL}/player-evaluations/{season}/latest/{chart_name}.png"
 
 
+def team_slug(name: str) -> str:
+    """Convert team short name to URL-safe slug.
+
+    Examples: 'Yankees' -> 'yankees', 'Blue Jays' -> 'blue_jays',
+              'D-backs' -> 'dbacks'
+    """
+    return name.lower().replace(' ', '_').replace('-', '')
+
+
+def get_player_evaluation_team_image_url(season: int, team: str, chart_name: str) -> str:
+    """Build URL for a team-specific player evaluation chart on S3."""
+    slug = team_slug(team)
+    return f"{S3_BASE_URL}/player-evaluations/{season}/latest/teams/{slug}/{chart_name}.png"
+
+
 def filter_games(
     df: pd.DataFrame,
     teams: list = None,

@@ -6,6 +6,8 @@ bases per batted ball, with credible intervals and shrinkage for small
 sample sizes.
 """
 
+import unicodedata
+
 import streamlit as st
 import pandas as pd
 import os
@@ -21,8 +23,10 @@ from utils.data_loader import (
     load_player_evaluations,
     load_player_evaluations_pa,
     get_player_evaluation_image_url,
+    get_player_evaluation_team_image_url,
     get_available_player_evaluation_seasons,
 )
+from utils.team_mappings import TEAM_COLORS
 
 # Page config
 st.set_page_config(
@@ -45,7 +49,7 @@ st.markdown(
 )
 
 # Season selector
-col_season, col_type, col_metric, _ = st.columns([1, 1, 1, 1])
+col_season, col_type, col_metric, col_team = st.columns([1, 1, 1, 1])
 with col_season:
     available_seasons = get_available_player_evaluation_seasons()
     if available_seasons:
@@ -58,6 +62,10 @@ with col_type:
 
 with col_metric:
     metric_mode = st.selectbox("Metric", options=["Per Plate Appearance", "Per Batted Ball"])
+
+with col_team:
+    all_teams = sorted(TEAM_COLORS.keys())
+    selected_team = st.selectbox("Team", options=["All Teams"] + all_teams)
 
 type_key = player_type.lower()
 is_pa_mode = metric_mode == "Per Plate Appearance"
@@ -143,12 +151,24 @@ because there's enough data to trust it.
 # -----------------------------------------------------------------------------
 
 chart_name = f"top_{type_key}s_pa" if is_pa_mode else f"top_{type_key}s"
-chart_url = get_player_evaluation_image_url(season, chart_name)
+
+if selected_team != "All Teams":
+    chart_url = get_player_evaluation_team_image_url(season, selected_team, chart_name)
+else:
+    chart_url = get_player_evaluation_image_url(season, chart_name)
 
 try:
     st.image(chart_url, use_container_width=True)
 except Exception:
-    st.warning(f"Chart image not available for {season}.")
+    if selected_team != "All Teams":
+        # Fall back to all-teams chart if team chart unavailable
+        fallback_url = get_player_evaluation_image_url(season, chart_name)
+        try:
+            st.image(fallback_url, use_container_width=True)
+        except Exception:
+            st.warning(f"Chart image not available for {season}.")
+    else:
+        st.warning(f"Chart image not available for {season}.")
 
 # -----------------------------------------------------------------------------
 # FILTERS
@@ -157,11 +177,20 @@ except Exception:
 st.divider()
 st.subheader(f"{player_type} Rankings Table")
 
-col_team, col_min_bb, _ = st.columns([1, 1, 2])
 
-with col_team:
-    teams = sorted(df["team"].unique())
-    selected_team = st.selectbox("Filter by Team", options=["All Teams"] + teams)
+def _normalize(text):
+    """Strip accents and lowercase for fuzzy matching."""
+    nfkd = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in nfkd if not unicodedata.combining(c)).lower()
+
+
+col_search, col_min_bb, _ = st.columns([1, 1, 2])
+
+with col_search:
+    search_query = st.text_input(
+        "Search Player",
+        placeholder="e.g. Ohtani, Juan, Suarez",
+    )
 
 with col_min_bb:
     count_label = "Plate Appearances" if is_pa_mode else "Batted Balls"
@@ -178,6 +207,11 @@ with col_min_bb:
 filtered = df[df["n_batted_balls"] >= min_bb].copy()
 if selected_team != "All Teams":
     filtered = filtered[filtered["team"] == selected_team]
+if search_query.strip():
+    query_norm = _normalize(search_query.strip())
+    filtered = filtered[
+        filtered["player"].apply(lambda name: query_norm in _normalize(name))
+    ]
 
 if type_key == "pitcher":
     filtered = filtered.sort_values("posterior_mean", ascending=True).reset_index(drop=True)
