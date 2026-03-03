@@ -19,6 +19,7 @@ if parent_dir not in sys.path:
 
 from utils.data_loader import (
     load_player_evaluations,
+    load_player_evaluations_pa,
     get_player_evaluation_image_url,
     get_available_player_evaluation_seasons,
 )
@@ -36,16 +37,15 @@ st.set_page_config(
 
 st.title("Player Evaluations")
 st.markdown(
-    "Bayesian rankings of hitters and pitchers by contact quality "
-    "(estimated bases per batted ball), with credible intervals. "
-    "The model estimates each player's true underlying contact quality by pooling "
-    "information across all players — players with fewer batted balls are pulled "
+    "Bayesian rankings of hitters and pitchers with credible intervals. "
+    "The model estimates each player's true underlying performance by pooling "
+    "information across all players — players with fewer observations are pulled "
     "toward the league average, while players with more data retain estimates "
     "closer to their observed performance."
 )
 
 # Season selector
-col_season, col_type, _ = st.columns([1, 1, 2])
+col_season, col_type, col_metric, _ = st.columns([1, 1, 1, 1])
 with col_season:
     available_seasons = get_available_player_evaluation_seasons()
     if available_seasons:
@@ -56,10 +56,17 @@ with col_season:
 with col_type:
     player_type = st.selectbox("Player Type", options=["Hitter", "Pitcher"])
 
+with col_metric:
+    metric_mode = st.selectbox("Metric", options=["Per Plate Appearance", "Per Batted Ball"])
+
 type_key = player_type.lower()
+is_pa_mode = metric_mode == "Per Plate Appearance"
 
 # Load data
-df = load_player_evaluations(season, type_key)
+if is_pa_mode:
+    df = load_player_evaluations_pa(season, type_key)
+else:
+    df = load_player_evaluations(season, type_key)
 
 if df.empty:
     st.info(
@@ -75,7 +82,35 @@ if df.empty:
 st.divider()
 
 with st.expander("How does this work?"):
-    st.markdown("""
+    if is_pa_mode:
+        st.markdown("""
+**Per Plate Appearance mode** measures overall offensive production, not just contact quality.
+Each plate appearance outcome is valued: walks = 1 base, HBP = 1 base, strikeouts = 0 bases,
+and batted balls use the model's estimated bases (based on exit velocity, launch angle, and spray angle).
+
+**What is a hierarchical model?**
+
+Instead of treating each player independently, a hierarchical model learns a "league-wide"
+baseline and estimates how much each player deviates from it. This is called **partial pooling** —
+every player's estimate is informed by both their own data and the overall population.
+
+**Reading the chart:**
+
+- **Circle**: the model's best estimate of a player's true production (posterior mean)
+- **Thick line**: 50% credible interval — there's a 50% chance the true value falls in this range
+- **Thin line**: 89% credible interval — a wider range capturing more uncertainty
+
+**Column definitions:**
+
+- **Est. Bases (Bayesian)**: Posterior mean — the model's best estimate of true production per PA
+- **Est. Bases (Raw)**: Simple observed mean estimated bases per plate appearance
+- **Shrinkage**: Difference between Bayesian and raw estimates (negative = shrunk downward)
+""")
+    else:
+        st.markdown("""
+**Per Batted Ball mode** measures contact quality only — how well a player hits the ball when
+they put it in play, based on exit velocity, launch angle, and spray angle.
+
 **What is a hierarchical model?**
 
 Instead of treating each player independently, a hierarchical model learns a "league-wide"
@@ -107,7 +142,7 @@ because there's enough data to trust it.
 # CHART IMAGE FROM S3
 # -----------------------------------------------------------------------------
 
-chart_name = f"top_{type_key}s"
+chart_name = f"top_{type_key}s_pa" if is_pa_mode else f"top_{type_key}s"
 chart_url = get_player_evaluation_image_url(season, chart_name)
 
 try:
@@ -129,11 +164,13 @@ with col_team:
     selected_team = st.selectbox("Filter by Team", options=["All Teams"] + teams)
 
 with col_min_bb:
+    count_label = "Plate Appearances" if is_pa_mode else "Batted Balls"
+    default_min = 100 if is_pa_mode else 30
     min_bb = st.slider(
-        "Min Batted Balls",
+        f"Min {count_label}",
         min_value=1,
         max_value=int(df["n_batted_balls"].max()),
-        value=30,
+        value=min(default_min, int(df["n_batted_balls"].max())),
         step=10,
     )
 
@@ -155,7 +192,7 @@ m1, m2, m3, m4 = st.columns(4)
 m1.metric(f"Total {player_type}s", f"{len(filtered):,}")
 m2.metric("Avg Est. Bases", f"{filtered['posterior_mean'].mean():.3f}")
 m3.metric("Avg Raw Rate", f"{filtered['raw_rate'].mean():.3f}")
-m4.metric("Avg Batted Balls", f"{filtered['n_batted_balls'].mean():.0f}")
+m4.metric(f"Avg {count_label}", f"{filtered['n_batted_balls'].mean():.0f}")
 
 # -----------------------------------------------------------------------------
 # RANKINGS TABLE
@@ -172,10 +209,11 @@ display.index = range(1, len(display) + 1)
 display.index.name = "Rank"
 
 # Rename for display
+n_col_name = "Plate Appearances" if is_pa_mode else "Batted Balls"
 display = display.rename(columns={
     "player": "Player",
     "team": "Team",
-    "n_batted_balls": "Batted Balls",
+    "n_batted_balls": n_col_name,
     "posterior_mean": "Est. Bases (Bayesian)",
     "raw_rate": "Est. Bases (Raw)",
     "hdi_low": "HDI Low",
@@ -189,7 +227,7 @@ COLUMN_CONFIG = {
     "HDI Low": st.column_config.NumberColumn(format="%.4f"),
     "HDI High": st.column_config.NumberColumn(format="%.4f"),
     "Shrinkage": st.column_config.NumberColumn(format="%+.4f"),
-    "Batted Balls": st.column_config.NumberColumn(format="%d"),
+    n_col_name: st.column_config.NumberColumn(format="%d"),
 }
 
 st.dataframe(
