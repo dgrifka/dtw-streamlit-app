@@ -99,6 +99,24 @@ def get_available_batted_ball_seasons() -> list[int]:
 
 
 @st.cache_data(ttl=3600)
+def get_available_player_evaluation_seasons() -> list[int]:
+    """Auto-detect which seasons have player evaluation data on S3."""
+    import urllib.request
+    current_year = pd.Timestamp.now().year
+    available = []
+    for year in range(current_year, current_year - 3, -1):
+        url = f"{S3_BASE_URL}/player-evaluations/{year}/latest/hitter_rankings.parquet"
+        try:
+            req = urllib.request.Request(url, method='HEAD')
+            resp = urllib.request.urlopen(req, timeout=5)
+            if resp.status == 200:
+                available.append(year)
+        except Exception:
+            pass
+    return available
+
+
+@st.cache_data(ttl=3600)
 def load_batted_balls(season: int) -> pd.DataFrame:
     """Load batted ball data from public S3 bucket with 1-hour cache."""
     url = f"{S3_BASE_URL}/data/batted_balls_{season}.parquet"

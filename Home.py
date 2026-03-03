@@ -88,6 +88,22 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def _get_player_eval_image_url(current_season):
+    """Return a working player evaluation image URL, falling back to prior year."""
+    from datetime import datetime
+    current_year = datetime.now().year
+    candidates = dict.fromkeys([current_season, current_year, current_season - 1, current_year - 1])
+    for season in candidates:
+        url = f"https://dtw-streamlit.s3.amazonaws.com/player-evaluations/{season}/latest/top_hitters.png"
+        try:
+            r = requests.head(url, timeout=3)
+            if r.status_code == 200:
+                return url
+        except requests.RequestException:
+            continue
+    return None
+
+
 def _get_playoff_image_url(current_season):
     """Return a working playoff image URL, falling back to prior/current year."""
     from datetime import datetime
@@ -177,8 +193,8 @@ def render_feature_cards(current_season):
             st.image(playoff_img, width="stretch")
         st.caption("Monte Carlo simulations of the rest of the season using deserve-to-win team strengths.")
 
-    # Row 2: 2 columns
-    col4, col5 = st.columns(2)
+    # Row 2: 3 columns
+    col4, col5, col6 = st.columns(3)
 
     with col4:
         st.page_link("pages/4_Batted_Ball_Explorer.py",
@@ -241,6 +257,15 @@ def render_feature_cards(current_season):
         </div>
         """, unsafe_allow_html=True)
         st.caption("Best and worst batted balls from each game day — top estimated bases, unluckiest outs, and luckiest hits.")
+
+    with col6:
+        st.page_link("pages/6_Player_Evaluations.py",
+                     label="📈 **Player Evaluations**",
+                     use_container_width=True)
+        player_eval_img = _get_player_eval_image_url(current_season)
+        if player_eval_img:
+            st.image(player_eval_img, width="stretch")
+        st.caption("Bayesian rankings of hitters and pitchers by contact quality, with credible intervals and shrinkage.")
 
 
 def render_about_section():

@@ -20,7 +20,7 @@ if parent_dir not in sys.path:
 from utils.data_loader import (
     load_player_evaluations,
     get_player_evaluation_image_url,
-    get_available_batted_ball_seasons,
+    get_available_player_evaluation_seasons,
 )
 
 # Page config
@@ -43,7 +43,7 @@ st.markdown(
 # Season selector
 col_season, col_type, _ = st.columns([1, 1, 2])
 with col_season:
-    available_seasons = get_available_batted_ball_seasons()
+    available_seasons = get_available_player_evaluation_seasons()
     if available_seasons:
         season = st.selectbox("Season", options=available_seasons, index=0)
     else:
@@ -125,6 +125,12 @@ m4.metric("Avg Batted Balls", f"{filtered['n_batted_balls'].mean():.0f}")
 # -----------------------------------------------------------------------------
 
 display = filtered.copy()
+
+# Drop chart-only columns before display
+for col in ["hdi_50_low", "hdi_50_high"]:
+    if col in display.columns:
+        display = display.drop(columns=[col])
+
 display.index = range(1, len(display) + 1)
 display.index.name = "Rank"
 
