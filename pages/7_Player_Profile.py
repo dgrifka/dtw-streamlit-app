@@ -114,9 +114,24 @@ st.title("Player Profile")
 # Check if we arrived via query param (cross-page linking)
 query_player = st.query_params.get("player", "")
 
-# Build unique player list from batted ball data
-player_teams = bb_df.groupby("player")["team"].first().reset_index()
-player_list = sorted(player_teams["player"].unique())
+# Build unique player list — disambiguate same-name players by team
+player_teams = (
+    bb_df.sort_values("date_parsed")
+    .groupby("player")["team"].last()
+    .reset_index()
+)
+# Detect duplicate names
+name_counts = player_teams["player"].value_counts()
+dup_names = set(name_counts[name_counts > 1].index)
+
+# Build display labels: "Name" or "Name (TEAM)" for duplicates
+player_teams["display"] = player_teams.apply(
+    lambda r: f"{r['player']} ({r['team']})" if r["player"] in dup_names else r["player"],
+    axis=1,
+)
+display_to_name = dict(zip(player_teams["display"], player_teams["player"]))
+display_to_team = dict(zip(player_teams["display"], player_teams["team"]))
+display_list = sorted(player_teams["display"].unique())
 
 # Search box
 player_search = st.text_input(
@@ -134,7 +149,7 @@ if not player_search:
     eligible = bb_df.groupby("player").size()
     eligible = eligible[eligible >= 50].index.tolist()
     if not eligible:
-        eligible = player_list
+        eligible = list(display_to_name.values())
 
     if "random_player" not in st.session_state or st.session_state.get("random_season") != season:
         import random
@@ -148,29 +163,33 @@ if not player_search:
 
     st.caption("Search above for a specific player, or hit Shuffle for a new random profile.")
     player_search = st.session_state["random_player"]
-    search_norm = normalize_name(player_search)
-    selected_player = player_search
 
-# Fuzzy match
+# Fuzzy match against display labels
 search_norm = normalize_name(player_search)
-matches = [p for p in player_list if search_norm in normalize_name(p)]
+matches = [d for d in display_list if search_norm in normalize_name(d)]
 
 if not matches:
     st.warning(f"No players found matching '{player_search}'.")
     st.stop()
 
 if len(matches) > 1:
-    selected_player = st.selectbox(
+    selected_display = st.selectbox(
         "Select player",
         options=matches,
         index=0,
         key="pd_player_select",
     )
 else:
-    selected_player = matches[0]
+    selected_display = matches[0]
 
-# Filter batted ball data to this player
-player_bb = bb_df[bb_df["player"] == selected_player].copy()
+selected_player = display_to_name.get(selected_display, selected_display)
+selected_team_hint = display_to_team.get(selected_display)
+
+# Filter batted ball data to this player (use team hint to disambiguate same names)
+if selected_player in dup_names and selected_team_hint:
+    player_bb = bb_df[(bb_df["player"] == selected_player) & (bb_df["team"] == selected_team_hint)].copy()
+else:
+    player_bb = bb_df[bb_df["player"] == selected_player].copy()
 if player_bb.empty:
     st.warning(f"No batted ball data found for {selected_player}.")
     st.stop()
@@ -178,6 +197,9 @@ if player_bb.empty:
 # Resolve team (most recent)
 player_bb = player_bb.sort_values("date_parsed")
 player_team_short = player_bb["team"].iloc[-1]
+
+# Update URL with selected player for bookmarking/sharing
+st.query_params["player"] = selected_display
 
 # League averages for context
 league_avg_eb = bb_df["estimated_bases"].mean()
@@ -198,8 +220,9 @@ player_meta = None
 if not metadata_df.empty:
     meta_match = metadata_df[metadata_df["player_name"] == selected_player]
     if meta_match.empty:
+        player_norm = normalize_name(selected_player)
         meta_match = metadata_df[
-            metadata_df["player_name"].apply(normalize_name).str.contains(search_norm)
+            metadata_df["player_name"].apply(normalize_name).str.contains(player_norm)
         ]
     if not meta_match.empty:
         player_meta = meta_match.iloc[0]
