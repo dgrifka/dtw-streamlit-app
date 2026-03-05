@@ -207,12 +207,16 @@ league_avg_ev = bb_df["launch_speed"].mean()
 st.divider()
 
 # Resolve player_id (metadata → rankings fallback)
-player_id = resolve_player_id(selected_player, metadata_df, pa_rankings)
-
-# Look up metadata for demographics
+# Look up metadata for demographics (filter by name + team to disambiguate)
 player_meta = None
 if not metadata_df.empty:
-    meta_match = metadata_df[metadata_df["player_name"] == selected_player]
+    meta_match = metadata_df[
+        (metadata_df["player_name"] == selected_player) &
+        (metadata_df["team"] == player_team_short)
+    ]
+    if meta_match.empty:
+        # Fallback: name only
+        meta_match = metadata_df[metadata_df["player_name"] == selected_player]
     if meta_match.empty:
         player_norm = normalize_name(selected_player)
         meta_match = metadata_df[
@@ -221,10 +225,23 @@ if not metadata_df.empty:
     if not meta_match.empty:
         player_meta = meta_match.iloc[0]
 
-# Look up Bayesian ranking
+# Resolve player_id from metadata (already team-filtered) or rankings
+player_id = None
+if player_meta is not None and "player_id" in player_meta.index:
+    player_id = int(player_meta["player_id"])
+if player_id is None:
+    player_id = resolve_player_id(selected_player, metadata_df, pa_rankings)
+
+# Look up Bayesian ranking (filter by name + team to disambiguate)
 player_ranking = None
 if not pa_rankings.empty:
-    rank_match = pa_rankings[pa_rankings["player"] == selected_player]
+    rank_match = pa_rankings[
+        (pa_rankings["player"] == selected_player) &
+        (pa_rankings["team"] == player_team_short)
+    ]
+    if rank_match.empty:
+        # Fallback: name only
+        rank_match = pa_rankings[pa_rankings["player"] == selected_player]
     if not rank_match.empty:
         player_ranking = rank_match.iloc[0]
 
