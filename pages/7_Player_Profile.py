@@ -133,54 +133,40 @@ display_to_name = dict(zip(player_teams["display"], player_teams["player"]))
 display_to_team = dict(zip(player_teams["display"], player_teams["team"]))
 display_list = sorted(player_teams["display"].unique())
 
-# Search box
-player_search = st.text_input(
-    "Search player",
-    value=query_player,
-    placeholder="Type a player name...",
-    key="pd_search",
-)
+# Resolve default selection (from query param or random)
+default_index = 0
+if query_player and query_player in display_list:
+    default_index = display_list.index(query_player)
+elif query_player:
+    # Try fuzzy match on query param
+    qn = normalize_name(query_player)
+    fuzzy = [i for i, d in enumerate(display_list) if qn in normalize_name(d)]
+    if fuzzy:
+        default_index = fuzzy[0]
 
-if not player_search:
-    # =========================================================================
-    # LANDING PAGE — Random featured player
-    # =========================================================================
-    # Pick a random player with min 50 BBs, persist in session_state
-    eligible = bb_df.groupby("player").size()
-    eligible = eligible[eligible >= 50].index.tolist()
-    if not eligible:
-        eligible = list(display_to_name.values())
-
-    if "random_player" not in st.session_state or st.session_state.get("random_season") != season:
-        import random
-        st.session_state["random_player"] = random.choice(eligible)
-        st.session_state["random_season"] = season
-
-    if st.button("Shuffle Player"):
-        import random
-        st.session_state["random_player"] = random.choice(eligible)
-        st.rerun()
-
-    st.caption("Search above for a specific player, or hit Shuffle for a new random profile.")
-    player_search = st.session_state["random_player"]
-
-# Fuzzy match against display labels
-search_norm = normalize_name(player_search)
-matches = [d for d in display_list if search_norm in normalize_name(d)]
-
-if not matches:
-    st.warning(f"No players found matching '{player_search}'.")
-    st.stop()
-
-if len(matches) > 1:
+# Player selector dropdown
+search_col, shuffle_col = st.columns([3, 1])
+with search_col:
     selected_display = st.selectbox(
         "Select player",
-        options=matches,
-        index=0,
+        options=display_list,
+        index=default_index,
         key="pd_player_select",
     )
-else:
-    selected_display = matches[0]
+with shuffle_col:
+    st.markdown("<div style='height: 29px'></div>", unsafe_allow_html=True)
+    if st.button("Shuffle", use_container_width=True):
+        import random
+        eligible = bb_df.groupby("player").size()
+        eligible = eligible[eligible >= 50].index.tolist()
+        if not eligible:
+            eligible = list(display_to_name.values())
+        rand_name = random.choice(eligible)
+        # Find display label for this player
+        rand_matches = [d for d in display_list if d.startswith(rand_name)]
+        rand_display = rand_matches[0] if rand_matches else display_list[0]
+        st.query_params["player"] = rand_display
+        st.rerun()
 
 selected_player = display_to_name.get(selected_display, selected_display)
 selected_team_hint = display_to_team.get(selected_display)
