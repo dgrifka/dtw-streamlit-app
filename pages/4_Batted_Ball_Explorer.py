@@ -192,29 +192,52 @@ st.markdown(f"**{total_results:,} batted balls found**" +
             (f" (showing first {MAX_DISPLAY_ROWS:,})" if total_results > MAX_DISPLAY_ROWS else ""))
 
 # Prepare display DataFrame
-display = filtered.head(MAX_DISPLAY_ROWS)[[
+source_cols = [
     'team', 'player', 'launch_speed', 'launch_angle', 'spray_direction',
     'actual_result', 'estimated_bases', 'xba', 'hr_prob', 'date', 'opponent', 'venue'
-]].copy()
+]
+# Add video link if play_id column exists
+has_play_id = 'play_id' in filtered.columns
+if has_play_id:
+    source_cols.append('play_id')
+
+available_cols = [c for c in source_cols if c in filtered.columns]
+display = filtered.head(MAX_DISPLAY_ROWS)[available_cols].copy()
 
 display['hr_prob'] = display['hr_prob'] * 100
 
-display.columns = [
-    'Team', 'Player', 'Exit Velo', 'Launch Angle', 'Spray',
-    'Result', 'Est. Bases', 'xBA', 'HR%', 'Date', 'Opponent', 'Stadium'
-]
+# Build video URLs from play_id
+if has_play_id:
+    display['video'] = display['play_id'].apply(
+        lambda pid: f"https://baseballsavant.mlb.com/sporty-videos?playId={pid}"
+        if pd.notna(pid) and pid != "" else None
+    )
+    display = display.drop(columns=['play_id'])
+
+rename_map = {
+    'team': 'Team', 'player': 'Player', 'launch_speed': 'Exit Velo',
+    'launch_angle': 'Launch Angle', 'spray_direction': 'Spray',
+    'actual_result': 'Result', 'estimated_bases': 'Est. Bases',
+    'xba': 'xBA', 'hr_prob': 'HR%', 'date': 'Date',
+    'opponent': 'Opponent', 'venue': 'Stadium', 'video': 'Video',
+}
+display = display.rename(columns=rename_map)
+
+col_config = {
+    'Exit Velo': st.column_config.NumberColumn(format="%.1f mph"),
+    'Launch Angle': st.column_config.NumberColumn(format="%d°"),
+    'Est. Bases': st.column_config.NumberColumn(format="%.2f"),
+    'xBA': st.column_config.NumberColumn(format="%.3f"),
+    'HR%': st.column_config.NumberColumn(format="%.2f%%"),
+}
+if 'Video' in display.columns:
+    col_config['Video'] = st.column_config.LinkColumn(display_text="▶️")
 
 st.dataframe(
     display,
     hide_index=True,
     use_container_width=True,
-    column_config={
-        'Exit Velo': st.column_config.NumberColumn(format="%.1f mph"),
-        'Launch Angle': st.column_config.NumberColumn(format="%d°"),
-        'Est. Bases': st.column_config.NumberColumn(format="%.2f"),
-        'xBA': st.column_config.NumberColumn(format="%.3f"),
-        'HR%': st.column_config.NumberColumn(format="%.2f%%"),
-    }
+    column_config=col_config,
 )
 
 # Download button
@@ -259,6 +282,12 @@ if total_results > 0:
             'Avg Est. Bases', 'Total Est. Bases', 'Avg xBA'
         ]
 
+        # Add dashboard link
+        import urllib.parse
+        leader_display['Dashboard'] = leader_display['Player'].apply(
+            lambda p: f"/Player_Dashboard?player={urllib.parse.quote(p)}"
+        )
+
         st.dataframe(
             leader_display,
             hide_index=True,
@@ -270,6 +299,7 @@ if total_results > 0:
                 'Avg Est. Bases': st.column_config.NumberColumn(format="%.2f"),
                 'Total Est. Bases': st.column_config.NumberColumn(format="%.1f"),
                 'Avg xBA': st.column_config.NumberColumn(format="%.3f"),
+                'Dashboard': st.column_config.LinkColumn(display_text="View"),
             }
         )
 

@@ -208,6 +208,28 @@ def get_player_evaluation_team_image_url(season: int, team: str, chart_name: str
     return f"{S3_BASE_URL}/player-evaluations/{season}/latest/teams/{slug}/{chart_name}.png"
 
 
+@st.cache_data(ttl=3600)
+def load_player_metadata(season: int) -> pd.DataFrame:
+    """Load player metadata (ID, name, team, position, etc.) from S3."""
+    url = f"{S3_BASE_URL}/data/player_metadata_{season}.parquet"
+    try:
+        df = pd.read_parquet(url)
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=3600)
+def load_pa_counts(season: int) -> pd.DataFrame:
+    """Load per-player walk/strikeout counts from S3."""
+    url = f"{S3_BASE_URL}/data/pa_counts_{season}.parquet"
+    try:
+        df = pd.read_parquet(url)
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
 def filter_games(
     df: pd.DataFrame,
     teams: list = None,

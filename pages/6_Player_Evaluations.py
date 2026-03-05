@@ -255,6 +255,12 @@ display = display.rename(columns={
     "shrinkage": "Shrinkage",
 })
 
+# Add player dashboard link
+import urllib.parse
+display["Dashboard"] = display["Player"].apply(
+    lambda p: f"/Player_Dashboard?player={urllib.parse.quote(p)}"
+)
+
 COLUMN_CONFIG = {
     "Est. Bases (Bayesian)": st.column_config.NumberColumn(format="%.4f"),
     "Est. Bases (Raw)": st.column_config.NumberColumn(format="%.4f"),
@@ -262,6 +268,7 @@ COLUMN_CONFIG = {
     "HDI High": st.column_config.NumberColumn(format="%.4f"),
     "Shrinkage": st.column_config.NumberColumn(format="%+.4f"),
     n_col_name: st.column_config.NumberColumn(format="%d"),
+    "Dashboard": st.column_config.LinkColumn(display_text="View"),
 }
 
 st.dataframe(

@@ -109,6 +109,7 @@ COLUMN_CONFIG = {
     "xBA": st.column_config.NumberColumn(format="%.3f"),
     "HR%": st.column_config.NumberColumn(format="%.2f%%"),
     "Out%": st.column_config.NumberColumn(format="%.2f%%"),
+    "Video": st.column_config.LinkColumn(display_text="▶️"),
 }
 
 
@@ -118,12 +119,22 @@ def format_table(data, cols):
         "player", "team", "launch_speed", "launch_angle", "spray_direction",
         "actual_result", "estimated_bases", "xba", "hr_prob", "out_prob", "opponent",
     ]
+    # Include play_id if available (for video links)
+    if "play_id" in data.columns:
+        source_cols.append("play_id")
     available = [c for c in source_cols if c in data.columns]
     display = data.head(MAX_DISPLAY_ROWS)[available].copy()
     # Convert probabilities to percentage scale
     for col in ['hr_prob', 'out_prob']:
         if col in display.columns:
             display[col] = display[col] * 100
+    # Build video URLs from play_id
+    if "play_id" in display.columns:
+        display["video"] = display["play_id"].apply(
+            lambda pid: f"https://baseballsavant.mlb.com/sporty-videos?playId={pid}"
+            if pd.notna(pid) and pid != "" else None
+        )
+        display = display.drop(columns=["play_id"])
     rename_map = {
         "player": "Player",
         "team": "Team",
@@ -136,6 +147,7 @@ def format_table(data, cols):
         "hr_prob": "HR%",
         "out_prob": "Out%",
         "opponent": "Opponent",
+        "video": "Video",
     }
     display = display.rename(columns={k: v for k, v in rename_map.items() if k in display.columns})
     # Only keep requested columns that exist
@@ -153,7 +165,7 @@ st.caption("Highest model-predicted expected bases — the day's best batted bal
 
 top_eb = day_df.sort_values("estimated_bases", ascending=False)
 display_cols = ["Player", "Team", "Exit Velo", "Launch Angle", "Spray",
-                "Result", "Est. Bases", "xBA", "HR%", "Opponent"]
+                "Result", "Est. Bases", "xBA", "HR%", "Opponent", "Video"]
 st.dataframe(
     format_table(top_eb, display_cols),
     hide_index=True,
@@ -175,7 +187,7 @@ if outs_df.empty:
 else:
     unlucky = outs_df.sort_values("xba", ascending=False)
     unlucky_cols = ["Player", "Team", "Exit Velo", "Launch Angle", "Spray",
-                    "Est. Bases", "xBA", "HR%", "Opponent"]
+                    "Est. Bases", "xBA", "HR%", "Opponent", "Video"]
     st.dataframe(
         format_table(unlucky, unlucky_cols),
         hide_index=True,
@@ -198,7 +210,7 @@ if hits_df.empty:
 else:
     lucky = hits_df.sort_values("xba", ascending=True)
     lucky_cols = ["Player", "Team", "Exit Velo", "Launch Angle", "Spray",
-                  "Result", "Est. Bases", "xBA", "Out%", "Opponent"]
+                  "Result", "Est. Bases", "xBA", "Out%", "Opponent", "Video"]
     st.dataframe(
         format_table(lucky, lucky_cols),
         hide_index=True,
