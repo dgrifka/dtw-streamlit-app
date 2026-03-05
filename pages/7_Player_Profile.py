@@ -36,6 +36,23 @@ st.set_page_config(
     layout="wide"
 )
 
+# Disable autocorrect/autocapitalize on selectbox search input
+import streamlit.components.v1 as components
+components.html("""
+<script>
+    const doc = window.parent.document;
+    const observer = new MutationObserver(() => {
+        doc.querySelectorAll('[data-testid="stSelectbox"] input').forEach(el => {
+            el.setAttribute('autocorrect', 'off');
+            el.setAttribute('autocapitalize', 'off');
+            el.setAttribute('spellcheck', 'false');
+            el.setAttribute('autocomplete', 'off');
+        });
+    });
+    observer.observe(doc.body, {childList: true, subtree: true});
+</script>
+""", height=0)
+
 
 # =============================================================================
 # HELPERS
@@ -114,20 +131,16 @@ st.title("Player Profile")
 # Check if we arrived via query param (cross-page linking)
 query_player = st.query_params.get("player", "")
 
-# Build unique player list — disambiguate same-name players by team
+# Build unique player list — group by (player, team) to keep same-name players separate
 player_teams = (
-    bb_df.sort_values("date_parsed")
-    .groupby("player")["team"].last()
-    .reset_index()
+    bb_df.groupby(["player", "team"]).size()
+    .reset_index(name="count")
+    .drop(columns="count")
 )
-# Detect duplicate names
-name_counts = player_teams["player"].value_counts()
-dup_names = set(name_counts[name_counts > 1].index)
 
-# Build display labels: "Name" or "Name (TEAM)" for duplicates
+# Always show "Name (TEAM)" for every player
 player_teams["display"] = player_teams.apply(
-    lambda r: f"{r['player']} ({r['team']})" if r["player"] in dup_names else r["player"],
-    axis=1,
+    lambda r: f"{r['player']} ({r['team']})", axis=1
 )
 display_to_name = dict(zip(player_teams["display"], player_teams["player"]))
 display_to_team = dict(zip(player_teams["display"], player_teams["team"]))
@@ -157,25 +170,20 @@ with shuffle_col:
     st.markdown("<div style='height: 29px'></div>", unsafe_allow_html=True)
     if st.button("Shuffle", use_container_width=True):
         import random
-        eligible = bb_df.groupby("player").size()
-        eligible = eligible[eligible >= 50].index.tolist()
-        if not eligible:
-            eligible = list(display_to_name.values())
-        rand_name = random.choice(eligible)
-        # Find display label for this player
-        rand_matches = [d for d in display_list if d.startswith(rand_name)]
-        rand_display = rand_matches[0] if rand_matches else display_list[0]
-        st.query_params["player"] = rand_display
+        # Eligible: players with 50+ BBs, mapped to display labels
+        eligible_names = bb_df.groupby(["player", "team"]).size()
+        eligible_names = eligible_names[eligible_names >= 50].index.tolist()
+        eligible_displays = [f"{n} ({t})" for n, t in eligible_names]
+        if not eligible_displays:
+            eligible_displays = display_list
+        st.query_params["player"] = random.choice(eligible_displays)
         st.rerun()
 
 selected_player = display_to_name.get(selected_display, selected_display)
 selected_team_hint = display_to_team.get(selected_display)
 
-# Filter batted ball data to this player (use team hint to disambiguate same names)
-if selected_player in dup_names and selected_team_hint:
-    player_bb = bb_df[(bb_df["player"] == selected_player) & (bb_df["team"] == selected_team_hint)].copy()
-else:
-    player_bb = bb_df[bb_df["player"] == selected_player].copy()
+# Filter batted ball data to this player + team
+player_bb = bb_df[(bb_df["player"] == selected_player) & (bb_df["team"] == selected_team_hint)].copy()
 if player_bb.empty:
     st.warning(f"No batted ball data found for {selected_player}.")
     st.stop()
