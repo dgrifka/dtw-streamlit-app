@@ -64,10 +64,11 @@ if not available_dates:
 # Date selector
 col_date, col_spacer = st.columns([1, 3])
 with col_date:
-    selected_date = st.selectbox(
+    selected_date = st.date_input(
         "Game Date",
-        options=available_dates,
-        format_func=lambda d: d.strftime("%B %d, %Y"),
+        value=available_dates[0],
+        min_value=available_dates[-1],
+        max_value=available_dates[0],
     )
 
 # Filter to selected date
@@ -109,7 +110,7 @@ COLUMN_CONFIG = {
     "xBA": st.column_config.NumberColumn(format="%.3f"),
     "HR%": st.column_config.NumberColumn(format="%.2f%%"),
     "Out%": st.column_config.NumberColumn(format="%.2f%%"),
-    "Video": st.column_config.LinkColumn(display_text="▶️"),
+    "Video": st.column_config.LinkColumn(display_text="Watch"),
 }
 
 

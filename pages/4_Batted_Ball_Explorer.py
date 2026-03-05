@@ -231,7 +231,7 @@ col_config = {
     'HR%': st.column_config.NumberColumn(format="%.2f%%"),
 }
 if 'Video' in display.columns:
-    col_config['Video'] = st.column_config.LinkColumn(display_text="▶️")
+    col_config['Video'] = st.column_config.LinkColumn(display_text="Watch")
 
 st.dataframe(
     display,
