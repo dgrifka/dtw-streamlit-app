@@ -183,8 +183,8 @@ def render_feature_cards(current_season):
         st.caption(f"Browse all {current_season} games with deserve-to-win analysis. Filter by team, date, or find the biggest upsets.")
 
     with col2:
-        st.page_link("pages/2_Team_Rankings.py",
-                     label="🏆 **Team Rankings**",
+        st.page_link("pages/2_Team_Luck_Rankings.py",
+                     label="🏆 **Team Luck Rankings**",
                      use_container_width=True)
         st.image(f"https://dtw-streamlit.s3.amazonaws.com/team-rankings/{current_season}/net_lucky_wins.png",
                  width="stretch")
@@ -199,8 +199,8 @@ def render_feature_cards(current_season):
             st.image(playoff_img, width="stretch")
         st.caption("Monte Carlo simulations of the rest of the season using deserve-to-win team strengths.")
 
-    # Row 2: 3 columns
-    col4, col5, col6 = st.columns(3)
+    # Row 2: 4 columns
+    col4, col5, col6, col7 = st.columns(4)
 
     with col4:
         st.page_link("pages/4_Batted_Ball_Explorer.py",
@@ -265,13 +265,48 @@ def render_feature_cards(current_season):
         st.caption("Best and worst batted balls from each game day — top estimated bases, unluckiest outs, and luckiest hits.")
 
     with col6:
-        st.page_link("pages/6_Player_Evaluations.py",
-                     label="📈 **Player Evaluations**",
+        st.page_link("pages/6_Player_Rankings.py",
+                     label="📈 **Player Rankings**",
                      use_container_width=True)
         player_eval_img = _get_player_eval_image_url(current_season)
         if player_eval_img:
             st.image(player_eval_img, width="stretch")
         st.caption("Bayesian rankings of hitters and pitchers by contact quality, with credible intervals and shrinkage.")
+
+    with col7:
+        st.page_link("pages/7_Player_Profile.py",
+                     label="🧑 **Player Profile**",
+                     use_container_width=True)
+        st.markdown("""
+        <div style="background:#F7FAFC; border-radius:8px; padding:10px; font-size:0.75rem;">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+            <div style="width:40px; height:40px; background:#E2E8F0; border-radius:50%;"></div>
+            <div>
+              <div style="font-weight:700; color:#1E3A5F;">Player Name</div>
+              <div style="color:#999; font-size:0.7rem;">Team | Pos | Age 27</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:6px; margin-bottom:6px;">
+            <div style="flex:1; text-align:center; background:#EDF2F7; border-radius:4px; padding:4px;">
+              <div style="font-size:0.65rem; color:#999;">Avg EV</div>
+              <div style="font-weight:600; color:#1E3A5F;">91.2</div>
+            </div>
+            <div style="flex:1; text-align:center; background:#EDF2F7; border-radius:4px; padding:4px;">
+              <div style="font-size:0.65rem; color:#999;">Barrel%</div>
+              <div style="font-weight:600; color:#1E3A5F;">8.4%</div>
+            </div>
+            <div style="flex:1; text-align:center; background:#EDF2F7; border-radius:4px; padding:4px;">
+              <div style="font-size:0.65rem; color:#999;">Luck</div>
+              <div style="font-weight:600; color:#38A169;">+4.2</div>
+            </div>
+          </div>
+          <div style="height:6px; background:#E2E8F0; border-radius:3px; overflow:hidden;">
+            <div style="width:68%; height:100%; background:linear-gradient(90deg, #2C5282, #3182CE); border-radius:3px;"></div>
+          </div>
+          <div style="font-size:0.6rem; color:#999; margin-top:2px;">68th percentile — EB/PA</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.caption("Individual player deep-dives: contact quality heatmaps, luck reports, platoon splits, and Bayesian rankings.")
 
 
 def render_about_section():

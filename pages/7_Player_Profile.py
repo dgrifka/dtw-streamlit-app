@@ -1,5 +1,5 @@
 """
-Player Dashboard Page
+Player Profile Page
 
 Individual player deep-dive: contact quality, luck report, and batted ball
 visualizations with Bayesian uncertainty from the DTW Simulator model.
@@ -7,7 +7,6 @@ visualizations with Bayesian uncertainty from the DTW Simulator model.
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import unicodedata
@@ -23,6 +22,7 @@ if parent_dir not in sys.path:
 from utils.data_loader import (
     load_batted_balls, get_available_batted_ball_seasons,
     load_player_evaluations_pa, load_player_metadata, load_pa_counts,
+    resolve_player_id,
 )
 from utils.team_mappings import (
     get_team_color, get_team_logo_url, get_short_name,
@@ -31,7 +31,7 @@ from utils.team_mappings import (
 
 # Page config
 st.set_page_config(
-    page_title="Player Dashboard | DTW Simulator",
+    page_title="Player Profile | DTW Simulator",
     page_icon="⚾",
     layout="wide"
 )
@@ -47,12 +47,8 @@ def normalize_name(name):
 
 
 def build_headshot_url(player_id):
-    """MLB CDN headshot URL."""
-    return (
-        f"https://img.mlb.com/mlb-photos/image/upload/"
-        f"d_people:generic:headshot:67:current.png/"
-        f"w_213,q_auto:best/v1/people/{player_id}/headshot/67/current"
-    )
+    """MLB CDN headshot URL (silo PNG format)."""
+    return f"https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:silo:current.png/w_213,q_auto:best/v1/people/{player_id}/headshot/silo/current.png"
 
 
 def build_video_url(play_id):
@@ -66,9 +62,7 @@ def categorize_launch_angle(la):
     """Categorize launch angle into batted ball type."""
     if pd.isna(la):
         return "Unknown"
-    if la < -10:
-        return "Ground Ball"
-    elif la < 10:
+    if la < 10:
         return "Ground Ball"
     elif la < 25:
         return "Line Drive"
@@ -83,11 +77,6 @@ def is_barrel(ev, la):
     if pd.isna(ev) or pd.isna(la):
         return False
     return ev >= 98 and 26 <= la <= 30 + (ev - 98)
-
-
-# Full name → short name lookup for batted ball data (which uses short names)
-FULL_TO_SHORT = {v: k for k, v in {v: k for k, v in TEAM_NAME_MAPPING.items()}.items()}
-# Actually just use get_short_name
 
 
 # =============================================================================
@@ -106,7 +95,7 @@ with col_season:
 # Load data
 bb_df = load_batted_balls(season)
 if bb_df.empty:
-    st.title("Player Dashboard")
+    st.title("Player Profile")
     st.info(f"No batted ball data available for {season}.")
     st.stop()
 
@@ -120,7 +109,7 @@ pa_counts_df = load_pa_counts(season)
 # PLAYER SEARCH
 # =============================================================================
 
-st.title("Player Dashboard")
+st.title("Player Profile")
 
 # Check if we arrived via query param (cross-page linking)
 query_player = st.query_params.get("player", "")
@@ -138,26 +127,29 @@ player_search = st.text_input(
 )
 
 if not player_search:
-    # Show a landing state
-    st.markdown("---")
-    st.markdown("Search for any player to see their contact quality profile, luck report, and batted ball visualizations.")
+    # =========================================================================
+    # LANDING PAGE — Random featured player
+    # =========================================================================
+    # Pick a random player with min 50 BBs, persist in session_state
+    eligible = bb_df.groupby("player").size()
+    eligible = eligible[eligible >= 50].index.tolist()
+    if not eligible:
+        eligible = player_list
 
-    # Trending players: biggest movers in Bayesian EB
-    if not pa_rankings.empty and len(pa_rankings) >= 10:
-        st.subheader("Top Contact Quality (Bayesian)")
-        top = pa_rankings.head(10)[["player", "team", "posterior_mean", "hdi_low", "hdi_high"]].copy()
-        top.columns = ["Player", "Team", "EB/PA", "HDI Low", "HDI High"]
-        st.dataframe(
-            top,
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                "EB/PA": st.column_config.NumberColumn(format="%.3f"),
-                "HDI Low": st.column_config.NumberColumn(format="%.3f"),
-                "HDI High": st.column_config.NumberColumn(format="%.3f"),
-            },
-        )
-    st.stop()
+    if "random_player" not in st.session_state or st.session_state.get("random_season") != season:
+        import random
+        st.session_state["random_player"] = random.choice(eligible)
+        st.session_state["random_season"] = season
+
+    if st.button("Shuffle Player"):
+        import random
+        st.session_state["random_player"] = random.choice(eligible)
+        st.rerun()
+
+    st.caption("Search above for a specific player, or hit Shuffle for a new random profile.")
+    player_search = st.session_state["random_player"]
+    search_norm = normalize_name(player_search)
+    selected_player = player_search
 
 # Fuzzy match
 search_norm = normalize_name(player_search)
@@ -190,7 +182,6 @@ player_team_short = player_bb["team"].iloc[-1]
 # League averages for context
 league_avg_eb = bb_df["estimated_bases"].mean()
 league_avg_ev = bb_df["launch_speed"].mean()
-league_avg_xba = bb_df["xba"].mean()
 
 
 # =============================================================================
@@ -199,20 +190,19 @@ league_avg_xba = bb_df["xba"].mean()
 
 st.divider()
 
-# Look up player metadata for headshot + demographics
+# Resolve player_id (metadata → rankings fallback)
+player_id = resolve_player_id(selected_player, metadata_df, pa_rankings)
+
+# Look up metadata for demographics
 player_meta = None
-player_id = None
 if not metadata_df.empty:
-    # Match by name (metadata uses full name from MLB API)
     meta_match = metadata_df[metadata_df["player_name"] == selected_player]
     if meta_match.empty:
-        # Try fuzzy
         meta_match = metadata_df[
             metadata_df["player_name"].apply(normalize_name).str.contains(search_norm)
         ]
     if not meta_match.empty:
         player_meta = meta_match.iloc[0]
-        player_id = int(player_meta["player_id"])
 
 # Look up Bayesian ranking
 player_ranking = None
@@ -224,12 +214,26 @@ if not pa_rankings.empty:
 # Team color
 primary_color, secondary_color = get_team_color(player_team_short)
 
+# Compute base stats
+avg_eb = player_bb["estimated_bases"].mean()
+avg_ev = player_bb["launch_speed"].mean()
+n_bb = len(player_bb)
+player_bb["is_barrel"] = player_bb.apply(
+    lambda r: is_barrel(r["launch_speed"], r["launch_angle"]), axis=1
+)
+barrel_rate = player_bb["is_barrel"].mean() * 100
+
 # Hero layout
 hero_left, hero_mid, hero_right = st.columns([1, 2, 2])
 
 with hero_left:
     if player_id:
-        st.image(build_headshot_url(player_id), width=160)
+        try:
+            st.image(build_headshot_url(player_id), width=160)
+        except Exception:
+            logo_url = get_team_logo_url(player_team_short)
+            if logo_url:
+                st.image(logo_url, width=120)
     else:
         logo_url = get_team_logo_url(player_team_short)
         if logo_url:
@@ -237,7 +241,7 @@ with hero_left:
 
 with hero_mid:
     st.markdown(f"### {selected_player}")
-    # Team + position line
+    # Team + position + age line
     pos_str = ""
     age_str = ""
     if player_meta is not None:
@@ -255,15 +259,13 @@ with hero_mid:
 
     st.markdown(f"**{player_team_short}**{pos_str}{age_str}")
 
-    # Quick stats row
-    avg_eb = player_bb["estimated_bases"].mean()
-    avg_ev = player_bb["launch_speed"].mean()
-    n_bb = len(player_bb)
-
+    # Key stats row — 3 metrics
     qs1, qs2, qs3 = st.columns(3)
     qs1.metric("Batted Balls", f"{n_bb:,}")
-    qs2.metric("Avg EV", f"{avg_ev:.1f} mph")
-    qs3.metric("Avg EB/BB", f"{avg_eb:.3f}")
+    qs2.metric("Avg EV", f"{avg_ev:.1f} mph",
+               help="Average exit velocity on all batted balls (mph)")
+    qs3.metric("Barrel Rate", f"{barrel_rate:.1f}%",
+               help="Barrels: EV >= 98 mph + launch angle in the sweet spot zone. Barrels produce the highest expected bases.")
 
 with hero_right:
     if player_ranking is not None:
@@ -272,24 +274,57 @@ with hero_right:
         hdi_high = player_ranking["hdi_high"]
 
         # Percentile rank
-        if not pa_rankings.empty:
-            pct = (pa_rankings["posterior_mean"] < bayesian_eb).mean() * 100
-        else:
-            pct = 50
+        pct = (pa_rankings["posterior_mean"] < bayesian_eb).mean() * 100
 
-        st.metric("Bayesian EB/PA", f"{bayesian_eb:.3f}")
-        st.caption(f"89% HDI: [{hdi_low:.3f}, {hdi_high:.3f}]")
-        st.caption(f"League percentile: {pct:.0f}th")
+        st.metric("Est. Bases/PA", f"{bayesian_eb:.3f}",
+                  help="Bayesian estimate of true production per plate appearance. Accounts for walks, HBP, strikeouts, and batted ball quality. Small samples are shrunk toward league average.")
 
-        # Shrinkage
-        raw_rate = player_ranking.get("raw_rate", avg_eb)
-        shrinkage_pct = player_ranking.get("shrinkage", 0)
-        if shrinkage_pct:
-            st.caption(f"Shrinkage: {shrinkage_pct:.1%} toward league mean")
+        # --- HTML/CSS Confidence Bar ---
+        league_p10 = pa_rankings["posterior_mean"].quantile(0.10)
+        league_p90 = pa_rankings["posterior_mean"].quantile(0.90)
+
+        # Scale positions to percentages within the display range
+        display_min = max(0, league_p10 - 0.05)
+        display_max = league_p90 + 0.05
+        display_range = display_max - display_min
+
+        def _pct_pos(val):
+            return max(0, min(100, (val - display_min) / display_range * 100))
+
+        league_left = _pct_pos(league_p10)
+        league_width = _pct_pos(league_p90) - league_left
+        player_left = _pct_pos(hdi_low)
+        player_width = _pct_pos(hdi_high) - player_left
+        marker_pos = _pct_pos(bayesian_eb)
+
+        league_mean_eb = pa_rankings["posterior_mean"].mean()
+        lg_avg_pos = _pct_pos(league_mean_eb)
+
+        st.markdown(f"""
+        <div style="position:relative; height:44px; margin:8px 0 4px 0;">
+            <div style="position:absolute; top:10px; left:{league_left:.1f}%; width:{league_width:.1f}%;
+                        height:12px; background:rgba(200,200,200,0.5); border-radius:6px;"></div>
+            <div style="position:absolute; top:8px; left:{player_left:.1f}%; width:{player_width:.1f}%;
+                        height:16px; background:{primary_color}; opacity:0.8; border-radius:8px;"></div>
+            <div style="position:absolute; top:4px; left:{lg_avg_pos:.1f}%;
+                        width:2px; height:24px; margin-left:-1px;
+                        background:rgba(100,100,100,0.7);"></div>
+            <div style="position:absolute; top:30px; left:{lg_avg_pos:.1f}%;
+                        transform:translateX(-50%); font-size:10px; color:rgba(100,100,100,0.8);
+                        white-space:nowrap;">Lg Avg</div>
+            <div style="position:absolute; top:6px; left:{marker_pos:.1f}%;
+                        width:20px; height:20px; margin-left:-10px;
+                        background:white; border:3px solid {primary_color};
+                        border-radius:50%;"></div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.caption(
+            f"**{pct:.0f}th percentile** | credible interval: "
+            f"{hdi_low:.3f} – {hdi_high:.3f} | league avg: {league_mean_eb:.3f}"
+        )
     else:
-        # Fallback: raw stats
-        st.metric("Raw EB/BB", f"{avg_eb:.3f}")
-        st.caption("Bayesian estimate not available (need PA rankings data)")
+        st.metric("Avg Est. Bases/BB", f"{avg_eb:.3f}")
+        st.caption("Full ranking not available (need player evaluation data)")
 
 
 # =============================================================================
@@ -308,46 +343,86 @@ with tab_contact:
 
     # Add derived columns
     player_bb["bb_type"] = player_bb["launch_angle"].apply(categorize_launch_angle)
-    player_bb["is_barrel"] = player_bb.apply(
-        lambda r: is_barrel(r["launch_speed"], r["launch_angle"]), axis=1
-    )
 
-    # --- EV x LA Scatter (the showstopper chart) ---
-    st.markdown("#### Exit Velocity vs Launch Angle")
-    st.caption("Each point is a batted ball, colored by estimated bases. Hover for details.")
+    # --- Side-by-side Heatmaps ---
+    heatmap_data = player_bb.dropna(subset=["launch_speed", "launch_angle", "estimated_bases"]).copy()
+    heatmap_data = heatmap_data[heatmap_data["launch_speed"] > 40]
+    league_heatmap_data = bb_df.dropna(subset=["launch_speed", "launch_angle", "estimated_bases"]).copy()
+    league_heatmap_data = league_heatmap_data[league_heatmap_data["launch_speed"] > 40]
 
-    fig_scatter = px.scatter(
-        player_bb,
-        x="launch_speed",
-        y="launch_angle",
-        color="estimated_bases",
-        color_continuous_scale="RdYlGn",
-        hover_data={
-            "launch_speed": ":.1f",
-            "launch_angle": ":.0f",
-            "estimated_bases": ":.2f",
-            "actual_result": True,
-            "date": True,
-            "opponent": True,
-        },
-        labels={
-            "launch_speed": "Exit Velocity (mph)",
-            "launch_angle": "Launch Angle (deg)",
-            "estimated_bases": "Est. Bases",
-        },
-    )
-    fig_scatter.update_layout(
-        height=500,
-        coloraxis_colorbar_title="Est.<br>Bases",
-        template="plotly_white",
-    )
-    # Add reference lines
-    fig_scatter.add_hline(y=10, line_dash="dot", line_color="gray", opacity=0.4,
-                          annotation_text="Line Drive zone", annotation_position="top right")
-    fig_scatter.add_hline(y=25, line_dash="dot", line_color="gray", opacity=0.4)
-    fig_scatter.add_hline(y=50, line_dash="dot", line_color="gray", opacity=0.4,
-                          annotation_text="Fly Ball / Pop Up", annotation_position="top right")
-    st.plotly_chart(fig_scatter, use_container_width=True)
+    if len(heatmap_data) >= 10:
+        st.caption("Average estimated bases by exit velocity and launch angle zone (EV > 40 mph). Green = high value contact.")
+
+        # Shared color scale from league data
+        import numpy as np
+        _all_heatmap = league_heatmap_data.copy()
+        _ev_bins = np.linspace(_all_heatmap["launch_speed"].min(), _all_heatmap["launch_speed"].max(), 31)
+        _la_bins = np.linspace(_all_heatmap["launch_angle"].min(), _all_heatmap["launch_angle"].max(), 31)
+        _all_heatmap["ev_bin"] = pd.cut(_all_heatmap["launch_speed"], bins=_ev_bins, include_lowest=True)
+        _all_heatmap["la_bin"] = pd.cut(_all_heatmap["launch_angle"], bins=_la_bins, include_lowest=True)
+        _bin_avgs = _all_heatmap.groupby(["ev_bin", "la_bin"])["estimated_bases"].mean()
+        shared_zmin = _bin_avgs.min()
+        shared_zmax = _bin_avgs.max()
+
+        hm_col_player, hm_col_league = st.columns(2)
+
+        with hm_col_player:
+            st.markdown(f"#### {selected_player}")
+            fig_heatmap = px.density_heatmap(
+                heatmap_data,
+                x="launch_speed",
+                y="launch_angle",
+                z="estimated_bases",
+                histfunc="avg",
+                color_continuous_scale="RdYlGn",
+                nbinsx=30,
+                nbinsy=30,
+                range_color=[shared_zmin, shared_zmax],
+                labels={
+                    "launch_speed": "Exit Velocity (mph)",
+                    "launch_angle": "Launch Angle (deg)",
+                    "estimated_bases": "Avg Est. Bases",
+                },
+            )
+            fig_heatmap.update_layout(
+                height=450,
+                template="plotly_white",
+                coloraxis_colorbar_title="Avg Est.<br>Bases",
+            )
+            fig_heatmap.add_hline(y=10, line_dash="dot", line_color="white", opacity=0.5)
+            fig_heatmap.add_hline(y=25, line_dash="dot", line_color="white", opacity=0.5)
+            fig_heatmap.add_hline(y=50, line_dash="dot", line_color="white", opacity=0.5)
+            st.plotly_chart(fig_heatmap, use_container_width=True)
+
+        with hm_col_league:
+            st.markdown("#### League Average")
+            fig_league = px.density_heatmap(
+                league_heatmap_data,
+                x="launch_speed",
+                y="launch_angle",
+                z="estimated_bases",
+                histfunc="avg",
+                color_continuous_scale="RdYlGn",
+                nbinsx=30,
+                nbinsy=30,
+                range_color=[shared_zmin, shared_zmax],
+                labels={
+                    "launch_speed": "Exit Velocity (mph)",
+                    "launch_angle": "Launch Angle (deg)",
+                    "estimated_bases": "Avg Est. Bases",
+                },
+            )
+            fig_league.update_layout(
+                height=450,
+                template="plotly_white",
+                coloraxis_colorbar_title="Avg Est.<br>Bases",
+            )
+            fig_league.add_hline(y=10, line_dash="dot", line_color="white", opacity=0.5)
+            fig_league.add_hline(y=25, line_dash="dot", line_color="white", opacity=0.5)
+            fig_league.add_hline(y=50, line_dash="dot", line_color="white", opacity=0.5)
+            st.plotly_chart(fig_league, use_container_width=True)
+    else:
+        st.info("Not enough batted balls for a heatmap.")
 
     # --- Distribution charts row ---
     col_ev, col_la = st.columns(2)
@@ -355,7 +430,6 @@ with tab_contact:
     with col_ev:
         st.markdown("#### Exit Velocity Distribution")
         fig_ev = go.Figure()
-        # League background
         fig_ev.add_trace(go.Histogram(
             x=bb_df["launch_speed"],
             name="League",
@@ -367,7 +441,7 @@ with tab_contact:
         fig_ev.add_trace(go.Histogram(
             x=player_bb["launch_speed"],
             name=selected_player,
-            opacity=0.7,
+            opacity=0.6,
             marker_color=primary_color,
             histnorm="probability density",
             nbinsx=30,
@@ -397,7 +471,7 @@ with tab_contact:
         fig_la.add_trace(go.Histogram(
             x=player_bb["launch_angle"],
             name=selected_player,
-            opacity=0.7,
+            opacity=0.6,
             marker_color=primary_color,
             histnorm="probability density",
             nbinsx=30,
@@ -448,24 +522,131 @@ with tab_contact:
     # --- Contact Type Breakdown ---
     st.markdown("#### Contact Type Breakdown")
 
+    type_order = ["Ground Ball", "Line Drive", "Fly Ball", "Pop Up"]
+
+    # Player type stats
     type_stats = player_bb.groupby("bb_type").agg(
         count=("estimated_bases", "count"),
         avg_eb=("estimated_bases", "mean"),
         avg_ev=("launch_speed", "mean"),
+        avg_la=("launch_angle", "mean"),
     ).reset_index()
     type_stats["pct"] = (type_stats["count"] / type_stats["count"].sum() * 100).round(1)
-    type_order = ["Ground Ball", "Line Drive", "Fly Ball", "Pop Up"]
+
+    # Pull% per type
+    if "spray_direction" in player_bb.columns:
+        pull_by_type = player_bb.groupby("bb_type").apply(
+            lambda g: (g["spray_direction"] == "Pull").mean() * 100
+        ).rename("pull_pct")
+        type_stats = type_stats.merge(pull_by_type, left_on="bb_type", right_index=True, how="left")
+    else:
+        type_stats["pull_pct"] = float("nan")
+
+    # League type stats for comparison
+    bb_df["bb_type"] = bb_df["launch_angle"].apply(categorize_launch_angle)
+    league_type_stats = bb_df.groupby("bb_type").agg(
+        lg_avg_eb=("estimated_bases", "mean"),
+    ).reset_index()
+    type_stats = type_stats.merge(league_type_stats, on="bb_type", how="left")
+
     type_stats["bb_type"] = pd.Categorical(type_stats["bb_type"], categories=type_order, ordered=True)
     type_stats = type_stats.sort_values("bb_type").reset_index(drop=True)
 
-    barrel_count = player_bb["is_barrel"].sum()
-    barrel_rate = barrel_count / len(player_bb) * 100
+    # Display table
+    ct_display = type_stats.rename(columns={
+        "bb_type": "Type", "count": "Count", "pct": "%",
+        "avg_ev": "Avg EV", "avg_la": "Avg LA",
+        "avg_eb": "Avg Est. Bases", "lg_avg_eb": "Lg Avg EB",
+        "pull_pct": "Pull%",
+    })
+    ct_col_config = {
+        "Avg EV": st.column_config.NumberColumn(format="%.1f"),
+        "Avg LA": st.column_config.NumberColumn(format="%.1f°"),
+        "Avg Est. Bases": st.column_config.NumberColumn(format="%.3f"),
+        "Lg Avg EB": st.column_config.NumberColumn(format="%.3f"),
+        "Pull%": st.column_config.NumberColumn(format="%.1f%%"),
+        "%": st.column_config.NumberColumn(format="%.1f%%"),
+    }
+    st.dataframe(ct_display, hide_index=True, use_container_width=True, column_config=ct_col_config)
 
-    cs1, cs2, cs3, cs4, cs5 = st.columns(5)
-    for i, (_, row) in enumerate(type_stats.iterrows()):
-        col = [cs1, cs2, cs3, cs4][i] if i < 4 else cs4
-        col.metric(row["bb_type"], f"{row['pct']:.1f}%", help=f"Avg EB: {row['avg_eb']:.3f}")
-    cs5.metric("Barrel Rate", f"{barrel_rate:.1f}%", help=f"{barrel_count} barrels")
+    # --- Barrel Rate with league context ---
+    barrel_count = player_bb["is_barrel"].sum()
+    bb_df["is_barrel"] = bb_df.apply(
+        lambda r: is_barrel(r["launch_speed"], r["launch_angle"]), axis=1
+    )
+    league_barrel_rate = bb_df["is_barrel"].mean() * 100
+    barrel_delta = barrel_rate - league_barrel_rate
+
+    br_col, eb_chart_col = st.columns([1, 2])
+    with br_col:
+        st.metric(
+            "Barrel Rate",
+            f"{barrel_rate:.1f}%",
+            delta=f"{barrel_delta:+.1f}% vs league",
+            help=f"{barrel_count} barrels. Statcast barrel: EV >= 98 mph + LA in 26-30° sweet spot zone (expanding with higher EV). League avg: {league_barrel_rate:.1f}%.",
+        )
+
+    # --- Estimated Bases Distribution Chart ---
+    with eb_chart_col:
+        import numpy as np
+        eb_bins = [0, 1, 2, 3, float("inf")]
+        eb_labels = ["0–1", "1–2", "2–3", "3+"]
+        player_eb_cats = pd.cut(player_bb["estimated_bases"], bins=eb_bins, labels=eb_labels, right=False)
+        league_eb_cats = pd.cut(bb_df["estimated_bases"], bins=eb_bins, labels=eb_labels, right=False)
+
+        player_eb_dist = player_eb_cats.value_counts(normalize=True).reindex(eb_labels, fill_value=0) * 100
+        league_eb_dist = league_eb_cats.value_counts(normalize=True).reindex(eb_labels, fill_value=0) * 100
+
+        fig_eb_dist = go.Figure()
+        fig_eb_dist.add_trace(go.Bar(
+            x=eb_labels, y=player_eb_dist.values,
+            name=selected_player, marker_color=primary_color, opacity=0.85,
+        ))
+        fig_eb_dist.add_trace(go.Bar(
+            x=eb_labels, y=league_eb_dist.values,
+            name="League", marker_color="gray", opacity=0.5,
+        ))
+        fig_eb_dist.update_layout(
+            barmode="group",
+            xaxis_title="Estimated Bases",
+            yaxis_title="% of Batted Balls",
+            height=300,
+            template="plotly_white",
+            legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+            margin=dict(t=30),
+        )
+        st.plotly_chart(fig_eb_dist, use_container_width=True)
+
+    # --- vs LHP / vs RHP Splits ---
+    if not metadata_df.empty and "pitcher" in player_bb.columns:
+        throw_hand_map = metadata_df.set_index("player_name")["throw_hand"].to_dict()
+        player_bb["pitcher_hand"] = player_bb["pitcher"].map(throw_hand_map)
+
+        splits_available = player_bb["pitcher_hand"].dropna()
+        if len(splits_available) > 0:
+            st.markdown("#### vs LHP / vs RHP")
+
+            split_col_l, split_col_r = st.columns(2)
+            for hand_label, hand_val, col in [("vs LHP", "L", split_col_l), ("vs RHP", "R", split_col_r)]:
+                with col:
+                    with st.container(border=True):
+                        subset = player_bb[player_bb["pitcher_hand"] == hand_val]
+                        n = len(subset)
+                        if n == 0:
+                            st.markdown(f"**{hand_label}**: No data")
+                        else:
+                            st.markdown(f"**{hand_label}**")
+                            s_ev = subset["launch_speed"].mean()
+                            s_eb = subset["estimated_bases"].mean()
+                            s_barrel = subset.apply(
+                                lambda r: is_barrel(r["launch_speed"], r["launch_angle"]), axis=1
+                            ).mean() * 100
+                            s1, s2 = st.columns(2)
+                            s1.metric("Count", f"{n}")
+                            s2.metric("Avg EV", f"{s_ev:.1f}")
+                            s3, s4 = st.columns(2)
+                            s3.metric("Avg Est. Bases", f"{s_eb:.3f}")
+                            s4.metric("Barrel Rate", f"{s_barrel:.1f}%")
 
 
 # =============================================================================
@@ -494,11 +675,11 @@ with tab_luck:
     lm1.metric("Actual Total Bases", f"{total_actual_tb:.0f}")
     lm2.metric("Expected Total Bases", f"{total_expected_tb:.1f}")
     delta_color = "normal" if luck_score >= 0 else "inverse"
-    lm3.metric("Luck Score", f"{luck_score:+.1f}", delta=f"{'Lucky' if luck_score > 0 else 'Unlucky'}", delta_color=delta_color)
+    lm3.metric("Luck Score", f"{luck_score:+.1f}", delta=f"{'Lucky' if luck_score > 0 else 'Unlucky'}", delta_color=delta_color,
+               help="Actual total bases minus expected total bases. Positive = lucky (more bases than expected from contact quality). Tends to regress toward zero over a full season.")
 
     # Luck percentile
     if len(bb_df) > 1000:
-        # Compute luck score for all players with enough BBs
         all_luck = bb_df.copy()
         all_luck["actual_tb"] = all_luck["actual_result"].map(TB_MAP).fillna(0)
         player_luck = all_luck.groupby("player").agg(
@@ -513,10 +694,9 @@ with tab_luck:
             st.caption(f"Luck percentile: {luck_pct:.0f}th (among players with 30+ batted balls)")
 
     # --- Luck Accumulation Chart ---
-    st.markdown("#### Luck Accumulation Over Time")
+    st.markdown("#### Luck Over Time")
     st.caption("Cumulative actual total bases minus expected. Rising = getting lucky. Falling = unlucky.")
 
-    # Sort chronologically and compute cumulative
     luck_ts = player_bb.sort_values("date_parsed").copy()
     luck_ts["cum_actual"] = luck_ts["actual_tb"].cumsum()
     luck_ts["cum_expected"] = luck_ts["estimated_bases"].cumsum()
@@ -555,7 +735,6 @@ with tab_luck:
 
         out_display_cols = ["date", "opponent", "launch_speed", "launch_angle",
                             "spray_direction", "estimated_bases", "xba"]
-        # Add video link if play_id exists
         if "play_id" in unlucky_outs.columns:
             unlucky_outs["video"] = unlucky_outs["play_id"].apply(build_video_url)
             out_display_cols.append("video")
@@ -577,7 +756,7 @@ with tab_luck:
             "xBA": st.column_config.NumberColumn(format="%.3f"),
         }
         if "Video" in out_display.columns:
-            col_config["Video"] = st.column_config.LinkColumn(display_text="▶️")
+            col_config["Video"] = st.column_config.LinkColumn(display_text="Watch")
 
         st.dataframe(out_display, hide_index=True, use_container_width=True,
                       column_config=col_config)
@@ -616,12 +795,58 @@ with tab_luck:
             "xBA": st.column_config.NumberColumn(format="%.3f"),
         }
         if "Video" in hit_display.columns:
-            hit_col_config["Video"] = st.column_config.LinkColumn(display_text="▶️")
+            hit_col_config["Video"] = st.column_config.LinkColumn(display_text="Watch")
 
         st.dataframe(hit_display, hide_index=True, use_container_width=True,
                       column_config=hit_col_config)
     else:
         st.info("No hits recorded.")
+
+    # --- All Batted Balls Table ---
+    st.markdown("#### All Batted Balls")
+    st.caption("Full season batted ball log. Luck = actual total bases minus estimated bases per batted ball.")
+
+    all_bb_display = player_bb.sort_values("date_parsed", ascending=False).copy()
+    all_bb_display["luck"] = all_bb_display["actual_tb"] - all_bb_display["estimated_bases"]
+
+    all_bb_cols = ["date", "opponent", "launch_speed", "launch_angle",
+                   "spray_direction", "actual_result", "estimated_bases", "xba", "luck"]
+    if "play_id" in all_bb_display.columns:
+        all_bb_display["video"] = all_bb_display["play_id"].apply(build_video_url)
+        all_bb_cols.append("video")
+
+    available_cols = [c for c in all_bb_cols if c in all_bb_display.columns]
+    all_bb_show = all_bb_display[available_cols].copy()
+
+    all_bb_rename = {
+        "date": "Date", "opponent": "Opponent", "launch_speed": "Exit Velo",
+        "launch_angle": "Launch Angle", "spray_direction": "Spray",
+        "actual_result": "Result", "estimated_bases": "Est. Bases",
+        "xba": "xBA", "luck": "Luck", "video": "Video",
+    }
+    all_bb_show = all_bb_show.rename(columns=all_bb_rename)
+
+    all_bb_col_config = {
+        "Exit Velo": st.column_config.NumberColumn(format="%.1f mph"),
+        "Launch Angle": st.column_config.NumberColumn(format="%d°"),
+        "Est. Bases": st.column_config.NumberColumn(format="%.2f"),
+        "xBA": st.column_config.NumberColumn(format="%.3f"),
+        "Luck": st.column_config.NumberColumn(format="%+.2f"),
+    }
+    if "Video" in all_bb_show.columns:
+        all_bb_col_config["Video"] = st.column_config.LinkColumn(display_text="Watch")
+
+    st.dataframe(all_bb_show, hide_index=True, use_container_width=True,
+                  column_config=all_bb_col_config, height=400)
+
+    # Download CSV
+    csv_data = all_bb_show.to_csv(index=False)
+    st.download_button(
+        "Download CSV",
+        csv_data,
+        file_name=f"{selected_player.replace(' ', '_')}_batted_balls_{season}.csv",
+        mime="text/csv",
+    )
 
 
 # =============================================================================
@@ -636,10 +861,12 @@ with st.expander("Methodology"):
 Boosting Classifier trained on Statcast data, accounting for exit velocity, launch angle,
 spray angle, and ballpark.
 
-**Bayesian EB/PA** is a hierarchical Bayesian estimate (NumPyro NUTS MCMC) that shrinks
-small-sample players toward the league mean. The 89% HDI (Highest Density Interval) is the
-range within which the player's true talent level lies with 89% probability. Players with
-fewer plate appearances get more shrinkage — this is a feature, not a bug.
+**Est. Bases per PA** is a hierarchical Bayesian estimate (NumPyro NUTS MCMC) that accounts
+for walks (1 base), HBP (1 base), and strikeouts (0 bases) alongside batted ball contact
+quality. Players with fewer plate appearances are "shrunk" toward the league average —
+this prevents small-sample outliers from dominating the leaderboard. The confidence bar
+shows the range within which the player's true talent level lies with 89% probability
+(technically: the 89% Highest Density Interval).
 
 **Luck Score** = actual total bases minus expected total bases (sum of estimated bases for
 each batted ball). Positive = lucky (got more bases than expected from contact quality).
@@ -651,5 +878,8 @@ degrees, expanding with higher EV). Barrels produce the highest expected bases.
 **Contact types**: Ground Ball (LA < 10°), Line Drive (10-25°), Fly Ball (25-50°),
 Pop Up (50°+).
 
-{"**Video links**: Click ▶️ to watch the play on Baseball Savant." if "play_id" in bb_df.columns else ""}
+**Heatmap**: Shows average estimated bases in each exit velocity × launch angle zone.
+The "sweet spot" — high EV + 15-30° launch angle — produces the most valuable contact.
+
+{"**Video links**: Click to watch the play on Baseball Savant." if "play_id" in bb_df.columns else ""}
     """)

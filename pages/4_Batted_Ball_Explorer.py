@@ -284,8 +284,8 @@ if total_results > 0:
 
         # Add dashboard link
         import urllib.parse
-        leader_display['Dashboard'] = leader_display['Player'].apply(
-            lambda p: f"/Player_Dashboard?player={urllib.parse.quote(p)}"
+        leader_display['Profile'] = leader_display['Player'].apply(
+            lambda p: f"/Player_Profile?player={urllib.parse.quote(p)}"
         )
 
         st.dataframe(
@@ -299,7 +299,7 @@ if total_results > 0:
                 'Avg Est. Bases': st.column_config.NumberColumn(format="%.2f"),
                 'Total Est. Bases': st.column_config.NumberColumn(format="%.1f"),
                 'Avg xBA': st.column_config.NumberColumn(format="%.3f"),
-                'Dashboard': st.column_config.LinkColumn(display_text="View"),
+                'Profile': st.column_config.LinkColumn(display_text="View"),
             }
         )
 

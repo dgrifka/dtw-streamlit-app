@@ -219,6 +219,32 @@ def load_player_metadata(season: int) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def resolve_player_id(player_name: str, metadata_df: pd.DataFrame, pa_rankings: pd.DataFrame) -> int | None:
+    """Resolve a player_id from metadata or PA rankings parquet.
+
+    Checks metadata first, then falls back to player_id column in rankings
+    (available when rankings were generated with PA mode).
+
+    Returns:
+        int player_id, or None if not found.
+    """
+    # Try metadata first
+    if not metadata_df.empty:
+        match = metadata_df[metadata_df["player_name"] == player_name]
+        if not match.empty:
+            return int(match.iloc[0]["player_id"])
+
+    # Fallback: player_id from rankings parquet (PA mode includes it)
+    if not pa_rankings.empty and "player_id" in pa_rankings.columns:
+        match = pa_rankings[pa_rankings["player"] == player_name]
+        if not match.empty:
+            pid = match.iloc[0]["player_id"]
+            if pd.notna(pid):
+                return int(pid)
+
+    return None
+
+
 @st.cache_data(ttl=3600)
 def load_pa_counts(season: int) -> pd.DataFrame:
     """Load per-player walk/strikeout counts from S3."""

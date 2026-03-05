@@ -31,7 +31,7 @@ from utils.luck_calculations import (
 
 # Page config
 st.set_page_config(
-    page_title="Team Rankings | DTW Simulator",
+    page_title="Team Luck Rankings | DTW Simulator",
     page_icon="🏆",
     layout="wide"
 )
@@ -71,7 +71,7 @@ def get_data_freshness_date(df: pd.DataFrame) -> str:
 # MAIN PAGE
 # -----------------------------------------------------------------------------
 
-st.title("🏆 Team Rankings")
+st.title("🏆 Team Luck Rankings")
 st.markdown("Which teams have been **lucky** (more wins than expected) or **unlucky** (fewer wins than expected)?")
 
 # Load data
