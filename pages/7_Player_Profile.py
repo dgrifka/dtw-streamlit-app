@@ -92,10 +92,19 @@ def categorize_launch_angle(la):
 
 
 def is_barrel(ev, la):
-    """Check if a batted ball is a barrel (Statcast definition approximation)."""
+    """Check if a batted ball is a barrel (Statcast definition).
+
+    At 98 mph the zone is 26-30°. For each mph above 98, the lower bound
+    drops ~1° (floor 8°) and the upper bound rises ~2° (ceiling 50°).
+    """
     if pd.isna(ev) or pd.isna(la):
         return False
-    return ev >= 98 and 26 <= la <= 30 + (ev - 98)
+    if ev < 98:
+        return False
+    extra = ev - 98
+    la_low = max(8, 26 - extra)
+    la_high = min(50, 30 + 2 * extra)
+    return la_low <= la <= la_high
 
 
 # =============================================================================
