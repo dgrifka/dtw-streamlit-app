@@ -606,15 +606,8 @@ total_actual_tb = player_bb["actual_tb"].sum()
 total_expected_tb = player_bb["estimated_bases"].sum()
 luck_score = total_actual_tb - total_expected_tb
 
-# Luck metrics
-lm1, lm2, lm3 = st.columns(3)
-lm1.metric("Actual Total Bases", f"{total_actual_tb:.0f}")
-lm2.metric("Expected Total Bases", f"{total_expected_tb:.1f}")
-delta_color = "normal" if luck_score >= 0 else "inverse"
-lm3.metric("Luck Score", f"{luck_score:+.1f}", delta=f"{'Lucky' if luck_score > 0 else 'Unlucky'}", delta_color=delta_color,
-           help="Actual total bases minus expected total bases. Positive = lucky (more bases than expected from contact quality). Tends to regress toward zero over a full season.")
-
-# Luck percentile
+# Compute league-wide percentiles
+actual_pct = expected_pct = luck_pct = None
 if len(bb_df) > 1000:
     all_luck = bb_df.copy()
     all_luck["actual_tb"] = all_luck["actual_result"].map(TB_MAP).fillna(0)
@@ -626,8 +619,26 @@ if len(bb_df) > 1000:
     player_luck = player_luck[player_luck["n"] >= 30]
     player_luck["luck"] = player_luck["actual"] - player_luck["expected"]
     if selected_player in player_luck.index:
+        actual_pct = (player_luck["actual"] < total_actual_tb).mean() * 100
+        expected_pct = (player_luck["expected"] < total_expected_tb).mean() * 100
         luck_pct = (player_luck["luck"] < luck_score).mean() * 100
-        st.caption(f"Luck percentile: {luck_pct:.0f}th (among players with 30+ batted balls)")
+
+# Luck metrics
+lm1, lm2, lm3 = st.columns(3)
+with lm1:
+    st.metric("Actual Total Bases", f"{total_actual_tb:.0f}")
+    if actual_pct is not None:
+        st.caption(f"{actual_pct:.0f}th percentile")
+with lm2:
+    st.metric("Expected Total Bases", f"{total_expected_tb:.1f}")
+    if expected_pct is not None:
+        st.caption(f"{expected_pct:.0f}th percentile")
+with lm3:
+    delta_color = "normal" if luck_score >= 0 else "inverse"
+    st.metric("Luck Score", f"{luck_score:+.1f}", delta=f"{'Lucky' if luck_score > 0 else 'Unlucky'}", delta_color=delta_color,
+              help="Actual total bases minus expected total bases. Positive = lucky (more bases than expected from contact quality). Tends to regress toward zero over a full season.")
+    if luck_pct is not None:
+        st.caption(f"{luck_pct:.0f}th percentile")
 
 # --- Luck Accumulation Chart ---
 st.markdown("#### Luck Over Time")
@@ -796,86 +807,6 @@ st.caption(f"{season} Season")
 # Add derived columns
 player_bb["bb_type"] = player_bb["launch_angle"].apply(categorize_launch_angle)
 
-# --- Side-by-side Heatmaps ---
-heatmap_data = player_bb.dropna(subset=["launch_speed", "launch_angle", "estimated_bases"]).copy()
-heatmap_data = heatmap_data[heatmap_data["launch_speed"] > 40]
-league_heatmap_data = bb_df.dropna(subset=["launch_speed", "launch_angle", "estimated_bases"]).copy()
-league_heatmap_data = league_heatmap_data[league_heatmap_data["launch_speed"] > 40]
-
-if len(heatmap_data) >= 10:
-    st.caption("Average estimated bases by exit velocity and launch angle zone (EV > 40 mph). Green = high value contact.")
-
-    # Shared color scale from league data
-    import numpy as np
-    _all_heatmap = league_heatmap_data.copy()
-    _ev_bins = np.linspace(_all_heatmap["launch_speed"].min(), _all_heatmap["launch_speed"].max(), 31)
-    _la_bins = np.linspace(_all_heatmap["launch_angle"].min(), _all_heatmap["launch_angle"].max(), 31)
-    _all_heatmap["ev_bin"] = pd.cut(_all_heatmap["launch_speed"], bins=_ev_bins, include_lowest=True)
-    _all_heatmap["la_bin"] = pd.cut(_all_heatmap["launch_angle"], bins=_la_bins, include_lowest=True)
-    _bin_avgs = _all_heatmap.groupby(["ev_bin", "la_bin"])["estimated_bases"].mean()
-    shared_zmin = _bin_avgs.min()
-    shared_zmax = _bin_avgs.max()
-
-    hm_col_player, hm_col_league = st.columns(2)
-
-    with hm_col_player:
-        st.markdown(f"#### {selected_player}")
-        fig_heatmap = px.density_heatmap(
-            heatmap_data,
-            x="launch_speed",
-            y="launch_angle",
-            z="estimated_bases",
-            histfunc="avg",
-            color_continuous_scale="RdYlGn",
-            nbinsx=30,
-            nbinsy=30,
-            range_color=[shared_zmin, shared_zmax],
-            labels={
-                "launch_speed": "Exit Velocity (mph)",
-                "launch_angle": "Launch Angle (deg)",
-                "estimated_bases": "Avg Est. Bases",
-            },
-        )
-        fig_heatmap.update_layout(
-            height=450,
-            template="plotly_white",
-            coloraxis_colorbar_title="Avg Est.<br>Bases",
-        )
-        fig_heatmap.add_hline(y=10, line_dash="dot", line_color="white", opacity=0.5)
-        fig_heatmap.add_hline(y=25, line_dash="dot", line_color="white", opacity=0.5)
-        fig_heatmap.add_hline(y=50, line_dash="dot", line_color="white", opacity=0.5)
-        st.plotly_chart(fig_heatmap, use_container_width=True)
-
-    with hm_col_league:
-        st.markdown("#### League Average")
-        fig_league = px.density_heatmap(
-            league_heatmap_data,
-            x="launch_speed",
-            y="launch_angle",
-            z="estimated_bases",
-            histfunc="avg",
-            color_continuous_scale="RdYlGn",
-            nbinsx=30,
-            nbinsy=30,
-            range_color=[shared_zmin, shared_zmax],
-            labels={
-                "launch_speed": "Exit Velocity (mph)",
-                "launch_angle": "Launch Angle (deg)",
-                "estimated_bases": "Avg Est. Bases",
-            },
-        )
-        fig_league.update_layout(
-            height=450,
-            template="plotly_white",
-            coloraxis_colorbar_title="Avg Est.<br>Bases",
-        )
-        fig_league.add_hline(y=10, line_dash="dot", line_color="white", opacity=0.5)
-        fig_league.add_hline(y=25, line_dash="dot", line_color="white", opacity=0.5)
-        fig_league.add_hline(y=50, line_dash="dot", line_color="white", opacity=0.5)
-        st.plotly_chart(fig_league, use_container_width=True)
-else:
-    st.info("Not enough batted balls for a heatmap.")
-
 # --- Distribution charts row ---
 col_ev, col_la = st.columns(2)
 
@@ -946,30 +877,94 @@ if "coord_x" in player_bb.columns and "coord_y" in player_bb.columns:
         st.markdown("#### Spray Chart")
         st.caption("Batted ball locations colored by estimated bases.")
 
-        fig_spray = px.scatter(
-            spray_data,
-            x="coord_x",
-            y="coord_y",
-            color="estimated_bases",
-            color_continuous_scale="RdYlGn",
-            hover_data={
-                "estimated_bases": ":.2f",
-                "launch_speed": ":.1f",
-                "actual_result": True,
-                "coord_x": False,
-                "coord_y": False,
-            },
-            labels={"estimated_bases": "Est. Bases"},
-        )
+        import numpy as np
+
+        # Statcast coordinate system reference points
+        HP_X, HP_Y = 125.42, 199.02
+        FT = 0.5  # approx coordinate units per foot
+
+        fig_spray = go.Figure()
+
+        # — Field lines (behind data) —
+        line_color = "rgba(0,0,0,0.15)"
+
+        # Foul lines (~350 ft)
+        foul_len = 350 * FT
+        for angle_deg in [-45, 45]:
+            rad = np.radians(angle_deg)
+            fig_spray.add_trace(go.Scatter(
+                x=[HP_X, HP_X + foul_len * np.sin(rad)],
+                y=[HP_Y, HP_Y - foul_len * np.cos(rad)],
+                mode="lines", line=dict(color=line_color, width=1.5),
+                showlegend=False, hoverinfo="skip",
+            ))
+
+        # Infield dirt arc (~95 ft from home, -45° to 45°)
+        arc_angles = np.linspace(-np.pi / 4, np.pi / 4, 60)
+        arc_r = 95 * FT
+        fig_spray.add_trace(go.Scatter(
+            x=HP_X + arc_r * np.sin(arc_angles),
+            y=HP_Y - arc_r * np.cos(arc_angles),
+            mode="lines", line=dict(color=line_color, width=1),
+            showlegend=False, hoverinfo="skip",
+        ))
+
+        # Base diamond
+        b = 90 * FT * np.sin(np.pi / 4)  # base offset (~31.8 units)
+        bases_x = [HP_X, HP_X + b, HP_X, HP_X - b, HP_X]
+        bases_y = [HP_Y, HP_Y - b, HP_Y - 2 * b, HP_Y - b, HP_Y]
+        fig_spray.add_trace(go.Scatter(
+            x=bases_x, y=bases_y,
+            mode="lines", line=dict(color=line_color, width=1, dash="dot"),
+            showlegend=False, hoverinfo="skip",
+        ))
+
+        # — Batted ball scatter (on top) —
+        fig_spray.add_trace(go.Scatter(
+            x=spray_data["coord_x"],
+            y=spray_data["coord_y"],
+            mode="markers",
+            marker=dict(
+                color=spray_data["estimated_bases"],
+                colorscale="RdYlGn",
+                size=6,
+                colorbar=dict(title="Est.<br>Bases"),
+            ),
+            customdata=np.stack([
+                spray_data["estimated_bases"],
+                spray_data["launch_speed"],
+                spray_data["actual_result"],
+            ], axis=-1),
+            hovertemplate=(
+                "Est. Bases: %{customdata[0]:.2f}<br>"
+                "Exit Velo: %{customdata[1]:.1f}<br>"
+                "Result: %{customdata[2]}"
+                "<extra></extra>"
+            ),
+            showlegend=False,
+        ))
+
         fig_spray.update_layout(
             height=500,
             width=500,
             template="plotly_white",
             xaxis=dict(visible=False, scaleanchor="y"),
             yaxis=dict(visible=False, autorange="reversed"),
-            coloraxis_colorbar_title="Est.<br>Bases",
         )
         st.plotly_chart(fig_spray, use_container_width=False)
+
+        # Pull / Center / Oppo comparison
+        if "spray_direction" in spray_data.columns:
+            player_dirs = spray_data["spray_direction"].value_counts(normalize=True) * 100
+            league_spray = bb_df.dropna(subset=["coord_x", "coord_y"])
+            if "spray_direction" in league_spray.columns:
+                lg_dirs = league_spray["spray_direction"].value_counts(normalize=True) * 100
+                parts = []
+                for d in ["Pull", "Center", "Oppo"]:
+                    p = player_dirs.get(d, 0)
+                    lg = lg_dirs.get(d, 0)
+                    parts.append(f"{d}: {p:.0f}% (Lg: {lg:.0f}%)")
+                st.caption(" · ".join(parts))
 
 # --- Contact Type Breakdown ---
 st.markdown("#### Contact Type Breakdown")
@@ -1131,9 +1126,6 @@ degrees, expanding with higher EV). Barrels produce the highest expected bases.
 
 **Contact types**: Ground Ball (LA < 10°), Line Drive (10-25°), Fly Ball (25-50°),
 Pop Up (50°+).
-
-**Heatmap**: Shows average estimated bases in each exit velocity x launch angle zone.
-The "sweet spot" -- high EV + 15-30° launch angle -- produces the most valuable contact.
 
 {"**Video links**: Click to watch the play on Baseball Savant." if "play_id" in bb_df.columns else ""}
     """)
