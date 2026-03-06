@@ -22,6 +22,7 @@ if parent_dir not in sys.path:
 
 from utils.data_loader import (
     load_batted_balls, get_available_batted_ball_seasons,
+    get_available_player_evaluation_seasons,
     load_player_evaluations_pa, load_player_metadata, load_pa_counts,
     resolve_player_id,
 )
@@ -121,6 +122,14 @@ if bb_df.empty:
 metadata_df = load_player_metadata(season)
 pa_rankings = load_player_evaluations_pa(season, "hitter")
 pa_counts_df = load_pa_counts(season)
+
+# Load multi-season PA rankings for historical timeline
+eval_seasons = get_available_player_evaluation_seasons()
+all_season_pa_rankings = {}
+for s in eval_seasons:
+    pa_data = load_player_evaluations_pa(s, "hitter")
+    if not pa_data.empty:
+        all_season_pa_rankings[s] = pa_data
 
 
 # =============================================================================
@@ -303,13 +312,23 @@ with hero_mid:
 
     st.markdown(f"**{player_team_short}**{pos_str}{age_str}")
 
-    # Key stats row — 3 metrics
+    # Key stats row — 3 metrics with percentiles
+    ev_pct = (bb_df.groupby("player")["launch_speed"].mean() < avg_ev).mean() * 100
+    all_barrel = bb_df.copy()
+    all_barrel["is_barrel"] = all_barrel.apply(
+        lambda r: is_barrel(r["launch_speed"], r["launch_angle"]), axis=1
+    )
+    all_barrel_rates = all_barrel.groupby("player")["is_barrel"].mean() * 100
+    barrel_pct = (all_barrel_rates < barrel_rate).mean() * 100
+
     qs1, qs2, qs3 = st.columns(3)
     qs1.metric("Batted Balls", f"{n_bb:,}")
     qs2.metric("Avg EV", f"{avg_ev:.1f} mph",
                help="Average exit velocity on all batted balls (mph)")
+    qs2.caption(f"{ev_pct:.0f}th percentile")
     qs3.metric("Barrel Rate", f"{barrel_rate:.1f}%",
                help="Barrels: EV >= 98 mph + launch angle in the sweet spot zone. Barrels produce the highest expected bases.")
+    qs3.caption(f"{barrel_pct:.0f}th percentile")
 
 with hero_right:
     if player_ranking is not None:
@@ -318,61 +337,452 @@ with hero_right:
         hdi_high = player_ranking["hdi_high"]
 
         # Percentile rank
-        pct = (pa_rankings["posterior_mean"] < bayesian_eb).mean() * 100
+        eb_pct = (pa_rankings["posterior_mean"] < bayesian_eb).mean() * 100
 
         st.metric("Est. Bases/PA", f"{bayesian_eb:.3f}",
                   help="Bayesian estimate of true production per plate appearance. Accounts for walks, HBP, strikeouts, and batted ball quality. Small samples are shrunk toward league average.")
+        st.caption(f"{eb_pct:.0f}th percentile")
 
-        # --- HTML/CSS Confidence Bar ---
-        league_p10 = pa_rankings["posterior_mean"].quantile(0.10)
-        league_p90 = pa_rankings["posterior_mean"].quantile(0.90)
+        # --- 3-Row Comparison Bar ---
+        # Best player in current season
+        best_idx = pa_rankings["posterior_mean"].idxmax()
+        best_row = pa_rankings.loc[best_idx]
+        best_eb = best_row["posterior_mean"]
+        best_hdi_low = best_row["hdi_low"]
+        best_hdi_high = best_row["hdi_high"]
+        best_name = best_row["player"]
+        best_team = best_row.get("team", "")
+        best_color, _ = get_team_color(best_team) if best_team else ("#DAA520", "#DAA520")
+
         league_mean_eb = pa_rankings["posterior_mean"].mean()
+        league_sd_eb = pa_rankings["posterior_mean"].std()
+        lg_low = league_mean_eb - league_sd_eb
+        lg_high = league_mean_eb + league_sd_eb
 
-        # Scale positions — expand range to include player's HDI if extreme
-        display_min = max(0, min(league_p10 - 0.05, hdi_low - 0.02))
-        display_max = max(league_p90 + 0.05, hdi_high + 0.02)
+        # Display range — encompass all three reference points
+        display_min = min(hdi_low, best_hdi_low, lg_low) - 0.03
+        display_max = max(hdi_high, best_hdi_high, lg_high) + 0.03
         display_range = display_max - display_min
 
         def _pct_pos(val):
             return max(0, min(100, (val - display_min) / display_range * 100))
 
-        league_left = _pct_pos(league_p10)
-        league_width = _pct_pos(league_p90) - league_left
-        player_left = _pct_pos(hdi_low)
-        player_width = _pct_pos(hdi_high) - player_left
-        marker_pos = _pct_pos(bayesian_eb)
+        # Player bar positions
+        p_left = _pct_pos(hdi_low)
+        p_width = _pct_pos(hdi_high) - p_left
+        p_marker = _pct_pos(bayesian_eb)
 
-        lg_avg_pos = _pct_pos(league_mean_eb)
+        # Best player bar positions
+        b_left = _pct_pos(best_hdi_low)
+        b_width = _pct_pos(best_hdi_high) - b_left
+        b_marker = _pct_pos(best_eb)
+
+        # League average ±1 SD positions
+        lg_left = _pct_pos(lg_low)
+        lg_width = _pct_pos(lg_high) - lg_left
+        lg_marker = _pct_pos(league_mean_eb)
+
+        # Truncate best player name for label
+        best_label = best_name.split(" ")[-1][:10] if " " in best_name else best_name[:10]
 
         st.markdown(f"""
-        <div style="position:relative; height:52px; margin:8px 0 4px 0;">
-            <div style="position:absolute; top:2px; left:{player_left:.1f}%; width:{player_width:.1f}%;
-                        height:16px; background:{primary_color}; opacity:0.8; border-radius:8px;"></div>
-            <div style="position:absolute; top:0px; left:{marker_pos:.1f}%;
-                        width:20px; height:20px; margin-left:-10px;
-                        background:white; border:3px solid {primary_color};
-                        border-radius:50%;"></div>
-            <div style="position:absolute; top:28px; left:{league_left:.1f}%; width:{league_width:.1f}%;
-                        height:12px; background:rgba(200,200,200,0.5); border-radius:6px;"></div>
-            <div style="position:absolute; top:26px; left:{lg_avg_pos:.1f}%;
-                        width:2px; height:16px; margin-left:-1px;
-                        background:rgba(100,100,100,0.7);"></div>
-            <div style="position:absolute; top:44px; left:{lg_avg_pos:.1f}%;
-                        transform:translateX(-50%); font-size:9px; color:rgba(100,100,100,0.8);
-                        white-space:nowrap;">Lg Avg</div>
+        <div style="font-size:12px; margin:8px 0 2px 0;">
+            <!-- Row 1: Player -->
+            <div style="display:flex; align-items:center; height:26px; margin-bottom:4px;">
+                <div style="width:70px; text-align:right; padding-right:8px; font-weight:600; color:{primary_color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{selected_player.split(' ')[-1][:10]}</div>
+                <div style="flex:1; position:relative; height:16px;">
+                    <div style="position:absolute; top:2px; left:{p_left:.1f}%; width:{p_width:.1f}%;
+                                height:12px; background:{primary_color}; opacity:0.7; border-radius:6px;"></div>
+                    <div style="position:absolute; top:0px; left:{p_marker:.1f}%;
+                                width:16px; height:16px; margin-left:-8px;
+                                background:white; border:3px solid {primary_color};
+                                border-radius:50%;"></div>
+                </div>
+                <div style="width:50px; padding-left:6px; font-size:11px; color:{primary_color}; font-weight:600;">{bayesian_eb:.3f}</div>
+            </div>
+            <!-- Row 2: Best Player -->
+            <div style="display:flex; align-items:center; height:26px; margin-bottom:4px;">
+                <div style="width:70px; text-align:right; padding-right:8px; color:{best_color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{best_name}">{best_label}</div>
+                <div style="flex:1; position:relative; height:16px;">
+                    <div style="position:absolute; top:2px; left:{b_left:.1f}%; width:{b_width:.1f}%;
+                                height:12px; background:{best_color}; opacity:0.5; border-radius:6px;"></div>
+                    <div style="position:absolute; top:1px; left:{b_marker:.1f}%;
+                                width:14px; height:14px; margin-left:-7px;
+                                background:{best_color}; transform:rotate(45deg);"></div>
+                </div>
+                <div style="width:50px; padding-left:6px; font-size:11px; color:{best_color};">{best_eb:.3f}</div>
+            </div>
+            <!-- Row 3: League Average ±1 SD -->
+            <div style="display:flex; align-items:center; height:26px;">
+                <div style="width:70px; text-align:right; padding-right:8px; color:rgba(120,120,120,0.9);">Lg Avg</div>
+                <div style="flex:1; position:relative; height:16px;">
+                    <div style="position:absolute; top:2px; left:{lg_left:.1f}%; width:{lg_width:.1f}%;
+                                height:12px; background:rgba(160,160,160,0.35); border-radius:6px;"></div>
+                    <div style="position:absolute; top:2px; left:{lg_marker:.1f}%;
+                                width:12px; height:12px; margin-left:-6px;
+                                background:rgba(150,150,150,0.7); border-radius:50%;"></div>
+                </div>
+                <div style="width:50px; padding-left:6px; font-size:11px; color:rgba(120,120,120,0.9);">{league_mean_eb:.3f}</div>
+            </div>
         </div>
         """, unsafe_allow_html=True)
-        st.caption(f"**{pct:.0f}th percentile** | 89% credible interval: {hdi_low:.3f} – {hdi_high:.3f}")
     else:
         st.metric("Avg Est. Bases/BB", f"{avg_eb:.3f}")
         st.caption("Full ranking not available (need player evaluation data)")
 
 
 # =============================================================================
+# HISTORICAL EST. BASES / PA TIMELINE
+# =============================================================================
+
+if len(all_season_pa_rankings) > 0 and player_id is not None:
+    # Collect player data across seasons
+    timeline_data = []
+    best_player_data = []
+    league_avg_data = []
+
+    for s in sorted(all_season_pa_rankings.keys()):
+        pa_df = all_season_pa_rankings[s]
+
+        # League average
+        lg_mean = pa_df["posterior_mean"].mean()
+        league_avg_data.append({"season": s, "value": lg_mean})
+
+        # Best player this season
+        best_idx_s = pa_df["posterior_mean"].idxmax()
+        best_row_s = pa_df.loc[best_idx_s]
+        best_team_s = best_row_s.get("team", "")
+        best_color_s, _ = get_team_color(best_team_s) if best_team_s else ("#DAA520", "#DAA520")
+        best_player_data.append({
+            "season": s,
+            "value": best_row_s["posterior_mean"],
+            "name": best_row_s["player"],
+            "team": best_team_s,
+            "color": best_color_s,
+        })
+
+        # Find player by player_id, fallback to name
+        match = pd.DataFrame()
+        if "player_id" in pa_df.columns:
+            match = pa_df[pa_df["player_id"] == player_id]
+        if match.empty:
+            match = pa_df[pa_df["player"] == selected_player]
+        if not match.empty:
+            row = match.iloc[0]
+            timeline_data.append({
+                "season": s,
+                "value": row["posterior_mean"],
+                "hdi_low": row["hdi_low"],
+                "hdi_high": row["hdi_high"],
+            })
+
+    if timeline_data:
+        st.divider()
+        st.subheader("Historical Est. Bases / PA")
+
+        tl_df = pd.DataFrame(timeline_data)
+        best_df = pd.DataFrame(best_player_data)
+        lg_df = pd.DataFrame(league_avg_data)
+
+        fig_timeline = go.Figure()
+
+        # League average — gray dots only (no line)
+        fig_timeline.add_trace(go.Scatter(
+            x=lg_df["season"],
+            y=lg_df["value"],
+            mode="markers",
+            name="Lg Avg",
+            marker=dict(color="rgba(160,160,160,0.8)", size=10),
+            hovertemplate="Season: %{x}<br>Lg Avg: %{y:.3f}<extra></extra>",
+        ))
+
+        # Best player — individual colored diamonds per season
+        first_best_season = best_df["season"].iloc[0]
+        for _, brow in best_df.iterrows():
+            fig_timeline.add_trace(go.Scatter(
+                x=[brow["season"]],
+                y=[brow["value"]],
+                mode="markers",
+                name=brow["name"],
+                marker=dict(color=brow["color"], size=11, symbol="diamond",
+                            line=dict(width=1, color="white")),
+                hovertemplate=f"Season: %{{x}}<br>{brow['name']}: %{{y:.3f}}<extra></extra>",
+                legendgroup="best",
+                showlegend=bool(brow["season"] == first_best_season),
+            ))
+        # Override legend entry for the group
+        fig_timeline.data[-len(best_df)].name = "Best Hitter"
+
+        # Player — line with HDI fill band
+        # Upper bound (invisible, for fill)
+        fig_timeline.add_trace(go.Scatter(
+            x=tl_df["season"],
+            y=tl_df["hdi_high"],
+            mode="lines",
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+        # Lower bound with fill to upper
+        fig_timeline.add_trace(go.Scatter(
+            x=tl_df["season"],
+            y=tl_df["hdi_low"],
+            mode="lines",
+            line=dict(width=0),
+            fill="tonexty",
+            fillcolor=f"rgba({int(primary_color[1:3], 16)},{int(primary_color[3:5], 16)},{int(primary_color[5:7], 16)},0.15)",
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+        # Player line + markers
+        fig_timeline.add_trace(go.Scatter(
+            x=tl_df["season"],
+            y=tl_df["value"],
+            mode="lines+markers",
+            name=selected_player,
+            line=dict(color=primary_color, width=2.5),
+            marker=dict(color=primary_color, size=10),
+            hovertemplate=(
+                "Season: %{x}<br>"
+                "EB/PA: %{y:.3f}<br>"
+                "<extra></extra>"
+            ),
+        ))
+
+        fig_timeline.update_layout(
+            xaxis=dict(
+                title="Season",
+                dtick=1,
+                tickformat="d",
+            ),
+            yaxis_title="Est. Bases per PA",
+            height=400,
+            template="plotly_white",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="center",
+                x=0.5,
+            ),
+        )
+        st.plotly_chart(fig_timeline, use_container_width=True)
+
+        if len(timeline_data) == 1:
+            st.caption("Only one season of data available. More history will accumulate over time.")
+    elif len(all_season_pa_rankings) > 0:
+        # Player not found in any season rankings
+        pass
+
+
+# =============================================================================
+# LUCK REPORT
+# =============================================================================
+
+st.divider()
+st.subheader("Luck Report")
+st.caption(f"{season} Season")
+
+# Actual total bases mapping
+TB_MAP = {
+    "Single": 1, "Double": 2, "Triple": 3, "Home Run": 4,
+    "Out": 0, "Field Out": 0, "Grounded Into Dp": 0,
+    "Fielders Choice": 0, "Fielders Choice Out": 0,
+    "Sac Fly": 0, "Sac Bunt": 0, "Double Play": 0,
+    "Force Out": 0, "Field Error": 0,
+}
+player_bb["actual_tb"] = player_bb["actual_result"].map(TB_MAP).fillna(0)
+
+total_actual_tb = player_bb["actual_tb"].sum()
+total_expected_tb = player_bb["estimated_bases"].sum()
+luck_score = total_actual_tb - total_expected_tb
+
+# Luck metrics
+lm1, lm2, lm3 = st.columns(3)
+lm1.metric("Actual Total Bases", f"{total_actual_tb:.0f}")
+lm2.metric("Expected Total Bases", f"{total_expected_tb:.1f}")
+delta_color = "normal" if luck_score >= 0 else "inverse"
+lm3.metric("Luck Score", f"{luck_score:+.1f}", delta=f"{'Lucky' if luck_score > 0 else 'Unlucky'}", delta_color=delta_color,
+           help="Actual total bases minus expected total bases. Positive = lucky (more bases than expected from contact quality). Tends to regress toward zero over a full season.")
+
+# Luck percentile
+if len(bb_df) > 1000:
+    all_luck = bb_df.copy()
+    all_luck["actual_tb"] = all_luck["actual_result"].map(TB_MAP).fillna(0)
+    player_luck = all_luck.groupby("player").agg(
+        actual=("actual_tb", "sum"),
+        expected=("estimated_bases", "sum"),
+        n=("estimated_bases", "count"),
+    )
+    player_luck = player_luck[player_luck["n"] >= 30]
+    player_luck["luck"] = player_luck["actual"] - player_luck["expected"]
+    if selected_player in player_luck.index:
+        luck_pct = (player_luck["luck"] < luck_score).mean() * 100
+        st.caption(f"Luck percentile: {luck_pct:.0f}th (among players with 30+ batted balls)")
+
+# --- Luck Accumulation Chart ---
+st.markdown("#### Luck Over Time")
+st.caption("Cumulative actual total bases minus expected. Rising = getting lucky. Falling = unlucky.")
+
+luck_ts = player_bb.sort_values("date_parsed").copy()
+luck_ts["cum_actual"] = luck_ts["actual_tb"].cumsum()
+luck_ts["cum_expected"] = luck_ts["estimated_bases"].cumsum()
+luck_ts["cum_luck"] = luck_ts["cum_actual"] - luck_ts["cum_expected"]
+luck_ts["bb_num"] = range(1, len(luck_ts) + 1)
+
+fig_luck = go.Figure()
+fig_luck.add_trace(go.Scatter(
+    x=luck_ts["bb_num"],
+    y=luck_ts["cum_luck"],
+    mode="lines",
+    name="Cumulative Luck",
+    line=dict(color=primary_color, width=2),
+    hovertemplate=(
+        "BB #%{x}<br>"
+        "Cumulative Luck: %{y:.1f}<br>"
+        "<extra></extra>"
+    ),
+))
+fig_luck.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+fig_luck.update_layout(
+    xaxis_title="Batted Ball #",
+    yaxis_title="Cumulative Luck (TB)",
+    height=400,
+    template="plotly_white",
+)
+st.plotly_chart(fig_luck, use_container_width=True)
+
+# --- Unluckiest Outs ---
+st.markdown("#### Unluckiest Outs")
+st.caption("Outs with the highest expected batting average — balls that should have been hits.")
+
+outs = player_bb[player_bb["actual_tb"] == 0].copy()
+if not outs.empty:
+    unlucky_outs = outs.nlargest(10, "xba")
+
+    out_display_cols = ["date", "opponent", "launch_speed", "launch_angle",
+                        "spray_direction", "estimated_bases", "xba"]
+    if "play_id" in unlucky_outs.columns:
+        unlucky_outs["video"] = unlucky_outs["play_id"].apply(build_video_url)
+        out_display_cols.append("video")
+
+    available_cols = [c for c in out_display_cols if c in unlucky_outs.columns]
+    out_display = unlucky_outs[available_cols].copy()
+
+    col_rename = {
+        "date": "Date", "opponent": "Opponent", "launch_speed": "Exit Velo",
+        "launch_angle": "Launch Angle", "spray_direction": "Spray",
+        "estimated_bases": "Est. Bases", "xba": "xBA", "video": "Video",
+    }
+    out_display = out_display.rename(columns=col_rename)
+
+    col_config = {
+        "Exit Velo": st.column_config.NumberColumn(format="%.1f mph"),
+        "Launch Angle": st.column_config.NumberColumn(format="%d°"),
+        "Est. Bases": st.column_config.NumberColumn(format="%.2f"),
+        "xBA": st.column_config.NumberColumn(format="%.3f"),
+    }
+    if "Video" in out_display.columns:
+        col_config["Video"] = st.column_config.LinkColumn(display_text="Watch")
+
+    st.dataframe(out_display, hide_index=True, use_container_width=True,
+                  column_config=col_config)
+else:
+    st.info("No outs recorded.")
+
+# --- Luckiest Hits ---
+st.markdown("#### Luckiest Hits")
+st.caption("Hits with the lowest expected batting average — balls that shouldn't have been hits.")
+
+hits = player_bb[player_bb["actual_tb"] > 0].copy()
+if not hits.empty:
+    lucky_hits = hits.nsmallest(10, "xba")
+
+    hit_display_cols = ["date", "opponent", "launch_speed", "launch_angle",
+                        "spray_direction", "actual_result", "estimated_bases", "xba"]
+    if "play_id" in lucky_hits.columns:
+        lucky_hits["video"] = lucky_hits["play_id"].apply(build_video_url)
+        hit_display_cols.append("video")
+
+    available_cols = [c for c in hit_display_cols if c in lucky_hits.columns]
+    hit_display = lucky_hits[available_cols].copy()
+
+    col_rename_hits = {
+        "date": "Date", "opponent": "Opponent", "launch_speed": "Exit Velo",
+        "launch_angle": "Launch Angle", "spray_direction": "Spray",
+        "actual_result": "Result", "estimated_bases": "Est. Bases",
+        "xba": "xBA", "video": "Video",
+    }
+    hit_display = hit_display.rename(columns=col_rename_hits)
+
+    hit_col_config = {
+        "Exit Velo": st.column_config.NumberColumn(format="%.1f mph"),
+        "Launch Angle": st.column_config.NumberColumn(format="%d°"),
+        "Est. Bases": st.column_config.NumberColumn(format="%.2f"),
+        "xBA": st.column_config.NumberColumn(format="%.3f"),
+    }
+    if "Video" in hit_display.columns:
+        hit_col_config["Video"] = st.column_config.LinkColumn(display_text="Watch")
+
+    st.dataframe(hit_display, hide_index=True, use_container_width=True,
+                  column_config=hit_col_config)
+else:
+    st.info("No hits recorded.")
+
+# --- All Batted Balls Table ---
+st.markdown("#### All Batted Balls")
+st.caption("Full season batted ball log. Luck = actual total bases minus estimated bases per batted ball.")
+
+all_bb_display = player_bb.sort_values("date_parsed", ascending=False).copy()
+all_bb_display["luck"] = all_bb_display["actual_tb"] - all_bb_display["estimated_bases"]
+
+all_bb_cols = ["date", "opponent", "launch_speed", "launch_angle",
+               "spray_direction", "actual_result", "estimated_bases", "xba", "luck"]
+if "play_id" in all_bb_display.columns:
+    all_bb_display["video"] = all_bb_display["play_id"].apply(build_video_url)
+    all_bb_cols.append("video")
+
+available_cols = [c for c in all_bb_cols if c in all_bb_display.columns]
+all_bb_show = all_bb_display[available_cols].copy()
+
+all_bb_rename = {
+    "date": "Date", "opponent": "Opponent", "launch_speed": "Exit Velo",
+    "launch_angle": "Launch Angle", "spray_direction": "Spray",
+    "actual_result": "Result", "estimated_bases": "Est. Bases",
+    "xba": "xBA", "luck": "Luck", "video": "Video",
+}
+all_bb_show = all_bb_show.rename(columns=all_bb_rename)
+
+all_bb_col_config = {
+    "Exit Velo": st.column_config.NumberColumn(format="%.1f mph"),
+    "Launch Angle": st.column_config.NumberColumn(format="%d°"),
+    "Est. Bases": st.column_config.NumberColumn(format="%.2f"),
+    "xBA": st.column_config.NumberColumn(format="%.3f"),
+    "Luck": st.column_config.NumberColumn(format="%+.2f"),
+}
+if "Video" in all_bb_show.columns:
+    all_bb_col_config["Video"] = st.column_config.LinkColumn(display_text="Watch")
+
+st.dataframe(all_bb_show, hide_index=True, use_container_width=True,
+              column_config=all_bb_col_config, height=400)
+
+# Download CSV
+csv_data = all_bb_show.to_csv(index=False)
+st.download_button(
+    "Download CSV",
+    csv_data,
+    file_name=f"{selected_player.replace(' ', '_')}_batted_balls_{season}.csv",
+    mime="text/csv",
+)
+
+
+# =============================================================================
 # CONTACT QUALITY
 # =============================================================================
 
+st.divider()
 st.subheader("Contact Quality Profile")
+st.caption(f"{season} Season")
 
 # Add derived columns
 player_bb["bb_type"] = player_bb["launch_angle"].apply(categorize_launch_angle)
@@ -623,7 +1033,7 @@ with br_col:
 with eb_chart_col:
     import numpy as np
     eb_bins = [0, 1, 2, 3, float("inf")]
-    eb_labels = ["0–1", "1–2", "2–3", "3+"]
+    eb_labels = ["0-1", "1-2", "2-3", "3+"]
     player_eb_cats = pd.cut(player_bb["estimated_bases"], bins=eb_bins, labels=eb_labels, right=False)
     league_eb_cats = pd.cut(bb_df["estimated_bases"], bins=eb_bins, labels=eb_labels, right=False)
 
@@ -683,206 +1093,6 @@ if not metadata_df.empty and "pitcher" in player_bb.columns:
 
 
 # =============================================================================
-# LUCK REPORT
-# =============================================================================
-
-st.divider()
-st.subheader("Luck Report")
-
-# Actual total bases mapping
-TB_MAP = {
-    "Single": 1, "Double": 2, "Triple": 3, "Home Run": 4,
-    "Out": 0, "Field Out": 0, "Grounded Into Dp": 0,
-    "Fielders Choice": 0, "Fielders Choice Out": 0,
-    "Sac Fly": 0, "Sac Bunt": 0, "Double Play": 0,
-    "Force Out": 0, "Field Error": 0,
-}
-player_bb["actual_tb"] = player_bb["actual_result"].map(TB_MAP).fillna(0)
-
-total_actual_tb = player_bb["actual_tb"].sum()
-total_expected_tb = player_bb["estimated_bases"].sum()
-luck_score = total_actual_tb - total_expected_tb
-
-# Luck metrics
-lm1, lm2, lm3 = st.columns(3)
-lm1.metric("Actual Total Bases", f"{total_actual_tb:.0f}")
-lm2.metric("Expected Total Bases", f"{total_expected_tb:.1f}")
-delta_color = "normal" if luck_score >= 0 else "inverse"
-lm3.metric("Luck Score", f"{luck_score:+.1f}", delta=f"{'Lucky' if luck_score > 0 else 'Unlucky'}", delta_color=delta_color,
-           help="Actual total bases minus expected total bases. Positive = lucky (more bases than expected from contact quality). Tends to regress toward zero over a full season.")
-
-# Luck percentile
-if len(bb_df) > 1000:
-    all_luck = bb_df.copy()
-    all_luck["actual_tb"] = all_luck["actual_result"].map(TB_MAP).fillna(0)
-    player_luck = all_luck.groupby("player").agg(
-        actual=("actual_tb", "sum"),
-        expected=("estimated_bases", "sum"),
-        n=("estimated_bases", "count"),
-    )
-    player_luck = player_luck[player_luck["n"] >= 30]
-    player_luck["luck"] = player_luck["actual"] - player_luck["expected"]
-    if selected_player in player_luck.index:
-        luck_pct = (player_luck["luck"] < luck_score).mean() * 100
-        st.caption(f"Luck percentile: {luck_pct:.0f}th (among players with 30+ batted balls)")
-
-# --- Luck Accumulation Chart ---
-st.markdown("#### Luck Over Time")
-st.caption("Cumulative actual total bases minus expected. Rising = getting lucky. Falling = unlucky.")
-
-luck_ts = player_bb.sort_values("date_parsed").copy()
-luck_ts["cum_actual"] = luck_ts["actual_tb"].cumsum()
-luck_ts["cum_expected"] = luck_ts["estimated_bases"].cumsum()
-luck_ts["cum_luck"] = luck_ts["cum_actual"] - luck_ts["cum_expected"]
-luck_ts["bb_num"] = range(1, len(luck_ts) + 1)
-
-fig_luck = go.Figure()
-fig_luck.add_trace(go.Scatter(
-    x=luck_ts["bb_num"],
-    y=luck_ts["cum_luck"],
-    mode="lines",
-    name="Cumulative Luck",
-    line=dict(color=primary_color, width=2),
-    hovertemplate=(
-        "BB #%{x}<br>"
-        "Cumulative Luck: %{y:.1f}<br>"
-        "<extra></extra>"
-    ),
-))
-fig_luck.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-fig_luck.update_layout(
-    xaxis_title="Batted Ball #",
-    yaxis_title="Cumulative Luck (TB)",
-    height=400,
-    template="plotly_white",
-)
-st.plotly_chart(fig_luck, use_container_width=True)
-
-# --- Unluckiest Outs ---
-st.markdown("#### Unluckiest Outs")
-st.caption("Outs with the highest expected batting average — balls that should have been hits.")
-
-outs = player_bb[player_bb["actual_tb"] == 0].copy()
-if not outs.empty:
-    unlucky_outs = outs.nlargest(10, "xba")
-
-    out_display_cols = ["date", "opponent", "launch_speed", "launch_angle",
-                        "spray_direction", "estimated_bases", "xba"]
-    if "play_id" in unlucky_outs.columns:
-        unlucky_outs["video"] = unlucky_outs["play_id"].apply(build_video_url)
-        out_display_cols.append("video")
-
-    available_cols = [c for c in out_display_cols if c in unlucky_outs.columns]
-    out_display = unlucky_outs[available_cols].copy()
-
-    col_rename = {
-        "date": "Date", "opponent": "Opponent", "launch_speed": "Exit Velo",
-        "launch_angle": "Launch Angle", "spray_direction": "Spray",
-        "estimated_bases": "Est. Bases", "xba": "xBA", "video": "Video",
-    }
-    out_display = out_display.rename(columns=col_rename)
-
-    col_config = {
-        "Exit Velo": st.column_config.NumberColumn(format="%.1f mph"),
-        "Launch Angle": st.column_config.NumberColumn(format="%d°"),
-        "Est. Bases": st.column_config.NumberColumn(format="%.2f"),
-        "xBA": st.column_config.NumberColumn(format="%.3f"),
-    }
-    if "Video" in out_display.columns:
-        col_config["Video"] = st.column_config.LinkColumn(display_text="Watch")
-
-    st.dataframe(out_display, hide_index=True, use_container_width=True,
-                  column_config=col_config)
-else:
-    st.info("No outs recorded.")
-
-# --- Luckiest Hits ---
-st.markdown("#### Luckiest Hits")
-st.caption("Hits with the lowest expected batting average — balls that shouldn't have been hits.")
-
-hits = player_bb[player_bb["actual_tb"] > 0].copy()
-if not hits.empty:
-    lucky_hits = hits.nsmallest(10, "xba")
-
-    hit_display_cols = ["date", "opponent", "launch_speed", "launch_angle",
-                        "spray_direction", "actual_result", "estimated_bases", "xba"]
-    if "play_id" in lucky_hits.columns:
-        lucky_hits["video"] = lucky_hits["play_id"].apply(build_video_url)
-        hit_display_cols.append("video")
-
-    available_cols = [c for c in hit_display_cols if c in lucky_hits.columns]
-    hit_display = lucky_hits[available_cols].copy()
-
-    col_rename_hits = {
-        "date": "Date", "opponent": "Opponent", "launch_speed": "Exit Velo",
-        "launch_angle": "Launch Angle", "spray_direction": "Spray",
-        "actual_result": "Result", "estimated_bases": "Est. Bases",
-        "xba": "xBA", "video": "Video",
-    }
-    hit_display = hit_display.rename(columns=col_rename_hits)
-
-    hit_col_config = {
-        "Exit Velo": st.column_config.NumberColumn(format="%.1f mph"),
-        "Launch Angle": st.column_config.NumberColumn(format="%d°"),
-        "Est. Bases": st.column_config.NumberColumn(format="%.2f"),
-        "xBA": st.column_config.NumberColumn(format="%.3f"),
-    }
-    if "Video" in hit_display.columns:
-        hit_col_config["Video"] = st.column_config.LinkColumn(display_text="Watch")
-
-    st.dataframe(hit_display, hide_index=True, use_container_width=True,
-                  column_config=hit_col_config)
-else:
-    st.info("No hits recorded.")
-
-# --- All Batted Balls Table ---
-st.markdown("#### All Batted Balls")
-st.caption("Full season batted ball log. Luck = actual total bases minus estimated bases per batted ball.")
-
-all_bb_display = player_bb.sort_values("date_parsed", ascending=False).copy()
-all_bb_display["luck"] = all_bb_display["actual_tb"] - all_bb_display["estimated_bases"]
-
-all_bb_cols = ["date", "opponent", "launch_speed", "launch_angle",
-               "spray_direction", "actual_result", "estimated_bases", "xba", "luck"]
-if "play_id" in all_bb_display.columns:
-    all_bb_display["video"] = all_bb_display["play_id"].apply(build_video_url)
-    all_bb_cols.append("video")
-
-available_cols = [c for c in all_bb_cols if c in all_bb_display.columns]
-all_bb_show = all_bb_display[available_cols].copy()
-
-all_bb_rename = {
-    "date": "Date", "opponent": "Opponent", "launch_speed": "Exit Velo",
-    "launch_angle": "Launch Angle", "spray_direction": "Spray",
-    "actual_result": "Result", "estimated_bases": "Est. Bases",
-    "xba": "xBA", "luck": "Luck", "video": "Video",
-}
-all_bb_show = all_bb_show.rename(columns=all_bb_rename)
-
-all_bb_col_config = {
-    "Exit Velo": st.column_config.NumberColumn(format="%.1f mph"),
-    "Launch Angle": st.column_config.NumberColumn(format="%d°"),
-    "Est. Bases": st.column_config.NumberColumn(format="%.2f"),
-    "xBA": st.column_config.NumberColumn(format="%.3f"),
-    "Luck": st.column_config.NumberColumn(format="%+.2f"),
-}
-if "Video" in all_bb_show.columns:
-    all_bb_col_config["Video"] = st.column_config.LinkColumn(display_text="Watch")
-
-st.dataframe(all_bb_show, hide_index=True, use_container_width=True,
-              column_config=all_bb_col_config, height=400)
-
-# Download CSV
-csv_data = all_bb_show.to_csv(index=False)
-st.download_button(
-    "Download CSV",
-    csv_data,
-    file_name=f"{selected_player.replace(' ', '_')}_batted_balls_{season}.csv",
-    mime="text/csv",
-)
-
-
-# =============================================================================
 # METHODOLOGY
 # =============================================================================
 
@@ -897,9 +1107,11 @@ spray angle, and ballpark.
 **Est. Bases per PA** is a hierarchical Bayesian estimate (NumPyro NUTS MCMC) that accounts
 for walks (1 base), HBP (1 base), and strikeouts (0 bases) alongside batted ball contact
 quality. Players with fewer plate appearances are "shrunk" toward the league average —
-this prevents small-sample outliers from dominating the leaderboard. The confidence bar
-shows the range within which the player's true talent level lies with 89% probability
-(technically: the 89% Highest Density Interval).
+this prevents small-sample outliers from dominating the leaderboard. The comparison bar
+shows the player vs. the best hitter and league average, with 89% Highest Density Intervals.
+
+**Historical Timeline** tracks a player's Bayesian Est. Bases / PA across seasons with 89% HDI error
+bars. The gold diamond shows the best hitter each season for reference.
 
 **Luck Score** = actual total bases minus expected total bases (sum of estimated bases for
 each batted ball). Positive = lucky (got more bases than expected from contact quality).
@@ -911,8 +1123,8 @@ degrees, expanding with higher EV). Barrels produce the highest expected bases.
 **Contact types**: Ground Ball (LA < 10°), Line Drive (10-25°), Fly Ball (25-50°),
 Pop Up (50°+).
 
-**Heatmap**: Shows average estimated bases in each exit velocity × launch angle zone.
-The "sweet spot" — high EV + 15-30° launch angle — produces the most valuable contact.
+**Heatmap**: Shows average estimated bases in each exit velocity x launch angle zone.
+The "sweet spot" -- high EV + 15-30° launch angle -- produces the most valuable contact.
 
 {"**Video links**: Click to watch the play on Baseball Savant." if "play_id" in bb_df.columns else ""}
     """)

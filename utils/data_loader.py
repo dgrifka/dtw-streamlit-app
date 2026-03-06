@@ -86,7 +86,7 @@ def get_available_batted_ball_seasons() -> list[int]:
     import urllib.request
     current_year = pd.Timestamp.now().year
     available = []
-    for year in range(current_year, current_year - 3, -1):
+    for year in range(current_year, current_year - 5, -1):
         url = f"{S3_BASE_URL}/data/batted_balls_{year}.parquet"
         try:
             req = urllib.request.Request(url, method='HEAD')
@@ -104,7 +104,7 @@ def get_available_player_evaluation_seasons() -> list[int]:
     import urllib.request
     current_year = pd.Timestamp.now().year
     available = []
-    for year in range(current_year, current_year - 3, -1):
+    for year in range(current_year, current_year - 5, -1):
         url = f"{S3_BASE_URL}/player-evaluations/{year}/latest/hitter_rankings.parquet"
         try:
             req = urllib.request.Request(url, method='HEAD')
