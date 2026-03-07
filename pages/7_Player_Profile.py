@@ -742,6 +742,343 @@ fig_luck.update_layout(
 )
 st.plotly_chart(fig_luck, use_container_width=True, config=PLOTLY_CONFIG)
 
+
+
+# =============================================================================
+# CONTACT QUALITY
+# =============================================================================
+
+st.divider()
+st.subheader("Contact Quality Profile")
+st.caption(f"{season} Season")
+
+# Add derived columns
+player_bb["bb_type"] = player_bb["launch_angle"].apply(categorize_launch_angle)
+
+# --- Distribution charts row ---
+col_ev, col_la = st.columns(2)
+
+with col_ev:
+    st.markdown("#### Exit Velocity Distribution")
+    fig_ev = go.Figure()
+    fig_ev.add_trace(go.Histogram(
+        x=bb_df["launch_speed"],
+        name="League",
+        opacity=0.3,
+        marker_color="gray",
+        histnorm="probability density",
+        nbinsx=40,
+    ))
+    fig_ev.add_trace(go.Histogram(
+        x=player_bb["launch_speed"],
+        name=selected_player,
+        opacity=0.6,
+        marker_color=primary_color,
+        histnorm="probability density",
+        nbinsx=30,
+    ))
+    fig_ev.update_layout(
+        barmode="overlay",
+        xaxis_title="Exit Velocity (mph)",
+        yaxis_title="Density",
+        height=350,
+        template="plotly_white",
+        showlegend=True,
+        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+        dragmode=False,
+    )
+    st.plotly_chart(fig_ev, use_container_width=True, config=PLOTLY_CONFIG)
+
+with col_la:
+    st.markdown("#### Launch Angle Distribution")
+    fig_la = go.Figure()
+    fig_la.add_trace(go.Histogram(
+        x=bb_df["launch_angle"],
+        name="League",
+        opacity=0.3,
+        marker_color="gray",
+        histnorm="probability density",
+        nbinsx=40,
+    ))
+    fig_la.add_trace(go.Histogram(
+        x=player_bb["launch_angle"],
+        name=selected_player,
+        opacity=0.6,
+        marker_color=primary_color,
+        histnorm="probability density",
+        nbinsx=30,
+    ))
+    fig_la.update_layout(
+        barmode="overlay",
+        xaxis_title="Launch Angle (deg)",
+        yaxis_title="Density",
+        height=350,
+        template="plotly_white",
+        showlegend=True,
+        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+        dragmode=False,
+    )
+    st.plotly_chart(fig_la, use_container_width=True, config=PLOTLY_CONFIG)
+
+# --- EV x LA Scatter + Spray Chart ---
+import numpy as np
+
+col_evla, col_spray = st.columns(2)
+
+with col_evla:
+    st.markdown("#### Exit Velo x Launch Angle")
+    st.caption("Each batted ball colored by estimated bases.")
+    evla_data = player_bb.dropna(subset=["launch_speed", "launch_angle"])
+    if not evla_data.empty:
+        fig_evla = go.Figure()
+        fig_evla.add_trace(go.Scatter(
+            x=evla_data["launch_speed"],
+            y=evla_data["launch_angle"],
+            mode="markers",
+            marker=dict(
+                color=evla_data["estimated_bases"],
+                colorscale="RdYlGn",
+                size=6,
+                colorbar=dict(title="Est.<br>Bases"),
+            ),
+            customdata=np.stack([
+                evla_data["estimated_bases"],
+                evla_data["actual_result"],
+            ], axis=-1),
+            hovertemplate=(
+                "EV: %{x:.1f} mph<br>"
+                "LA: %{y:.0f}&deg;<br>"
+                "Est. Bases: %{customdata[0]:.2f}<br>"
+                "Result: %{customdata[1]}"
+                "<extra></extra>"
+            ),
+            showlegend=False,
+        ))
+        fig_evla.add_hline(y=10, line_dash="dash", line_color="gray", opacity=0.3,
+                           annotation_text="GB/LD", annotation_position="bottom right",
+                           annotation_font_color="gray", annotation_font_size=10)
+        fig_evla.add_hline(y=25, line_dash="dash", line_color="gray", opacity=0.3,
+                           annotation_text="LD/FB", annotation_position="bottom right",
+                           annotation_font_color="gray", annotation_font_size=10)
+        fig_evla.add_vline(x=95, line_dash="dash", line_color="gray", opacity=0.3,
+                           annotation_text="Hard Hit", annotation_position="top left",
+                           annotation_font_color="gray", annotation_font_size=10)
+        fig_evla.update_layout(
+            xaxis_title="Exit Velocity (mph)",
+            yaxis_title="Launch Angle (&deg;)",
+            height=500,
+            template="plotly_white",
+            dragmode=False,
+        )
+        st.plotly_chart(fig_evla, use_container_width=True, config=PLOTLY_CONFIG)
+
+with col_spray:
+    st.markdown("#### Spray Chart")
+    st.caption("Batted ball locations colored by estimated bases.")
+    if "coord_x" in player_bb.columns and "coord_y" in player_bb.columns:
+        spray_data = player_bb.dropna(subset=["coord_x", "coord_y"])
+        if not spray_data.empty:
+            HP_X, HP_Y = 125.42, 199.02
+            FT = 0.5
+
+            fig_spray = go.Figure()
+            line_color = "rgba(0,0,0,0.15)"
+
+            foul_len = 350 * FT
+            for angle_deg in [-45, 45]:
+                rad = np.radians(angle_deg)
+                fig_spray.add_trace(go.Scatter(
+                    x=[HP_X, HP_X + foul_len * np.sin(rad)],
+                    y=[HP_Y, HP_Y - foul_len * np.cos(rad)],
+                    mode="lines", line=dict(color=line_color, width=1.5),
+                    showlegend=False, hoverinfo="skip",
+                ))
+
+            arc_angles = np.linspace(-np.pi / 4, np.pi / 4, 60)
+            arc_r = 95 * FT
+            fig_spray.add_trace(go.Scatter(
+                x=HP_X + arc_r * np.sin(arc_angles),
+                y=HP_Y - arc_r * np.cos(arc_angles),
+                mode="lines", line=dict(color=line_color, width=1),
+                showlegend=False, hoverinfo="skip",
+            ))
+
+            b = 90 * FT * np.sin(np.pi / 4)
+            bases_x = [HP_X, HP_X + b, HP_X, HP_X - b, HP_X]
+            bases_y = [HP_Y, HP_Y - b, HP_Y - 2 * b, HP_Y - b, HP_Y]
+            fig_spray.add_trace(go.Scatter(
+                x=bases_x, y=bases_y,
+                mode="lines", line=dict(color=line_color, width=1, dash="dot"),
+                showlegend=False, hoverinfo="skip",
+            ))
+
+            fig_spray.add_trace(go.Scatter(
+                x=spray_data["coord_x"],
+                y=spray_data["coord_y"],
+                mode="markers",
+                marker=dict(
+                    color=spray_data["estimated_bases"],
+                    colorscale="RdYlGn",
+                    size=6,
+                    colorbar=dict(title="Est.<br>Bases"),
+                ),
+                customdata=np.stack([
+                    spray_data["estimated_bases"],
+                    spray_data["launch_speed"],
+                    spray_data["actual_result"],
+                ], axis=-1),
+                hovertemplate=(
+                    "Est. Bases: %{customdata[0]:.2f}<br>"
+                    "Exit Velo: %{customdata[1]:.1f}<br>"
+                    "Result: %{customdata[2]}"
+                    "<extra></extra>"
+                ),
+                showlegend=False,
+            ))
+
+            fig_spray.update_layout(
+                height=500,
+                template="plotly_white",
+                xaxis=dict(visible=False, scaleanchor="y"),
+                yaxis=dict(visible=False, autorange="reversed"),
+                dragmode=False,
+            )
+            st.plotly_chart(fig_spray, use_container_width=True, config=PLOTLY_CONFIG_STATIC)
+
+            if "spray_direction" in spray_data.columns:
+                player_dirs = spray_data["spray_direction"].value_counts(normalize=True) * 100
+                league_spray = bb_df.dropna(subset=["coord_x", "coord_y"])
+                if "spray_direction" in league_spray.columns:
+                    lg_dirs = league_spray["spray_direction"].value_counts(normalize=True) * 100
+                    parts = []
+                    for d in ["Pull", "Center", "Oppo"]:
+                        p = player_dirs.get(d, 0)
+                        lg = lg_dirs.get(d, 0)
+                        parts.append(f"{d}: {p:.0f}% (Lg: {lg:.0f}%)")
+                    st.caption(" · ".join(parts))
+
+# --- Estimated Bases Distribution Chart ---
+st.markdown("#### Estimated Bases Distribution")
+
+eb_bins = [0, 0.25, 0.5, 1, 1.5, 2, 3, float("inf")]
+eb_labels = ["0-0.25", "0.25-0.5", "0.5-1", "1-1.5", "1.5-2", "2-3", "3+"]
+player_eb_cats = pd.cut(player_bb["estimated_bases"], bins=eb_bins, labels=eb_labels, right=False)
+league_eb_cats = pd.cut(bb_df["estimated_bases"], bins=eb_bins, labels=eb_labels, right=False)
+
+player_eb_dist = player_eb_cats.value_counts(normalize=True).reindex(eb_labels, fill_value=0) * 100
+league_eb_dist = league_eb_cats.value_counts(normalize=True).reindex(eb_labels, fill_value=0) * 100
+
+fig_eb_dist = go.Figure()
+fig_eb_dist.add_trace(go.Bar(
+    x=eb_labels, y=player_eb_dist.values,
+    name=selected_player, marker_color=primary_color, opacity=0.85,
+))
+fig_eb_dist.add_trace(go.Bar(
+    x=eb_labels, y=league_eb_dist.values,
+    name="League", marker_color="gray", opacity=0.5,
+))
+fig_eb_dist.update_layout(
+    barmode="group",
+    xaxis_title="Estimated Bases",
+    yaxis_title="% of Batted Balls",
+    height=350,
+    template="plotly_white",
+    legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+    margin=dict(t=30),
+    dragmode=False,
+)
+st.plotly_chart(fig_eb_dist, use_container_width=True, config=PLOTLY_CONFIG)
+
+# --- Contact Type Breakdown ---
+st.markdown("#### Contact Type Breakdown")
+
+type_order = ["Ground Ball", "Line Drive", "Fly Ball", "Pop Up"]
+
+# Player type stats
+type_stats = player_bb.groupby("bb_type").agg(
+    count=("estimated_bases", "count"),
+    avg_eb=("estimated_bases", "mean"),
+    avg_ev=("launch_speed", "mean"),
+    avg_la=("launch_angle", "mean"),
+).reset_index()
+type_stats["pct"] = (type_stats["count"] / type_stats["count"].sum() * 100).round(1)
+
+# Pull% per type
+if "spray_direction" in player_bb.columns:
+    pull_by_type = player_bb.groupby("bb_type").apply(
+        lambda g: (g["spray_direction"] == "Pull").mean() * 100
+    ).rename("pull_pct")
+    type_stats = type_stats.merge(pull_by_type, left_on="bb_type", right_index=True, how="left")
+else:
+    type_stats["pull_pct"] = float("nan")
+
+# League type stats for comparison
+bb_df["bb_type"] = bb_df["launch_angle"].apply(categorize_launch_angle)
+league_type_stats = bb_df.groupby("bb_type").agg(
+    lg_avg_eb=("estimated_bases", "mean"),
+).reset_index()
+type_stats = type_stats.merge(league_type_stats, on="bb_type", how="left")
+
+type_stats["bb_type"] = pd.Categorical(type_stats["bb_type"], categories=type_order, ordered=True)
+type_stats = type_stats.sort_values("bb_type").reset_index(drop=True)
+
+# Display table
+ct_display = type_stats.rename(columns={
+    "bb_type": "Type", "count": "Count", "pct": "%",
+    "avg_ev": "Avg EV", "avg_la": "Avg LA",
+    "avg_eb": "Avg Est. Bases", "lg_avg_eb": "Lg Avg EB",
+    "pull_pct": "Pull%",
+})
+ct_col_config = {
+    "Avg EV": st.column_config.NumberColumn(format="%.1f"),
+    "Avg LA": st.column_config.NumberColumn(format="%.1f°"),
+    "Avg Est. Bases": st.column_config.NumberColumn(format="%.3f"),
+    "Lg Avg EB": st.column_config.NumberColumn(format="%.3f"),
+    "Pull%": st.column_config.NumberColumn(format="%.1f%%"),
+    "%": st.column_config.NumberColumn(format="%.1f%%"),
+}
+st.dataframe(ct_display, hide_index=True, use_container_width=True, column_config=ct_col_config)
+
+# --- vs LHP / vs RHP Splits ---
+if not metadata_df.empty and "pitcher" in player_bb.columns:
+    throw_hand_map = metadata_df.set_index("player_name")["throw_hand"].to_dict()
+    player_bb["pitcher_hand"] = player_bb["pitcher"].map(throw_hand_map)
+
+    splits_available = player_bb["pitcher_hand"].dropna()
+    if len(splits_available) > 0:
+        st.markdown("#### vs LHP / vs RHP")
+
+        split_col_l, split_col_r = st.columns(2)
+        for hand_label, hand_val, col in [("vs LHP", "L", split_col_l), ("vs RHP", "R", split_col_r)]:
+            with col:
+                with st.container(border=True):
+                    subset = player_bb[player_bb["pitcher_hand"] == hand_val]
+                    n = len(subset)
+                    if n == 0:
+                        st.markdown(f"**{hand_label}**: No data")
+                    else:
+                        st.markdown(f"**{hand_label}**")
+                        s_ev = subset["launch_speed"].mean()
+                        s_eb = subset["estimated_bases"].mean()
+                        s_barrel = subset.apply(
+                            lambda r: is_barrel(r["launch_speed"], r["launch_angle"]), axis=1
+                        ).mean() * 100
+                        s1, s2 = st.columns(2)
+                        s1.metric("Count", f"{n}")
+                        s2.metric("Avg EV", f"{s_ev:.1f}")
+                        s3, s4 = st.columns(2)
+                        s3.metric("Avg Est. Bases", f"{s_eb:.3f}")
+                        s4.metric("Barrel Rate", f"{s_barrel:.1f}%")
+
+
+# =============================================================================
+# BATTED BALL LOG
+# =============================================================================
+
+st.divider()
+st.subheader("Batted Ball Log")
+st.caption(f"{season} Season")
+
 # --- Unluckiest Outs ---
 st.markdown("#### Unluckiest Outs")
 st.caption("Outs with the highest expected batting average — balls that should have been hits.")
@@ -864,310 +1201,6 @@ st.download_button(
     file_name=f"{selected_player.replace(' ', '_')}_batted_balls_{season}.csv",
     mime="text/csv",
 )
-
-
-# =============================================================================
-# CONTACT QUALITY
-# =============================================================================
-
-st.divider()
-st.subheader("Contact Quality Profile")
-st.caption(f"{season} Season")
-
-# Add derived columns
-player_bb["bb_type"] = player_bb["launch_angle"].apply(categorize_launch_angle)
-
-# --- Distribution charts row ---
-col_ev, col_la = st.columns(2)
-
-with col_ev:
-    st.markdown("#### Exit Velocity Distribution")
-    fig_ev = go.Figure()
-    fig_ev.add_trace(go.Histogram(
-        x=bb_df["launch_speed"],
-        name="League",
-        opacity=0.3,
-        marker_color="gray",
-        histnorm="probability density",
-        nbinsx=40,
-    ))
-    fig_ev.add_trace(go.Histogram(
-        x=player_bb["launch_speed"],
-        name=selected_player,
-        opacity=0.6,
-        marker_color=primary_color,
-        histnorm="probability density",
-        nbinsx=30,
-    ))
-    fig_ev.update_layout(
-        barmode="overlay",
-        xaxis_title="Exit Velocity (mph)",
-        yaxis_title="Density",
-        height=350,
-        template="plotly_white",
-        showlegend=True,
-        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
-        dragmode=False,
-    )
-    st.plotly_chart(fig_ev, use_container_width=True, config=PLOTLY_CONFIG)
-
-with col_la:
-    st.markdown("#### Launch Angle Distribution")
-    fig_la = go.Figure()
-    fig_la.add_trace(go.Histogram(
-        x=bb_df["launch_angle"],
-        name="League",
-        opacity=0.3,
-        marker_color="gray",
-        histnorm="probability density",
-        nbinsx=40,
-    ))
-    fig_la.add_trace(go.Histogram(
-        x=player_bb["launch_angle"],
-        name=selected_player,
-        opacity=0.6,
-        marker_color=primary_color,
-        histnorm="probability density",
-        nbinsx=30,
-    ))
-    fig_la.update_layout(
-        barmode="overlay",
-        xaxis_title="Launch Angle (deg)",
-        yaxis_title="Density",
-        height=350,
-        template="plotly_white",
-        showlegend=True,
-        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
-        dragmode=False,
-    )
-    st.plotly_chart(fig_la, use_container_width=True, config=PLOTLY_CONFIG)
-
-# --- Spray Chart ---
-if "coord_x" in player_bb.columns and "coord_y" in player_bb.columns:
-    spray_data = player_bb.dropna(subset=["coord_x", "coord_y"])
-    if not spray_data.empty:
-        st.markdown("#### Spray Chart")
-        st.caption("Batted ball locations colored by estimated bases.")
-
-        import numpy as np
-
-        # Statcast coordinate system reference points
-        HP_X, HP_Y = 125.42, 199.02
-        FT = 0.5  # approx coordinate units per foot
-
-        fig_spray = go.Figure()
-
-        # — Field lines (behind data) —
-        line_color = "rgba(0,0,0,0.15)"
-
-        # Foul lines (~350 ft)
-        foul_len = 350 * FT
-        for angle_deg in [-45, 45]:
-            rad = np.radians(angle_deg)
-            fig_spray.add_trace(go.Scatter(
-                x=[HP_X, HP_X + foul_len * np.sin(rad)],
-                y=[HP_Y, HP_Y - foul_len * np.cos(rad)],
-                mode="lines", line=dict(color=line_color, width=1.5),
-                showlegend=False, hoverinfo="skip",
-            ))
-
-        # Infield dirt arc (~95 ft from home, -45° to 45°)
-        arc_angles = np.linspace(-np.pi / 4, np.pi / 4, 60)
-        arc_r = 95 * FT
-        fig_spray.add_trace(go.Scatter(
-            x=HP_X + arc_r * np.sin(arc_angles),
-            y=HP_Y - arc_r * np.cos(arc_angles),
-            mode="lines", line=dict(color=line_color, width=1),
-            showlegend=False, hoverinfo="skip",
-        ))
-
-        # Base diamond
-        b = 90 * FT * np.sin(np.pi / 4)  # base offset (~31.8 units)
-        bases_x = [HP_X, HP_X + b, HP_X, HP_X - b, HP_X]
-        bases_y = [HP_Y, HP_Y - b, HP_Y - 2 * b, HP_Y - b, HP_Y]
-        fig_spray.add_trace(go.Scatter(
-            x=bases_x, y=bases_y,
-            mode="lines", line=dict(color=line_color, width=1, dash="dot"),
-            showlegend=False, hoverinfo="skip",
-        ))
-
-        # — Batted ball scatter (on top) —
-        fig_spray.add_trace(go.Scatter(
-            x=spray_data["coord_x"],
-            y=spray_data["coord_y"],
-            mode="markers",
-            marker=dict(
-                color=spray_data["estimated_bases"],
-                colorscale="RdYlGn",
-                size=6,
-                colorbar=dict(title="Est.<br>Bases"),
-            ),
-            customdata=np.stack([
-                spray_data["estimated_bases"],
-                spray_data["launch_speed"],
-                spray_data["actual_result"],
-            ], axis=-1),
-            hovertemplate=(
-                "Est. Bases: %{customdata[0]:.2f}<br>"
-                "Exit Velo: %{customdata[1]:.1f}<br>"
-                "Result: %{customdata[2]}"
-                "<extra></extra>"
-            ),
-            showlegend=False,
-        ))
-
-        fig_spray.update_layout(
-            height=500,
-            width=500,
-            template="plotly_white",
-            xaxis=dict(visible=False, scaleanchor="y"),
-            yaxis=dict(visible=False, autorange="reversed"),
-            dragmode=False,
-        )
-        st.plotly_chart(fig_spray, use_container_width=False, config=PLOTLY_CONFIG_STATIC)
-
-        # Pull / Center / Oppo comparison
-        if "spray_direction" in spray_data.columns:
-            player_dirs = spray_data["spray_direction"].value_counts(normalize=True) * 100
-            league_spray = bb_df.dropna(subset=["coord_x", "coord_y"])
-            if "spray_direction" in league_spray.columns:
-                lg_dirs = league_spray["spray_direction"].value_counts(normalize=True) * 100
-                parts = []
-                for d in ["Pull", "Center", "Oppo"]:
-                    p = player_dirs.get(d, 0)
-                    lg = lg_dirs.get(d, 0)
-                    parts.append(f"{d}: {p:.0f}% (Lg: {lg:.0f}%)")
-                st.caption(" · ".join(parts))
-
-# --- Contact Type Breakdown ---
-st.markdown("#### Contact Type Breakdown")
-
-type_order = ["Ground Ball", "Line Drive", "Fly Ball", "Pop Up"]
-
-# Player type stats
-type_stats = player_bb.groupby("bb_type").agg(
-    count=("estimated_bases", "count"),
-    avg_eb=("estimated_bases", "mean"),
-    avg_ev=("launch_speed", "mean"),
-    avg_la=("launch_angle", "mean"),
-).reset_index()
-type_stats["pct"] = (type_stats["count"] / type_stats["count"].sum() * 100).round(1)
-
-# Pull% per type
-if "spray_direction" in player_bb.columns:
-    pull_by_type = player_bb.groupby("bb_type").apply(
-        lambda g: (g["spray_direction"] == "Pull").mean() * 100
-    ).rename("pull_pct")
-    type_stats = type_stats.merge(pull_by_type, left_on="bb_type", right_index=True, how="left")
-else:
-    type_stats["pull_pct"] = float("nan")
-
-# League type stats for comparison
-bb_df["bb_type"] = bb_df["launch_angle"].apply(categorize_launch_angle)
-league_type_stats = bb_df.groupby("bb_type").agg(
-    lg_avg_eb=("estimated_bases", "mean"),
-).reset_index()
-type_stats = type_stats.merge(league_type_stats, on="bb_type", how="left")
-
-type_stats["bb_type"] = pd.Categorical(type_stats["bb_type"], categories=type_order, ordered=True)
-type_stats = type_stats.sort_values("bb_type").reset_index(drop=True)
-
-# Display table
-ct_display = type_stats.rename(columns={
-    "bb_type": "Type", "count": "Count", "pct": "%",
-    "avg_ev": "Avg EV", "avg_la": "Avg LA",
-    "avg_eb": "Avg Est. Bases", "lg_avg_eb": "Lg Avg EB",
-    "pull_pct": "Pull%",
-})
-ct_col_config = {
-    "Avg EV": st.column_config.NumberColumn(format="%.1f"),
-    "Avg LA": st.column_config.NumberColumn(format="%.1f°"),
-    "Avg Est. Bases": st.column_config.NumberColumn(format="%.3f"),
-    "Lg Avg EB": st.column_config.NumberColumn(format="%.3f"),
-    "Pull%": st.column_config.NumberColumn(format="%.1f%%"),
-    "%": st.column_config.NumberColumn(format="%.1f%%"),
-}
-st.dataframe(ct_display, hide_index=True, use_container_width=True, column_config=ct_col_config)
-
-# --- Barrel Rate with league context ---
-barrel_count = player_bb["is_barrel"].sum()
-bb_df["is_barrel"] = bb_df.apply(
-    lambda r: is_barrel(r["launch_speed"], r["launch_angle"]), axis=1
-)
-league_barrel_rate = bb_df["is_barrel"].mean() * 100
-barrel_delta = barrel_rate - league_barrel_rate
-
-br_col, eb_chart_col = st.columns([1, 2])
-with br_col:
-    st.metric(
-        "Barrel Rate",
-        f"{barrel_rate:.1f}%",
-        delta=f"{barrel_delta:+.1f}% vs league",
-        help=f"{barrel_count} barrels. Statcast barrel: EV >= 98 mph + LA in 26-30° sweet spot zone (expanding with higher EV). League avg: {league_barrel_rate:.1f}%.",
-    )
-
-# --- Estimated Bases Distribution Chart ---
-with eb_chart_col:
-    import numpy as np
-    eb_bins = [0, 1, 2, 3, float("inf")]
-    eb_labels = ["0-1", "1-2", "2-3", "3+"]
-    player_eb_cats = pd.cut(player_bb["estimated_bases"], bins=eb_bins, labels=eb_labels, right=False)
-    league_eb_cats = pd.cut(bb_df["estimated_bases"], bins=eb_bins, labels=eb_labels, right=False)
-
-    player_eb_dist = player_eb_cats.value_counts(normalize=True).reindex(eb_labels, fill_value=0) * 100
-    league_eb_dist = league_eb_cats.value_counts(normalize=True).reindex(eb_labels, fill_value=0) * 100
-
-    fig_eb_dist = go.Figure()
-    fig_eb_dist.add_trace(go.Bar(
-        x=eb_labels, y=player_eb_dist.values,
-        name=selected_player, marker_color=primary_color, opacity=0.85,
-    ))
-    fig_eb_dist.add_trace(go.Bar(
-        x=eb_labels, y=league_eb_dist.values,
-        name="League", marker_color="gray", opacity=0.5,
-    ))
-    fig_eb_dist.update_layout(
-        barmode="group",
-        xaxis_title="Estimated Bases",
-        yaxis_title="% of Batted Balls",
-        height=300,
-        template="plotly_white",
-        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
-        margin=dict(t=30),
-        dragmode=False,
-    )
-    st.plotly_chart(fig_eb_dist, use_container_width=True, config=PLOTLY_CONFIG)
-
-# --- vs LHP / vs RHP Splits ---
-if not metadata_df.empty and "pitcher" in player_bb.columns:
-    throw_hand_map = metadata_df.set_index("player_name")["throw_hand"].to_dict()
-    player_bb["pitcher_hand"] = player_bb["pitcher"].map(throw_hand_map)
-
-    splits_available = player_bb["pitcher_hand"].dropna()
-    if len(splits_available) > 0:
-        st.markdown("#### vs LHP / vs RHP")
-
-        split_col_l, split_col_r = st.columns(2)
-        for hand_label, hand_val, col in [("vs LHP", "L", split_col_l), ("vs RHP", "R", split_col_r)]:
-            with col:
-                with st.container(border=True):
-                    subset = player_bb[player_bb["pitcher_hand"] == hand_val]
-                    n = len(subset)
-                    if n == 0:
-                        st.markdown(f"**{hand_label}**: No data")
-                    else:
-                        st.markdown(f"**{hand_label}**")
-                        s_ev = subset["launch_speed"].mean()
-                        s_eb = subset["estimated_bases"].mean()
-                        s_barrel = subset.apply(
-                            lambda r: is_barrel(r["launch_speed"], r["launch_angle"]), axis=1
-                        ).mean() * 100
-                        s1, s2 = st.columns(2)
-                        s1.metric("Count", f"{n}")
-                        s2.metric("Avg EV", f"{s_ev:.1f}")
-                        s3, s4 = st.columns(2)
-                        s3.metric("Avg Est. Bases", f"{s_eb:.3f}")
-                        s4.metric("Barrel Rate", f"{s_barrel:.1f}%")
 
 
 # =============================================================================
