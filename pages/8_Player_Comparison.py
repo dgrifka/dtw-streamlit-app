@@ -27,7 +27,8 @@ from utils.data_loader import (
 from utils.team_mappings import get_team_color, get_team_logo_url
 from utils.player_helpers import (
     normalize_name, build_headshot_url, categorize_launch_angle, is_barrel,
-    _ordinal, render_percentile_bar, luck_tier_label,
+    _ordinal, _percentile_color, render_percentile_bar, render_comparison_metric,
+    luck_tier_label,
     TB_MAP, PLOTLY_CONFIG, PLOTLY_CONFIG_STATIC,
 )
 
@@ -84,7 +85,13 @@ for s in eval_seasons:
     if not pa_data.empty:
         all_season_pa_rankings[s] = pa_data
 
-st.title("Player Comparison")
+_title_col, _logo_col = st.columns([5, 1])
+with _title_col:
+    st.title("Player Comparison")
+with _logo_col:
+    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
+    if os.path.exists(_logo_path):
+        st.image(_logo_path, width=60)
 
 # =============================================================================
 # PLAYER SELECTION
@@ -286,8 +293,9 @@ for col, p, color in [(hero1, p1, p1_color), (hero2, p2, p2_color)]:
                         pass
             st.markdown(f"**{p['team']}**{pos_str}{age_str}")
 
-# Comparison metrics table
+# Comparison metrics
 st.markdown("#### Head-to-Head")
+st.caption(f"{season} Season")
 
 # Compute percentiles for EV and barrel rate
 all_evs = bb_df.groupby("player")["launch_speed"].mean()
@@ -300,49 +308,58 @@ all_barrel_rates = all_barrel.groupby("player")["is_barrel"].mean() * 100
 barrel_pct_1 = (all_barrel_rates < p1["barrel_rate"]).mean() * 100
 barrel_pct_2 = (all_barrel_rates < p2["barrel_rate"]).mean() * 100
 
+# Avg EB/BB percentile
+all_avg_eb = bb_df.groupby("player")["estimated_bases"].mean()
+avg_eb_pct_1 = (all_avg_eb < p1["avg_eb"]).mean() * 100
+avg_eb_pct_2 = (all_avg_eb < p2["avg_eb"]).mean() * 100
+
+# EB/PA percentile
+eb_pa_pct_1 = eb_pa_pct_2 = None
+if p1["ranking"] is not None and p2["ranking"] is not None and not pa_rankings.empty:
+    all_eb_pa = pa_rankings["posterior_mean"]
+    eb_pa_pct_1 = (all_eb_pa < p1["ranking"]["posterior_mean"]).mean() * 100
+    eb_pa_pct_2 = (all_eb_pa < p2["ranking"]["posterior_mean"]).mean() * 100
+
 luck_1 = p1["total_actual_tb"] - p1["total_expected_tb"]
 luck_2 = p2["total_actual_tb"] - p2["total_expected_tb"]
 
-metrics = [
-    ("Batted Balls", f"{p1['n_bb']:,}", f"{p2['n_bb']:,}", p1['n_bb'], p2['n_bb'], None, None),
-    ("Avg EV", f"{p1['avg_ev']:.1f} mph", f"{p2['avg_ev']:.1f} mph", p1['avg_ev'], p2['avg_ev'], ev_pct_1, ev_pct_2),
-    ("Barrel Rate", f"{p1['barrel_rate']:.1f}%", f"{p2['barrel_rate']:.1f}%", p1['barrel_rate'], p2['barrel_rate'], barrel_pct_1, barrel_pct_2),
-    ("Avg Est. Bases/BB", f"{p1['avg_eb']:.3f}", f"{p2['avg_eb']:.3f}", p1['avg_eb'], p2['avg_eb'], None, None),
-    ("Net Lucky Bases", f"{luck_1:+.1f}", f"{luck_2:+.1f}", luck_1, luck_2, None, None),
-]
+# Luck percentiles (computed early for Head-to-Head)
+luck_pct_1 = luck_pct_2 = None
+actual_pct_1 = actual_pct_2 = None
+expected_pct_1 = expected_pct_2 = None
+if len(bb_df) > 1000:
+    all_luck = bb_df.copy()
+    all_luck["actual_tb"] = all_luck["actual_result"].map(TB_MAP).fillna(0)
+    player_luck = all_luck.groupby("player").agg(
+        actual=("actual_tb", "sum"), expected=("estimated_bases", "sum"),
+        n=("estimated_bases", "count"),
+    )
+    player_luck = player_luck[player_luck["n"] >= 30]
+    player_luck["luck"] = player_luck["actual"] - player_luck["expected"]
+    if p1["name"] in player_luck.index:
+        luck_pct_1 = (player_luck["luck"] < luck_1).mean() * 100
+        actual_pct_1 = (player_luck["actual"] < p1["total_actual_tb"]).mean() * 100
+        expected_pct_1 = (player_luck["expected"] < p1["total_expected_tb"]).mean() * 100
+    if p2["name"] in player_luck.index:
+        luck_pct_2 = (player_luck["luck"] < luck_2).mean() * 100
+        actual_pct_2 = (player_luck["actual"] < p2["total_actual_tb"]).mean() * 100
+        expected_pct_2 = (player_luck["expected"] < p2["total_expected_tb"]).mean() * 100
 
-# Add EB/PA if both have rankings
+# Build comparison rows using render_comparison_metric
+h2h_rows = ""
+h2h_rows += render_comparison_metric("Batted Balls", f"{p1['n_bb']:,}", f"{p2['n_bb']:,}", p1['n_bb'], p2['n_bb'], bold_higher=False)
+h2h_rows += render_comparison_metric("Avg EV", f"{p1['avg_ev']:.1f} mph", f"{p2['avg_ev']:.1f} mph", p1['avg_ev'], p2['avg_ev'], ev_pct_1, ev_pct_2)
+h2h_rows += render_comparison_metric("Barrel Rate", f"{p1['barrel_rate']:.1f}%", f"{p2['barrel_rate']:.1f}%", p1['barrel_rate'], p2['barrel_rate'], barrel_pct_1, barrel_pct_2)
+h2h_rows += render_comparison_metric("Avg EB/BB", f"{p1['avg_eb']:.3f}", f"{p2['avg_eb']:.3f}", p1['avg_eb'], p2['avg_eb'], avg_eb_pct_1, avg_eb_pct_2)
+
 if p1["ranking"] is not None and p2["ranking"] is not None:
     eb1 = p1["ranking"]["posterior_mean"]
     eb2 = p2["ranking"]["posterior_mean"]
-    metrics.insert(3, ("EB/PA (Bayesian)", f"{eb1:.3f}", f"{eb2:.3f}", eb1, eb2, None, None))
+    h2h_rows += render_comparison_metric("EB/PA", f"{eb1:.3f}", f"{eb2:.3f}", eb1, eb2, eb_pa_pct_1, eb_pa_pct_2)
 
-# Build HTML table — no blank lines (CommonMark terminates HTML blocks on blank lines)
-rows_html = ""
-for label, v1_str, v2_str, v1_num, v2_num, pct1, pct2 in metrics:
-    w1 = "font-weight:700;" if v1_num > v2_num else ""
-    w2 = "font-weight:700;" if v2_num > v1_num else ""
-    if label == "Net Lucky Bases":
-        w1 = w2 = ""
+h2h_rows += render_comparison_metric("Net Lucky Bases", f"{luck_1:+.1f}", f"{luck_2:+.1f}", luck_1, luck_2, luck_pct_1, luck_pct_2, bold_higher=False)
 
-    rows_html += (
-        f'<tr style="border-bottom:1px solid #EDF2F7;">'
-        f'<td style="padding:8px 12px; text-align:right; {w1} color:{p1_color};">{v1_str}</td>'
-        f'<td style="padding:8px 12px; text-align:center; font-weight:600; color:#1E3A5F;">{label}</td>'
-        f'<td style="padding:8px 12px; text-align:left; {w2} color:{p2_color};">{v2_str}</td>'
-        f'</tr>'
-    )
-    if pct1 is not None and pct2 is not None:
-        rows_html += (
-            f'<tr>'
-            f'<td style="padding:2px 12px; text-align:right; font-size:0.75rem; color:#999;">{_ordinal(int(pct1))} pct</td>'
-            f'<td style="padding:2px 12px; text-align:center;"></td>'
-            f'<td style="padding:2px 12px; text-align:left; font-size:0.75rem; color:#999;">{_ordinal(int(pct2))} pct</td>'
-            f'</tr>'
-        )
-
-table_html = f'<table style="width:100%; border-collapse:collapse; background:#F7FAFC; border-radius:8px; font-size:0.9rem;">{rows_html}</table>'
-st.markdown(table_html, unsafe_allow_html=True)
+st.markdown(f'<div style="background:#F7FAFC; border-radius:8px; padding:8px 4px;">{h2h_rows}</div>', unsafe_allow_html=True)
 
 
 # =============================================================================
@@ -351,7 +368,8 @@ st.markdown(table_html, unsafe_allow_html=True)
 
 if p1["ranking"] is not None and p2["ranking"] is not None:
     st.divider()
-    st.subheader("Bayesian EB/PA Comparison")
+    st.subheader("Est. Bases / PA Comparison")
+    st.caption(f"{season} Season")
 
     eb1 = p1["ranking"]["posterior_mean"]
     hdi1_low = p1["ranking"]["hdi_low"]
@@ -442,282 +460,7 @@ if p1["ranking"] is not None and p2["ranking"] is not None:
 
 
 # =============================================================================
-# OVERLAID DISTRIBUTION CHARTS
-# =============================================================================
-
-st.divider()
-st.subheader("Contact Quality Distributions")
-
-col_ev, col_la, col_eb = st.columns(3)
-
-with col_ev:
-    st.markdown("#### Exit Velocity")
-    fig_ev = go.Figure()
-    fig_ev.add_trace(go.Histogram(
-        x=p1["bb"]["launch_speed"], name=p1["name"], opacity=0.6,
-        marker_color=p1_color, histnorm="probability density", nbinsx=30,
-    ))
-    fig_ev.add_trace(go.Histogram(
-        x=p2["bb"]["launch_speed"], name=p2["name"], opacity=0.6,
-        marker_color=p2_color, histnorm="probability density", nbinsx=30,
-    ))
-    fig_ev.update_layout(
-        barmode="overlay", xaxis_title="Exit Velocity (mph)", yaxis_title="Density",
-        height=350, template="plotly_white",
-        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
-        dragmode=False,
-    )
-    st.plotly_chart(fig_ev, use_container_width=True, config=PLOTLY_CONFIG)
-
-with col_la:
-    st.markdown("#### Launch Angle")
-    fig_la = go.Figure()
-    fig_la.add_trace(go.Histogram(
-        x=p1["bb"]["launch_angle"], name=p1["name"], opacity=0.6,
-        marker_color=p1_color, histnorm="probability density", nbinsx=30,
-    ))
-    fig_la.add_trace(go.Histogram(
-        x=p2["bb"]["launch_angle"], name=p2["name"], opacity=0.6,
-        marker_color=p2_color, histnorm="probability density", nbinsx=30,
-    ))
-    fig_la.update_layout(
-        barmode="overlay", xaxis_title="Launch Angle (deg)", yaxis_title="Density",
-        height=350, template="plotly_white",
-        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
-        dragmode=False,
-    )
-    st.plotly_chart(fig_la, use_container_width=True, config=PLOTLY_CONFIG)
-
-with col_eb:
-    st.markdown("#### Estimated Bases")
-    eb_bins = [0, 0.25, 0.5, 1, 1.5, 2, 3, float("inf")]
-    eb_labels = ["0-0.25", "0.25-0.5", "0.5-1", "1-1.5", "1.5-2", "2-3", "3+"]
-
-    p1_eb_dist = pd.cut(p1["bb"]["estimated_bases"], bins=eb_bins, labels=eb_labels, right=False).value_counts(normalize=True).reindex(eb_labels, fill_value=0) * 100
-    p2_eb_dist = pd.cut(p2["bb"]["estimated_bases"], bins=eb_bins, labels=eb_labels, right=False).value_counts(normalize=True).reindex(eb_labels, fill_value=0) * 100
-
-    fig_eb = go.Figure()
-    fig_eb.add_trace(go.Bar(x=eb_labels, y=p1_eb_dist.values, name=p1["name"], marker_color=p1_color, opacity=0.85))
-    fig_eb.add_trace(go.Bar(x=eb_labels, y=p2_eb_dist.values, name=p2["name"], marker_color=p2_color, opacity=0.85))
-    fig_eb.update_layout(
-        barmode="group", xaxis_title="Estimated Bases", yaxis_title="% of Batted Balls",
-        height=350, template="plotly_white",
-        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
-        margin=dict(t=30), dragmode=False,
-    )
-    st.plotly_chart(fig_eb, use_container_width=True, config=PLOTLY_CONFIG)
-
-
-# =============================================================================
-# SIDE-BY-SIDE SPRAY CHARTS
-# =============================================================================
-
-if "coord_x" in p1["bb"].columns and "coord_x" in p2["bb"].columns:
-    st.divider()
-    st.subheader("Spray Charts")
-
-    spray1, spray2 = st.columns(2)
-
-    for col, p, color in [(spray1, p1, p1_color), (spray2, p2, p2_color)]:
-        with col:
-            st.markdown(f"<h4 style='color:{color};'>{p['name']}</h4>", unsafe_allow_html=True)
-            spray_data = p["bb"].dropna(subset=["coord_x", "coord_y"])
-            if not spray_data.empty:
-                HP_X, HP_Y = 125.42, 199.02
-                FT = 0.5
-                fig_spray = go.Figure()
-                line_color = "rgba(0,0,0,0.15)"
-
-                foul_len = 350 * FT
-                for angle_deg in [-45, 45]:
-                    rad = np.radians(angle_deg)
-                    fig_spray.add_trace(go.Scatter(
-                        x=[HP_X, HP_X + foul_len * np.sin(rad)],
-                        y=[HP_Y, HP_Y - foul_len * np.cos(rad)],
-                        mode="lines", line=dict(color=line_color, width=1.5),
-                        showlegend=False, hoverinfo="skip",
-                    ))
-
-                arc_angles = np.linspace(-np.pi / 4, np.pi / 4, 60)
-                arc_r = 95 * FT
-                fig_spray.add_trace(go.Scatter(
-                    x=HP_X + arc_r * np.sin(arc_angles),
-                    y=HP_Y - arc_r * np.cos(arc_angles),
-                    mode="lines", line=dict(color=line_color, width=1),
-                    showlegend=False, hoverinfo="skip",
-                ))
-
-                b = 90 * FT * np.sin(np.pi / 4)
-                bases_x = [HP_X, HP_X + b, HP_X, HP_X - b, HP_X]
-                bases_y = [HP_Y, HP_Y - b, HP_Y - 2 * b, HP_Y - b, HP_Y]
-                fig_spray.add_trace(go.Scatter(
-                    x=bases_x, y=bases_y,
-                    mode="lines", line=dict(color=line_color, width=1, dash="dot"),
-                    showlegend=False, hoverinfo="skip",
-                ))
-
-                fig_spray.add_trace(go.Scatter(
-                    x=spray_data["coord_x"], y=spray_data["coord_y"],
-                    mode="markers",
-                    marker=dict(color=spray_data["estimated_bases"], colorscale="RdYlGn", size=6,
-                                colorbar=dict(title="Est.<br>Bases")),
-                    customdata=np.stack([
-                        spray_data["estimated_bases"],
-                        spray_data["launch_speed"],
-                        spray_data["actual_result"],
-                    ], axis=-1),
-                    hovertemplate=(
-                        "Est. Bases: %{customdata[0]:.2f}<br>"
-                        "Exit Velo: %{customdata[1]:.1f}<br>"
-                        "Result: %{customdata[2]}<extra></extra>"
-                    ),
-                    showlegend=False,
-                ))
-
-                fig_spray.update_layout(
-                    height=450, template="plotly_white",
-                    xaxis=dict(visible=False, scaleanchor="y"),
-                    yaxis=dict(visible=False, autorange="reversed"),
-                    dragmode=False,
-                )
-                st.plotly_chart(fig_spray, use_container_width=True, config=PLOTLY_CONFIG_STATIC)
-
-                # Spray direction breakdown
-                if "spray_direction" in spray_data.columns:
-                    dirs = spray_data["spray_direction"].value_counts(normalize=True) * 100
-                    parts = [f"{d}: {dirs.get(d, 0):.0f}%" for d in ["Pull", "Center", "Oppo"]]
-                    st.caption(" · ".join(parts))
-            else:
-                st.info("No spray chart data available.")
-
-
-# =============================================================================
-# COMBINED CONTACT TYPE TABLE
-# =============================================================================
-
-st.divider()
-st.subheader("Contact Type Breakdown")
-
-type_order = ["Ground Ball", "Line Drive", "Fly Ball", "Pop Up"]
-
-# League averages
-bb_df_typed = bb_df.copy()
-bb_df_typed["bb_type"] = bb_df_typed["launch_angle"].apply(categorize_launch_angle)
-lg_type = bb_df_typed.groupby("bb_type").agg(lg_avg_eb=("estimated_bases", "mean")).reset_index()
-
-
-def _contact_stats(pdata, prefix):
-    ts = pdata["bb"].groupby("bb_type").agg(
-        count=("estimated_bases", "count"),
-        avg_eb=("estimated_bases", "mean"),
-    ).reset_index()
-    ts["pct"] = (ts["count"] / ts["count"].sum() * 100).round(1)
-    ts = ts.rename(columns={"count": f"{prefix} Count", "pct": f"{prefix} %", "avg_eb": f"{prefix} Avg EB"})
-    return ts
-
-
-t1 = _contact_stats(p1, "P1")
-t2 = _contact_stats(p2, "P2")
-
-merged = t1.merge(t2, on="bb_type", how="outer").merge(lg_type, on="bb_type", how="left")
-merged["bb_type"] = pd.Categorical(merged["bb_type"], categories=type_order, ordered=True)
-merged = merged.sort_values("bb_type").reset_index(drop=True)
-merged = merged.rename(columns={"bb_type": "Type", "lg_avg_eb": "Lg Avg EB"})
-
-ct_col_config = {
-    "P1 Avg EB": st.column_config.NumberColumn(format="%.3f"),
-    "P2 Avg EB": st.column_config.NumberColumn(format="%.3f"),
-    "Lg Avg EB": st.column_config.NumberColumn(format="%.3f"),
-    "P1 %": st.column_config.NumberColumn(format="%.1f%%"),
-    "P2 %": st.column_config.NumberColumn(format="%.1f%%"),
-}
-# Rename P1/P2 to player last names for readability
-p1_last = p1["name"].split()[-1]
-p2_last = p2["name"].split()[-1]
-merged = merged.rename(columns={
-    "P1 Count": f"{p1_last} #", "P1 %": f"{p1_last} %", "P1 Avg EB": f"{p1_last} EB",
-    "P2 Count": f"{p2_last} #", "P2 %": f"{p2_last} %", "P2 Avg EB": f"{p2_last} EB",
-})
-ct_col_config = {
-    f"{p1_last} EB": st.column_config.NumberColumn(format="%.3f"),
-    f"{p2_last} EB": st.column_config.NumberColumn(format="%.3f"),
-    "Lg Avg EB": st.column_config.NumberColumn(format="%.3f"),
-    f"{p1_last} %": st.column_config.NumberColumn(format="%.1f%%"),
-    f"{p2_last} %": st.column_config.NumberColumn(format="%.1f%%"),
-}
-
-st.dataframe(merged, hide_index=True, use_container_width=True, column_config=ct_col_config)
-
-
-# =============================================================================
-# LUCK COMPARISON
-# =============================================================================
-
-st.divider()
-st.subheader("Luck Comparison")
-
-# Compute league-wide luck percentiles
-luck_pct_1 = luck_pct_2 = None
-if len(bb_df) > 1000:
-    all_luck = bb_df.copy()
-    all_luck["actual_tb"] = all_luck["actual_result"].map(TB_MAP).fillna(0)
-    player_luck = all_luck.groupby("player").agg(
-        actual=("actual_tb", "sum"), expected=("estimated_bases", "sum"),
-        n=("estimated_bases", "count"),
-    )
-    player_luck = player_luck[player_luck["n"] >= 30]
-    player_luck["luck"] = player_luck["actual"] - player_luck["expected"]
-    if p1["name"] in player_luck.index:
-        luck_pct_1 = (player_luck["luck"] < luck_1).mean() * 100
-    if p2["name"] in player_luck.index:
-        luck_pct_2 = (player_luck["luck"] < luck_2).mean() * 100
-
-lc1, lc2 = st.columns(2)
-for col, p, luck_val, luck_pct, color in [
-    (lc1, p1, luck_1, luck_pct_1, p1_color),
-    (lc2, p2, luck_2, luck_pct_2, p2_color),
-]:
-    with col:
-        st.markdown(f"<h4 style='color:{color};'>{p['name']}</h4>", unsafe_allow_html=True)
-        m1, m2 = st.columns(2)
-        m1.metric("Actual TB", f"{p['total_actual_tb']:.0f}")
-        m2.metric("Expected TB", f"{p['total_expected_tb']:.1f}")
-        m3, m4 = st.columns(2)
-        delta_color = "normal" if luck_val >= 0 else "inverse"
-        tier = luck_tier_label(luck_pct)
-        delta_text = tier if tier else ("Lucky" if luck_val > 0 else "Unlucky")
-        m3.metric("Net Lucky Bases", f"{luck_val:+.1f}", delta=delta_text, delta_color=delta_color)
-        render_percentile_bar(luck_pct, container=m4)
-
-# Overlaid cumulative luck chart
-st.markdown("#### Luck Over Time")
-st.caption("Cumulative actual minus expected total bases. Rising = lucky, falling = unlucky.")
-
-fig_luck = go.Figure()
-
-for p, color, name in [(p1, p1_color, p1["name"]), (p2, p2_color, p2["name"])]:
-    luck_ts = p["bb"].sort_values("date_parsed").copy()
-    luck_ts["cum_luck"] = luck_ts["actual_tb"].cumsum() - luck_ts["estimated_bases"].cumsum()
-    luck_ts["bb_num"] = range(1, len(luck_ts) + 1)
-    fig_luck.add_trace(go.Scatter(
-        x=luck_ts["bb_num"], y=luck_ts["cum_luck"],
-        mode="lines", name=name,
-        line=dict(color=color, width=2.5),
-        hovertemplate="BB #%{x}<br>Cumulative Luck: %{y:.1f}<extra></extra>",
-    ))
-
-fig_luck.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-fig_luck.update_layout(
-    xaxis_title="Batted Ball #", yaxis_title="Cumulative Luck (TB)",
-    height=400, template="plotly_white",
-    legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
-    dragmode=False,
-)
-st.plotly_chart(fig_luck, use_container_width=True, config=PLOTLY_CONFIG)
-
-
-# =============================================================================
-# HISTORICAL EB/PA TIMELINE
+# HISTORICAL EB/PA TIMELINE (moved up to follow current-season EB/PA)
 # =============================================================================
 
 if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["player_id"] is not None):
@@ -814,6 +557,18 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                 hovertemplate="Season: %{x}<br>EB/PA: %{y:.3f}<extra></extra>",
             ))
 
+        # Add last-name annotations at the last data point of each player's line
+        for pnum, pdata, color in [(1, p1, p1_color), (2, p2, p2_color)]:
+            if tl_data[pnum]:
+                last_pt = tl_data[pnum][-1]
+                last_name = pdata["name"].split()[-1]
+                fig_tl.add_annotation(
+                    x=last_pt["season"], y=last_pt["value"],
+                    text=last_name, showarrow=False,
+                    xshift=10, font=dict(color=color, size=11),
+                    xanchor="left",
+                )
+
         fig_tl.update_layout(
             xaxis=dict(title="Season", dtick=1, tickformat="d"),
             yaxis_title="Est. Bases per PA",
@@ -822,6 +577,282 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
             dragmode=False,
         )
         st.plotly_chart(fig_tl, use_container_width=True, config=PLOTLY_CONFIG)
+
+
+# =============================================================================
+# OVERLAID DISTRIBUTION CHARTS
+# =============================================================================
+
+st.divider()
+st.subheader("Contact Quality Distributions")
+st.caption(f"{season} Season")
+
+col_ev, col_la, col_eb = st.columns(3)
+
+with col_ev:
+    st.markdown("#### Exit Velocity")
+    fig_ev = go.Figure()
+    fig_ev.add_trace(go.Histogram(
+        x=p1["bb"]["launch_speed"], name=p1["name"], opacity=0.6,
+        marker_color=p1_color, histnorm="probability density", nbinsx=30,
+    ))
+    fig_ev.add_trace(go.Histogram(
+        x=p2["bb"]["launch_speed"], name=p2["name"], opacity=0.6,
+        marker_color=p2_color, histnorm="probability density", nbinsx=30,
+    ))
+    fig_ev.update_layout(
+        barmode="overlay", xaxis_title="Exit Velocity (mph)", yaxis_title="Density",
+        height=350, template="plotly_white",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        dragmode=False,
+    )
+    st.plotly_chart(fig_ev, use_container_width=True, config=PLOTLY_CONFIG)
+
+with col_la:
+    st.markdown("#### Launch Angle")
+    fig_la = go.Figure()
+    fig_la.add_trace(go.Histogram(
+        x=p1["bb"]["launch_angle"], name=p1["name"], opacity=0.6,
+        marker_color=p1_color, histnorm="probability density", nbinsx=30,
+    ))
+    fig_la.add_trace(go.Histogram(
+        x=p2["bb"]["launch_angle"], name=p2["name"], opacity=0.6,
+        marker_color=p2_color, histnorm="probability density", nbinsx=30,
+    ))
+    fig_la.update_layout(
+        barmode="overlay", xaxis_title="Launch Angle (deg)", yaxis_title="Density",
+        height=350, template="plotly_white",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        dragmode=False,
+    )
+    st.plotly_chart(fig_la, use_container_width=True, config=PLOTLY_CONFIG)
+
+with col_eb:
+    st.markdown("#### Estimated Bases")
+    eb_bins = [0, 0.25, 0.5, 1, 1.5, 2, 3, float("inf")]
+    eb_labels = ["0-0.25", "0.25-0.5", "0.5-1", "1-1.5", "1.5-2", "2-3", "3+"]
+
+    p1_eb_dist = pd.cut(p1["bb"]["estimated_bases"], bins=eb_bins, labels=eb_labels, right=False).value_counts(normalize=True).reindex(eb_labels, fill_value=0) * 100
+    p2_eb_dist = pd.cut(p2["bb"]["estimated_bases"], bins=eb_bins, labels=eb_labels, right=False).value_counts(normalize=True).reindex(eb_labels, fill_value=0) * 100
+
+    fig_eb = go.Figure()
+    fig_eb.add_trace(go.Bar(x=eb_labels, y=p1_eb_dist.values, name=p1["name"], marker_color=p1_color, opacity=0.85))
+    fig_eb.add_trace(go.Bar(x=eb_labels, y=p2_eb_dist.values, name=p2["name"], marker_color=p2_color, opacity=0.85))
+    fig_eb.update_layout(
+        barmode="group", xaxis_title="Estimated Bases", yaxis_title="% of Batted Balls",
+        height=350, template="plotly_white",
+        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+        margin=dict(t=30), dragmode=False,
+    )
+    st.plotly_chart(fig_eb, use_container_width=True, config=PLOTLY_CONFIG)
+
+
+# =============================================================================
+# SIDE-BY-SIDE SPRAY CHARTS
+# =============================================================================
+
+if "coord_x" in p1["bb"].columns and "coord_x" in p2["bb"].columns:
+    st.divider()
+    st.subheader("Spray Charts")
+    st.caption(f"{season} Season")
+
+    spray1, spray2 = st.columns(2)
+
+    for col, p, color in [(spray1, p1, p1_color), (spray2, p2, p2_color)]:
+        with col:
+            st.markdown(f"#### {p['name']}")
+            spray_data = p["bb"].dropna(subset=["coord_x", "coord_y"])
+            if not spray_data.empty:
+                HP_X, HP_Y = 125.42, 199.02
+                FT = 0.5
+                fig_spray = go.Figure()
+                line_color = "rgba(0,0,0,0.15)"
+
+                foul_len = 350 * FT
+                for angle_deg in [-45, 45]:
+                    rad = np.radians(angle_deg)
+                    fig_spray.add_trace(go.Scatter(
+                        x=[HP_X, HP_X + foul_len * np.sin(rad)],
+                        y=[HP_Y, HP_Y - foul_len * np.cos(rad)],
+                        mode="lines", line=dict(color=line_color, width=1.5),
+                        showlegend=False, hoverinfo="skip",
+                    ))
+
+                arc_angles = np.linspace(-np.pi / 4, np.pi / 4, 60)
+                arc_r = 95 * FT
+                fig_spray.add_trace(go.Scatter(
+                    x=HP_X + arc_r * np.sin(arc_angles),
+                    y=HP_Y - arc_r * np.cos(arc_angles),
+                    mode="lines", line=dict(color=line_color, width=1),
+                    showlegend=False, hoverinfo="skip",
+                ))
+
+                b = 90 * FT * np.sin(np.pi / 4)
+                bases_x = [HP_X, HP_X + b, HP_X, HP_X - b, HP_X]
+                bases_y = [HP_Y, HP_Y - b, HP_Y - 2 * b, HP_Y - b, HP_Y]
+                fig_spray.add_trace(go.Scatter(
+                    x=bases_x, y=bases_y,
+                    mode="lines", line=dict(color=line_color, width=1, dash="dot"),
+                    showlegend=False, hoverinfo="skip",
+                ))
+
+                fig_spray.add_trace(go.Scatter(
+                    x=spray_data["coord_x"], y=spray_data["coord_y"],
+                    mode="markers",
+                    marker=dict(color=spray_data["estimated_bases"], colorscale="RdYlGn", size=6,
+                                colorbar=dict(title="Est.<br>Bases")),
+                    customdata=np.stack([
+                        spray_data["estimated_bases"],
+                        spray_data["launch_speed"],
+                        spray_data["actual_result"],
+                    ], axis=-1),
+                    hovertemplate=(
+                        "Est. Bases: %{customdata[0]:.2f}<br>"
+                        "Exit Velo: %{customdata[1]:.1f}<br>"
+                        "Result: %{customdata[2]}<extra></extra>"
+                    ),
+                    showlegend=False,
+                ))
+
+                fig_spray.update_layout(
+                    height=450, template="plotly_white",
+                    xaxis=dict(visible=False, scaleanchor="y"),
+                    yaxis=dict(visible=False, autorange="reversed"),
+                    dragmode=False,
+                )
+                st.plotly_chart(fig_spray, use_container_width=True, config=PLOTLY_CONFIG_STATIC)
+
+                # Spray direction breakdown
+                if "spray_direction" in spray_data.columns:
+                    dirs = spray_data["spray_direction"].value_counts(normalize=True) * 100
+                    parts = [f"{d}: {dirs.get(d, 0):.0f}%" for d in ["Pull", "Center", "Oppo"]]
+                    st.caption(" · ".join(parts))
+            else:
+                st.info("No spray chart data available.")
+
+
+# =============================================================================
+# COMBINED CONTACT TYPE TABLE
+# =============================================================================
+
+st.divider()
+st.subheader("Contact Type Breakdown")
+st.caption(f"{season} Season")
+
+type_order = ["Ground Ball", "Line Drive", "Fly Ball", "Pop Up"]
+
+# League averages
+bb_df_typed = bb_df.copy()
+bb_df_typed["bb_type"] = bb_df_typed["launch_angle"].apply(categorize_launch_angle)
+lg_type = bb_df_typed.groupby("bb_type").agg(lg_avg_eb=("estimated_bases", "mean")).reset_index()
+
+
+def _contact_stats(pdata, prefix):
+    ts = pdata["bb"].groupby("bb_type").agg(
+        count=("estimated_bases", "count"),
+        avg_eb=("estimated_bases", "mean"),
+    ).reset_index()
+    ts["pct"] = (ts["count"] / ts["count"].sum() * 100).round(1)
+    ts = ts.rename(columns={"count": f"{prefix} Count", "pct": f"{prefix} %", "avg_eb": f"{prefix} Avg EB"})
+    return ts
+
+
+t1 = _contact_stats(p1, "P1")
+t2 = _contact_stats(p2, "P2")
+
+merged = t1.merge(t2, on="bb_type", how="outer").merge(lg_type, on="bb_type", how="left")
+merged["bb_type"] = pd.Categorical(merged["bb_type"], categories=type_order, ordered=True)
+merged = merged.sort_values("bb_type").reset_index(drop=True)
+merged = merged.rename(columns={"bb_type": "Type", "lg_avg_eb": "Lg Avg EB"})
+
+ct_col_config = {
+    "P1 Avg EB": st.column_config.NumberColumn(format="%.3f"),
+    "P2 Avg EB": st.column_config.NumberColumn(format="%.3f"),
+    "Lg Avg EB": st.column_config.NumberColumn(format="%.3f"),
+    "P1 %": st.column_config.NumberColumn(format="%.1f%%"),
+    "P2 %": st.column_config.NumberColumn(format="%.1f%%"),
+}
+# Rename P1/P2 to player last names for readability
+p1_last = p1["name"].split()[-1]
+p2_last = p2["name"].split()[-1]
+merged = merged.rename(columns={
+    "P1 Count": f"{p1_last} #", "P1 %": f"{p1_last} %", "P1 Avg EB": f"{p1_last} EB",
+    "P2 Count": f"{p2_last} #", "P2 %": f"{p2_last} %", "P2 Avg EB": f"{p2_last} EB",
+})
+ct_col_config = {
+    f"{p1_last} EB": st.column_config.NumberColumn(format="%.3f"),
+    f"{p2_last} EB": st.column_config.NumberColumn(format="%.3f"),
+    "Lg Avg EB": st.column_config.NumberColumn(format="%.3f"),
+    f"{p1_last} %": st.column_config.NumberColumn(format="%.1f%%"),
+    f"{p2_last} %": st.column_config.NumberColumn(format="%.1f%%"),
+}
+
+st.dataframe(merged, hide_index=True, use_container_width=True, column_config=ct_col_config)
+
+
+# =============================================================================
+# LUCK COMPARISON
+# =============================================================================
+
+st.divider()
+st.subheader("Luck Comparison")
+st.caption(f"{season} Season")
+
+lc1, lc2 = st.columns(2)
+for col, p, luck_val, luck_pct, actual_pct, expected_pct, color in [
+    (lc1, p1, luck_1, luck_pct_1, actual_pct_1, expected_pct_1, p1_color),
+    (lc2, p2, luck_2, luck_pct_2, actual_pct_2, expected_pct_2, p2_color),
+]:
+    with col:
+        st.markdown(f"#### {p['name']}")
+        m1, m2 = st.columns(2)
+        m1.metric("Actual TB", f"{p['total_actual_tb']:.0f}")
+        render_percentile_bar(actual_pct, container=m1)
+        m2.metric("Expected TB", f"{p['total_expected_tb']:.1f}")
+        render_percentile_bar(expected_pct, container=m2)
+        m3, m4 = st.columns(2)
+        delta_color = "normal" if luck_val >= 0 else "inverse"
+        tier = luck_tier_label(luck_pct)
+        delta_text = tier if tier else ("Lucky" if luck_val > 0 else "Unlucky")
+        m3.metric("Net Lucky Bases", f"{luck_val:+.1f}", delta=delta_text, delta_color=delta_color)
+        render_percentile_bar(luck_pct, container=m4)
+
+# Overlaid cumulative luck chart
+st.markdown("#### Luck Over Time")
+st.caption("Cumulative actual minus expected total bases. Rising = lucky, falling = unlucky.")
+
+fig_luck = go.Figure()
+
+luck_last_points = []
+for p, color, name in [(p1, p1_color, p1["name"]), (p2, p2_color, p2["name"])]:
+    luck_ts = p["bb"].sort_values("date_parsed").copy()
+    luck_ts["cum_luck"] = luck_ts["actual_tb"].cumsum() - luck_ts["estimated_bases"].cumsum()
+    luck_ts["bb_num"] = range(1, len(luck_ts) + 1)
+    fig_luck.add_trace(go.Scatter(
+        x=luck_ts["bb_num"], y=luck_ts["cum_luck"],
+        mode="lines", name=name,
+        line=dict(color=color, width=2.5),
+        hovertemplate="BB #%{x}<br>Cumulative Luck: %{y:.1f}<extra></extra>",
+    ))
+    luck_last_points.append((luck_ts["bb_num"].iloc[-1], luck_ts["cum_luck"].iloc[-1], name, color))
+
+fig_luck.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+
+# Add last-name annotations at end of each line
+for x, y, name, color in luck_last_points:
+    last_name = name.split()[-1]
+    fig_luck.add_annotation(
+        x=x, y=y, text=last_name, showarrow=False,
+        xshift=10, font=dict(color=color, size=11), xanchor="left",
+    )
+
+fig_luck.update_layout(
+    xaxis_title="Batted Ball #", yaxis_title="Cumulative Luck (TB)",
+    height=400, template="plotly_white",
+    legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+    dragmode=False,
+)
+st.plotly_chart(fig_luck, use_container_width=True, config=PLOTLY_CONFIG)
 
 
 # =============================================================================

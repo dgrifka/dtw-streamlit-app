@@ -111,6 +111,69 @@ def render_percentile_bar(percentile, label=None, container=None):
     """, unsafe_allow_html=True)
 
 
+def render_comparison_metric(label, v1_str, v2_str, v1_num, v2_num, pct1=None, pct2=None, bold_higher=True, invert=False):
+    """Return HTML for a side-by-side metric row with optional percentile bars.
+
+    Parameters
+    ----------
+    label : str
+        Metric name displayed in center column.
+    v1_str, v2_str : str
+        Formatted display values for player 1 and player 2.
+    v1_num, v2_num : float
+        Numeric values for comparison (bold the higher one).
+    pct1, pct2 : float | None
+        Percentile values (0-100) for bar display.  None = no bar.
+    bold_higher : bool
+        Whether to bold the higher value.
+    invert : bool
+        If True, bold the *lower* value instead.
+    """
+    w1 = w2 = ""
+    if bold_higher and v1_num is not None and v2_num is not None:
+        if invert:
+            w1 = "font-weight:700;" if v1_num < v2_num else ""
+            w2 = "font-weight:700;" if v2_num < v1_num else ""
+        else:
+            w1 = "font-weight:700;" if v1_num > v2_num else ""
+            w2 = "font-weight:700;" if v2_num > v1_num else ""
+
+    def _bar_html(pct):
+        if pct is None:
+            return ""
+        pct = max(0, min(100, pct))
+        color = _percentile_color(pct)
+        return (
+            f'<div style="position:relative; height:14px; margin:2px 10px 0 10px;">'
+            f'<div style="position:absolute; top:4px; left:0; right:0; height:5px;'
+            f' background:rgba(180,180,180,0.25); border-radius:3px;"></div>'
+            f'<div style="position:absolute; top:0; left:{pct}%;'
+            f' width:14px; height:14px; margin-left:-7px;'
+            f' background:{color}; border-radius:50%;'
+            f' box-shadow:0 1px 2px rgba(0,0,0,0.12);"></div>'
+            f'</div>'
+            f'<div style="text-align:center; font-size:10px; color:rgba(150,150,150,0.85);'
+            f' margin-top:1px;">{_ordinal(int(pct))} pct</div>'
+        )
+
+    left_bar = _bar_html(pct1)
+    right_bar = _bar_html(pct2)
+
+    return (
+        f'<div style="display:flex; align-items:flex-start; border-bottom:1px solid #EDF2F7; padding:8px 0;">'
+        f'<div style="flex:1; text-align:right; padding-right:12px;">'
+        f'<div style="{w1} color:#1a1a1a; font-size:0.95rem;">{v1_str}</div>'
+        f'{left_bar}'
+        f'</div>'
+        f'<div style="width:130px; text-align:center; font-weight:600; color:#1E3A5F; font-size:0.85rem; padding-top:2px;">{label}</div>'
+        f'<div style="flex:1; text-align:left; padding-left:12px;">'
+        f'<div style="{w2} color:#1a1a1a; font-size:0.95rem;">{v2_str}</div>'
+        f'{right_bar}'
+        f'</div>'
+        f'</div>'
+    )
+
+
 def luck_tier_label(percentile):
     """Return 5-tier luck label based on percentile."""
     if percentile is None:
