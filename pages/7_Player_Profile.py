@@ -60,6 +60,11 @@ components.html("""
 # HELPERS
 # =============================================================================
 
+# Plotly interaction config: disable drag/zoom (prevents accidental zoom on mobile)
+PLOTLY_CONFIG = {"scrollZoom": False, "displayModeBar": False, "doubleClick": False}
+PLOTLY_CONFIG_STATIC = {"staticPlot": True}
+
+
 def normalize_name(name):
     """Strip accents for fuzzy search."""
     return unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii").lower()
@@ -105,6 +110,70 @@ def is_barrel(ev, la):
     la_low = max(8, 26 - extra)
     la_high = min(50, 30 + 2 * extra)
     return la_low <= la <= la_high
+
+
+def _ordinal(n):
+    """Return ordinal string for a number (e.g., 1st, 2nd, 3rd, 72nd)."""
+    n = int(n)
+    if 11 <= n % 100 <= 13:
+        return f"{n}th"
+    return f"{n}{('th','st','nd','rd')[min(n%10,4) if n%10<4 else 0]}"
+
+
+def _percentile_color(pct):
+    """3-stop gradient: blue (0) -> gray (50) -> red (100)."""
+    if pct <= 50:
+        t = pct / 50
+        r = int(59 + (156 - 59) * t)
+        g = int(130 + (163 - 130) * t)
+        b = int(246 + (175 - 246) * t)
+    else:
+        t = (pct - 50) / 50
+        r = int(156 + (239 - 156) * t)
+        g = int(163 + (68 - 163) * t)
+        b = int(175 + (68 - 175) * t)
+    return f"rgb({r},{g},{b})"
+
+
+def render_percentile_bar(percentile, label=None, container=None):
+    """Render a horizontal percentile bar with colored circle indicator."""
+    if percentile is None:
+        return
+    target = container if container is not None else st
+    pct = max(0, min(100, percentile))
+    color = _percentile_color(pct)
+    if label is None:
+        label = f"{_ordinal(int(pct))} percentile"
+    target.markdown(f"""
+    <div style="margin:-8px 0 4px 0;">
+        <div style="position:relative; height:20px; margin:0 10px;">
+            <div style="position:absolute; top:7px; left:0; right:0; height:6px;
+                        background:rgba(180,180,180,0.3); border-radius:3px;"></div>
+            <div style="position:absolute; top:0; left:{pct}%;
+                        width:20px; height:20px; margin-left:-10px;
+                        background:{color}; border-radius:50%;
+                        box-shadow:0 1px 3px rgba(0,0,0,0.15);"></div>
+        </div>
+        <div style="text-align:center; font-size:11px; color:rgba(150,150,150,0.9);
+                    margin-top:2px;">{label}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def luck_tier_label(percentile):
+    """Return 5-tier luck label based on percentile."""
+    if percentile is None:
+        return None
+    if percentile < 10:
+        return "Very Unlucky"
+    elif percentile < 30:
+        return "Unlucky"
+    elif percentile < 70:
+        return "Luck Neutral"
+    elif percentile < 90:
+        return "Lucky"
+    else:
+        return "Very Lucky"
 
 
 # =============================================================================
@@ -334,10 +403,10 @@ with hero_mid:
     qs1.metric("Batted Balls", f"{n_bb:,}")
     qs2.metric("Avg EV", f"{avg_ev:.1f} mph",
                help="Average exit velocity on all batted balls (mph)")
-    qs2.caption(f"{ev_pct:.0f}th percentile")
+    render_percentile_bar(ev_pct, container=qs2)
     qs3.metric("Barrel Rate", f"{barrel_rate:.1f}%",
                help="Barrels: EV >= 98 mph + launch angle in the sweet spot zone. Barrels produce the highest expected bases.")
-    qs3.caption(f"{barrel_pct:.0f}th percentile")
+    render_percentile_bar(barrel_pct, container=qs3)
 
 with hero_right:
     if player_ranking is not None:
@@ -350,7 +419,7 @@ with hero_right:
 
         st.metric("Est. Bases/PA", f"{bayesian_eb:.3f}",
                   help="Bayesian estimate of true production per plate appearance. Accounts for walks, HBP, strikeouts, and batted ball quality. Small samples are shrunk toward league average.")
-        st.caption(f"{eb_pct:.0f}th percentile")
+        render_percentile_bar(eb_pct)
 
         # --- 3-Row Comparison Bar ---
         # Best player in current season
@@ -574,8 +643,9 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                 xanchor="center",
                 x=0.5,
             ),
+            dragmode=False,
         )
-        st.plotly_chart(fig_timeline, use_container_width=True)
+        st.plotly_chart(fig_timeline, use_container_width=True, config=PLOTLY_CONFIG)
 
         if len(timeline_data) == 1:
             st.caption("Only one season of data available. More history will accumulate over time.")
@@ -627,18 +697,17 @@ if len(bb_df) > 1000:
 lm1, lm2, lm3 = st.columns(3)
 with lm1:
     st.metric("Actual Total Bases", f"{total_actual_tb:.0f}")
-    if actual_pct is not None:
-        st.caption(f"{actual_pct:.0f}th percentile")
+    render_percentile_bar(actual_pct)
 with lm2:
     st.metric("Expected Total Bases", f"{total_expected_tb:.1f}")
-    if expected_pct is not None:
-        st.caption(f"{expected_pct:.0f}th percentile")
+    render_percentile_bar(expected_pct)
 with lm3:
     delta_color = "normal" if luck_score >= 0 else "inverse"
-    st.metric("Luck Score", f"{luck_score:+.1f}", delta=f"{'Lucky' if luck_score > 0 else 'Unlucky'}", delta_color=delta_color,
+    tier = luck_tier_label(luck_pct)
+    delta_text = tier if tier else ("Lucky" if luck_score > 0 else "Unlucky")
+    st.metric("Net Lucky Bases", f"{luck_score:+.1f}", delta=delta_text, delta_color=delta_color,
               help="Actual total bases minus expected total bases. Positive = lucky (more bases than expected from contact quality). Tends to regress toward zero over a full season.")
-    if luck_pct is not None:
-        st.caption(f"{luck_pct:.0f}th percentile")
+    render_percentile_bar(luck_pct)
 
 # --- Luck Accumulation Chart ---
 st.markdown("#### Luck Over Time")
@@ -669,8 +738,9 @@ fig_luck.update_layout(
     yaxis_title="Cumulative Luck (TB)",
     height=400,
     template="plotly_white",
+    dragmode=False,
 )
-st.plotly_chart(fig_luck, use_container_width=True)
+st.plotly_chart(fig_luck, use_container_width=True, config=PLOTLY_CONFIG)
 
 # --- Unluckiest Outs ---
 st.markdown("#### Unluckiest Outs")
@@ -837,8 +907,9 @@ with col_ev:
         template="plotly_white",
         showlegend=True,
         legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+        dragmode=False,
     )
-    st.plotly_chart(fig_ev, use_container_width=True)
+    st.plotly_chart(fig_ev, use_container_width=True, config=PLOTLY_CONFIG)
 
 with col_la:
     st.markdown("#### Launch Angle Distribution")
@@ -867,8 +938,9 @@ with col_la:
         template="plotly_white",
         showlegend=True,
         legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+        dragmode=False,
     )
-    st.plotly_chart(fig_la, use_container_width=True)
+    st.plotly_chart(fig_la, use_container_width=True, config=PLOTLY_CONFIG)
 
 # --- Spray Chart ---
 if "coord_x" in player_bb.columns and "coord_y" in player_bb.columns:
@@ -950,8 +1022,9 @@ if "coord_x" in player_bb.columns and "coord_y" in player_bb.columns:
             template="plotly_white",
             xaxis=dict(visible=False, scaleanchor="y"),
             yaxis=dict(visible=False, autorange="reversed"),
+            dragmode=False,
         )
-        st.plotly_chart(fig_spray, use_container_width=False)
+        st.plotly_chart(fig_spray, use_container_width=False, config=PLOTLY_CONFIG_STATIC)
 
         # Pull / Center / Oppo comparison
         if "spray_direction" in spray_data.columns:
@@ -1061,8 +1134,9 @@ with eb_chart_col:
         template="plotly_white",
         legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
         margin=dict(t=30),
+        dragmode=False,
     )
-    st.plotly_chart(fig_eb_dist, use_container_width=True)
+    st.plotly_chart(fig_eb_dist, use_container_width=True, config=PLOTLY_CONFIG)
 
 # --- vs LHP / vs RHP Splits ---
 if not metadata_df.empty and "pitcher" in player_bb.columns:
@@ -1117,9 +1191,11 @@ shows the player vs. the best hitter and league average, with 89% Highest Densit
 **Historical Timeline** tracks a player's Bayesian Est. Bases / PA across seasons with 89% HDI error
 bars. The gold diamond shows the best hitter each season for reference.
 
-**Luck Score** = actual total bases minus expected total bases (sum of estimated bases for
+**Net Lucky Bases** = actual total bases minus expected total bases (sum of estimated bases for
 each batted ball). Positive = lucky (got more bases than expected from contact quality).
-Negative = unlucky. Over a full season, extreme luck scores tend to regress toward zero.
+Negative = unlucky. Over a full season, extreme values tend to regress toward zero.
+Tier labels: Very Unlucky (0-10th pct), Unlucky (10-30th), Luck Neutral (30-70th),
+Lucky (70-90th), Very Lucky (90-100th).
 
 **Barrel**: Exit velocity >= 98 mph with a launch angle in the "sweet spot" zone (26-30+
 degrees, expanding with higher EV). Barrels produce the highest expected bases.
