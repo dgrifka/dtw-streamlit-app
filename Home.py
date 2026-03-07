@@ -308,6 +308,44 @@ def render_feature_cards(current_season):
         """, unsafe_allow_html=True)
         st.caption("Individual player deep-dives: contact quality heatmaps, luck reports, platoon splits, and Bayesian rankings.")
 
+    # Row 3: 1 column centered
+    _, col_center, _ = st.columns([1, 1, 1])
+
+    with col_center:
+        st.page_link("pages/8_Player_Comparison.py",
+                     label="⚔️ **Player Comparison**",
+                     use_container_width=True)
+        st.markdown("""
+        <div style="background:#F7FAFC; border-radius:8px; padding:10px; font-size:0.75rem;">
+          <div style="display:flex; gap:8px; align-items:center; justify-content:center; margin-bottom:8px;">
+            <div style="width:36px; height:36px; background:#E2E8F0; border-radius:50%;"></div>
+            <div style="font-weight:700; color:#1E3A5F;">vs</div>
+            <div style="width:36px; height:36px; background:#E2E8F0; border-radius:50%;"></div>
+          </div>
+          <div style="display:flex; gap:6px; margin-bottom:6px;">
+            <div style="flex:1; text-align:center; background:#EDF2F7; border-radius:4px; padding:4px;">
+              <div style="font-size:0.65rem; color:#999;">Avg EV</div>
+              <div style="font-weight:600; color:#005A9C;">91.2</div>
+            </div>
+            <div style="flex:1; text-align:center; background:#EDF2F7; border-radius:4px; padding:4px;">
+              <div style="font-size:0.65rem; color:#999;">vs</div>
+              <div style="font-weight:600; color:#C41E3A;">89.7</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <div style="flex:1; text-align:center; background:#EDF2F7; border-radius:4px; padding:4px;">
+              <div style="font-size:0.65rem; color:#999;">EB/PA</div>
+              <div style="font-weight:600; color:#005A9C;">0.412</div>
+            </div>
+            <div style="flex:1; text-align:center; background:#EDF2F7; border-radius:4px; padding:4px;">
+              <div style="font-size:0.65rem; color:#999;">vs</div>
+              <div style="font-weight:600; color:#C41E3A;">0.389</div>
+            </div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.caption("Compare two hitters side-by-side: distributions, spray charts, luck, and Bayesian rankings.")
+
 
 def render_about_section():
     """Render about section with all content visible (no tabs)."""
