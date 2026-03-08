@@ -285,7 +285,7 @@ if total_results > 0:
         # Add dashboard link
         import urllib.parse
         leader_display['Profile'] = leader_display['Player'].apply(
-            lambda p: f"/Player_Profile?player={urllib.parse.quote(p)}"
+            lambda p: f"/Hitter_Profile?player={urllib.parse.quote(p)}"
         )
 
         st.dataframe(

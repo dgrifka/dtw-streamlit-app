@@ -199,8 +199,8 @@ def render_feature_cards(current_season):
             st.image(playoff_img, width="stretch")
         st.caption("Monte Carlo simulations of the rest of the season using deserve-to-win team strengths.")
 
-    # Row 2: 4 columns
-    col4, col5, col6, col7 = st.columns(4)
+    # Row 2: 3 columns
+    col4, col5, col6 = st.columns(3)
 
     with col4:
         st.page_link("pages/4_Batted_Ball_Explorer.py",
@@ -273,9 +273,12 @@ def render_feature_cards(current_season):
             st.image(player_eval_img, width="stretch")
         st.caption("Bayesian rankings of hitters and pitchers by contact quality, with credible intervals and shrinkage.")
 
-    with col7:
-        st.page_link("pages/7_Player_Profile.py",
-                     label="🧑 **Player Profile**",
+    # Row 3: 3 columns — Hitter Profile, Pitcher Profile, Hitter Comparison
+    col8, col9, col10 = st.columns(3)
+
+    with col8:
+        st.page_link("pages/7_Hitter_Profile.py",
+                     label="🧑 **Hitter Profile**",
                      use_container_width=True)
         st.markdown("""
         <div style="background:#F7FAFC; border-radius:8px; padding:10px; font-size:0.75rem;">
@@ -306,14 +309,46 @@ def render_feature_cards(current_season):
           <div style="font-size:0.6rem; color:#999; margin-top:2px;">68th percentile — EB/PA</div>
         </div>
         """, unsafe_allow_html=True)
-        st.caption("Individual player deep-dives: contact quality heatmaps, luck reports, platoon splits, and Bayesian rankings.")
+        st.caption("Individual hitter deep-dives: contact quality heatmaps, luck reports, platoon splits, and Bayesian rankings.")
 
-    # Row 3: 1 column centered
-    _, col_center, _ = st.columns([1, 1, 1])
+    with col9:
+        st.page_link("pages/9_Pitcher_Profile.py",
+                     label="⚾ **Pitcher Profile**",
+                     use_container_width=True)
+        st.markdown("""
+        <div style="background:#F7FAFC; border-radius:8px; padding:10px; font-size:0.75rem;">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+            <div style="width:40px; height:40px; background:#E2E8F0; border-radius:50%;"></div>
+            <div>
+              <div style="font-weight:700; color:#1E3A5F;">Pitcher Name</div>
+              <div style="color:#999; font-size:0.7rem;">Team | RHP | Age 28</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:6px; margin-bottom:6px;">
+            <div style="flex:1; text-align:center; background:#EDF2F7; border-radius:4px; padding:4px;">
+              <div style="font-size:0.65rem; color:#999;">EV Allowed</div>
+              <div style="font-weight:600; color:#1E3A5F;">87.3</div>
+            </div>
+            <div style="flex:1; text-align:center; background:#EDF2F7; border-radius:4px; padding:4px;">
+              <div style="font-size:0.65rem; color:#999;">Barrel%</div>
+              <div style="font-weight:600; color:#1E3A5F;">5.2%</div>
+            </div>
+            <div style="flex:1; text-align:center; background:#EDF2F7; border-radius:4px; padding:4px;">
+              <div style="font-size:0.65rem; color:#999;">Luck</div>
+              <div style="font-weight:600; color:#E53E3E;">-3.1</div>
+            </div>
+          </div>
+          <div style="height:6px; background:#E2E8F0; border-radius:3px; overflow:hidden;">
+            <div style="width:24%; height:100%; background:linear-gradient(90deg, #2C5282, #3182CE); border-radius:3px;"></div>
+          </div>
+          <div style="font-size:0.6rem; color:#999; margin-top:2px;">24th percentile — EB/PA allowed (lower = better)</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.caption("Pitcher deep-dives: contact quality allowed, luck reports, batter splits, and Bayesian rankings.")
 
-    with col_center:
-        st.page_link("pages/8_Player_Comparison.py",
-                     label="⚔️ **Player Comparison**",
+    with col10:
+        st.page_link("pages/8_Hitter_Comparison.py",
+                     label="⚔️ **Hitter Comparison**",
                      use_container_width=True)
         st.markdown("""
         <div style="background:#F7FAFC; border-radius:8px; padding:10px; font-size:0.75rem;">

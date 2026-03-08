@@ -1,5 +1,5 @@
 """
-Player Comparison Page
+Hitter Comparison Page
 
 Side-by-side comparison of two hitters: contact quality, distributions,
 spray charts, luck reports, and Bayesian rankings.
@@ -33,7 +33,7 @@ from utils.player_helpers import (
 )
 
 st.set_page_config(
-    page_title="Player Comparison | DTW Simulator",
+    page_title="Hitter Comparison | DTW Simulator",
     page_icon="⚾",
     layout="wide",
 )
@@ -70,7 +70,7 @@ with col_season:
 
 bb_df = load_batted_balls(season)
 if bb_df.empty:
-    st.title("Player Comparison")
+    st.title("Hitter Comparison")
     st.info(f"No batted ball data available for {season}.")
     st.stop()
 
@@ -87,7 +87,7 @@ for s in eval_seasons:
 
 _title_col, _logo_col = st.columns([5, 1])
 with _title_col:
-    st.title("Player Comparison")
+    st.title("Hitter Comparison")
 with _logo_col:
     _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
     if os.path.exists(_logo_path):
@@ -864,6 +864,6 @@ p1_display = f"{p1['name']} ({p1['team']})"
 p2_display = f"{p2['name']} ({p2['team']})"
 fc1, fc2 = st.columns(2)
 with fc1:
-    st.markdown(f"[View {p1['name']}'s full profile](Player_Profile?player={p1_display.replace(' ', '+')})")
+    st.markdown(f"[View {p1['name']}'s full profile](Hitter_Profile?player={p1_display.replace(' ', '+')})")
 with fc2:
-    st.markdown(f"[View {p2['name']}'s full profile](Player_Profile?player={p2_display.replace(' ', '+')})")
+    st.markdown(f"[View {p2['name']}'s full profile](Hitter_Profile?player={p2_display.replace(' ', '+')})")

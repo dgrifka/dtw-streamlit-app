@@ -257,8 +257,9 @@ display = display.rename(columns={
 
 # Add player dashboard link
 import urllib.parse
+_profile_page = "Pitcher_Profile" if type_key == "pitcher" else "Hitter_Profile"
 display["Profile"] = display["Player"].apply(
-    lambda p: f"/Player_Profile?player={urllib.parse.quote(p)}"
+    lambda p: f"/{_profile_page}?player={urllib.parse.quote(p)}"
 )
 
 COLUMN_CONFIG = {

@@ -1,5 +1,5 @@
 """
-Shared player-related helpers used by Player Profile and Player Comparison pages.
+Shared player-related helpers used by Hitter Profile, Pitcher Profile, and Hitter Comparison pages.
 """
 
 import pandas as pd
