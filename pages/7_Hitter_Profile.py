@@ -453,6 +453,12 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
         best_df = pd.DataFrame(best_player_data)
         lg_df = pd.DataFrame(league_avg_data)
 
+        # Trim to player's season range
+        player_seasons = tl_df["season"].tolist()
+        min_s, max_s = min(player_seasons), max(player_seasons)
+        lg_df = lg_df[(lg_df["season"] >= min_s) & (lg_df["season"] <= max_s)]
+        best_df = best_df[(best_df["season"] >= min_s) & (best_df["season"] <= max_s)]
+
         fig_timeline = go.Figure()
 
         # League average — gray dots only (no line)
@@ -461,70 +467,104 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
             y=lg_df["value"],
             mode="markers",
             name="Lg Avg",
-            marker=dict(color="rgba(160,160,160,0.8)", size=10),
+            marker=dict(color="rgba(160,160,160,0.8)", size=11),
             hovertemplate="Season: %{x}<br>Lg Avg: %{y:.3f}<extra></extra>",
         ))
 
-        # Best player — individual colored diamonds per season
-        first_best_season = best_df["season"].iloc[0]
-        for _, brow in best_df.iterrows():
-            fig_timeline.add_trace(go.Scatter(
-                x=[brow["season"]],
-                y=[brow["value"]],
-                mode="markers",
-                name=brow["name"],
-                marker=dict(color=brow["color"], size=11, symbol="diamond",
-                            line=dict(width=1, color="white")),
-                hovertemplate=f"Season: %{{x}}<br>{brow['name']}: %{{y:.3f}}<extra></extra>",
-                legendgroup="best",
-                showlegend=bool(brow["season"] == first_best_season),
-            ))
-        # Override legend entry for the group
-        fig_timeline.data[-len(best_df)].name = "Best Hitter"
+        # Best player — gold diamonds per season
+        if not best_df.empty:
+            first_best_season = best_df["season"].iloc[0]
+            for _, brow in best_df.iterrows():
+                fig_timeline.add_trace(go.Scatter(
+                    x=[brow["season"]],
+                    y=[brow["value"]],
+                    mode="markers",
+                    name=brow["name"],
+                    marker=dict(color="#DAA520", size=12, symbol="diamond",
+                                line=dict(width=1, color="white")),
+                    hovertemplate=f"Season: %{{x}}<br>{brow['name']}: %{{y:.3f}}<extra></extra>",
+                    legendgroup="best",
+                    showlegend=bool(brow["season"] == first_best_season),
+                ))
+            # Override legend entry for the group
+            fig_timeline.data[-len(best_df)].name = "Best Hitter"
 
-        # Player — line with HDI fill band
-        # Upper bound (invisible, for fill)
-        fig_timeline.add_trace(go.Scatter(
-            x=tl_df["season"],
-            y=tl_df["hdi_high"],
-            mode="lines",
-            line=dict(width=0),
-            showlegend=False,
-            hoverinfo="skip",
-        ))
-        # Lower bound with fill to upper
-        fig_timeline.add_trace(go.Scatter(
-            x=tl_df["season"],
-            y=tl_df["hdi_low"],
-            mode="lines",
-            line=dict(width=0),
-            fill="tonexty",
-            fillcolor=f"rgba({int(primary_color[1:3], 16)},{int(primary_color[3:5], 16)},{int(primary_color[5:7], 16)},0.15)",
-            showlegend=False,
-            hoverinfo="skip",
-        ))
-        # Player line + markers
-        fig_timeline.add_trace(go.Scatter(
-            x=tl_df["season"],
-            y=tl_df["value"],
-            mode="lines+markers",
-            name=selected_player,
-            line=dict(color=primary_color, width=2.5),
-            marker=dict(color=primary_color, size=10),
-            hovertemplate=(
-                "Season: %{x}<br>"
-                "EB/PA: %{y:.3f}<br>"
-                "<extra></extra>"
-            ),
-        ))
+        # Player — line with HDI
+        if len(tl_df) == 1:
+            # Single point: use error bars for HDI
+            row = tl_df.iloc[0]
+            c = primary_color.lstrip("#")
+            r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+            fig_timeline.add_trace(go.Scatter(
+                x=tl_df["season"],
+                y=tl_df["value"],
+                mode="markers",
+                name=selected_player,
+                marker=dict(color=primary_color, size=12),
+                error_y=dict(
+                    type="data",
+                    array=[row["hdi_high"] - row["value"]],
+                    arrayminus=[row["value"] - row["hdi_low"]],
+                    color=f"rgba({r},{g},{b},0.5)",
+                    thickness=2,
+                    width=6,
+                ),
+                hovertemplate=(
+                    "Season: %{x}<br>"
+                    "EB/PA: %{y:.3f}<br>"
+                    "<extra></extra>"
+                ),
+            ))
+        else:
+            # Multiple points: fill band + line
+            # Upper bound (invisible, for fill)
+            fig_timeline.add_trace(go.Scatter(
+                x=tl_df["season"],
+                y=tl_df["hdi_high"],
+                mode="lines",
+                line=dict(width=0),
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+            # Lower bound with fill to upper
+            fig_timeline.add_trace(go.Scatter(
+                x=tl_df["season"],
+                y=tl_df["hdi_low"],
+                mode="lines",
+                line=dict(width=0),
+                fill="tonexty",
+                fillcolor=f"rgba({int(primary_color[1:3], 16)},{int(primary_color[3:5], 16)},{int(primary_color[5:7], 16)},0.15)",
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+            # Player line + markers
+            fig_timeline.add_trace(go.Scatter(
+                x=tl_df["season"],
+                y=tl_df["value"],
+                mode="lines+markers",
+                name=selected_player,
+                line=dict(color=primary_color, width=2.5),
+                marker=dict(color=primary_color, size=12),
+                hovertemplate=(
+                    "Season: %{x}<br>"
+                    "EB/PA: %{y:.3f}<br>"
+                    "<extra></extra>"
+                ),
+            ))
 
         fig_timeline.update_layout(
             xaxis=dict(
                 title="Season",
+                title_font_size=14,
+                tickfont_size=13,
                 dtick=1,
                 tickformat="d",
             ),
-            yaxis_title="Est. Bases per PA",
+            yaxis=dict(
+                title="Est. Bases per PA",
+                title_font_size=14,
+                tickfont_size=13,
+            ),
             height=400,
             template="plotly_white",
             legend=dict(
@@ -533,6 +573,7 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                 y=1.02,
                 xanchor="center",
                 x=0.5,
+                font=dict(size=13),
             ),
             dragmode=False,
         )
