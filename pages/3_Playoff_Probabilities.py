@@ -55,7 +55,13 @@ def _image_exists(url: str) -> bool:
 # MAIN PAGE
 # -----------------------------------------------------------------------------
 
-st.title("🎯 Playoff Probabilities")
+_title_col, _logo_col = st.columns([5, 1])
+with _title_col:
+    st.title("🎯 Playoff Probabilities")
+with _logo_col:
+    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
+    if os.path.exists(_logo_path):
+        st.image(_logo_path, width=85)
 st.markdown(
     "Monte Carlo simulations of the rest of the season using "
     "**Bayesian team strength estimates** from the deserve-to-win model."

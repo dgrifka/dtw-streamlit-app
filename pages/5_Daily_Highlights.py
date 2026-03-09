@@ -31,7 +31,13 @@ MAX_DISPLAY_ROWS = 15
 # MAIN PAGE
 # -----------------------------------------------------------------------------
 
-st.title("⭐ Daily Highlights")
+_title_col, _logo_col = st.columns([5, 1])
+with _title_col:
+    st.title("⭐ Daily Highlights")
+with _logo_col:
+    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
+    if os.path.exists(_logo_path):
+        st.image(_logo_path, width=85)
 st.markdown("Best and worst batted ball outcomes for each game day.")
 
 # Season selector

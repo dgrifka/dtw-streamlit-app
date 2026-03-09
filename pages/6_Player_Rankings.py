@@ -39,7 +39,13 @@ st.set_page_config(
 # MAIN PAGE
 # -----------------------------------------------------------------------------
 
-st.title("Player Rankings")
+_title_col, _logo_col = st.columns([5, 1])
+with _title_col:
+    st.title("Player Rankings")
+with _logo_col:
+    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
+    if os.path.exists(_logo_path):
+        st.image(_logo_path, width=85)
 st.markdown(
     "Bayesian rankings of hitters and pitchers with credible intervals. "
     "The model estimates each player's true underlying performance by pooling "
