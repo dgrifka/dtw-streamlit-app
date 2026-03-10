@@ -3,6 +3,9 @@ Data loading utilities for the Streamlit app.
 Loads game summaries from public S3 bucket and constructs image URLs.
 """
 
+import urllib.request
+
+import numpy as np
 import pandas as pd
 import streamlit as st
 from .team_mappings import get_short_name
@@ -80,39 +83,38 @@ def load_playoff_probabilities(season: int):
         return None
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
+def _image_exists(url: str) -> bool:
+    """Check if a URL returns HTTP 200 (cached 24 hours)."""
+    try:
+        req = urllib.request.Request(url, method='HEAD')
+        resp = urllib.request.urlopen(req, timeout=5)
+        return resp.status == 200
+    except Exception:
+        return False
+
+
+@st.cache_data(ttl=86400)
 def get_available_batted_ball_seasons() -> list[int]:
-    """Auto-detect which seasons have batted ball data on S3."""
-    import urllib.request
+    """Auto-detect which seasons have batted ball data on S3 (cached 24h)."""
     current_year = pd.Timestamp.now().year
     available = []
     for year in range(current_year, current_year - 5, -1):
         url = f"{S3_BASE_URL}/data/batted_balls_{year}.parquet"
-        try:
-            req = urllib.request.Request(url, method='HEAD')
-            resp = urllib.request.urlopen(req, timeout=5)
-            if resp.status == 200:
-                available.append(year)
-        except Exception:
-            pass
+        if _image_exists(url):
+            available.append(year)
     return available
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_available_player_evaluation_seasons() -> list[int]:
-    """Auto-detect which seasons have player evaluation data on S3."""
-    import urllib.request
+    """Auto-detect which seasons have player evaluation data on S3 (cached 24h)."""
     current_year = pd.Timestamp.now().year
     available = []
     for year in range(current_year, current_year - 5, -1):
         url = f"{S3_BASE_URL}/player-evaluations/{year}/latest/hitter_rankings.parquet"
-        try:
-            req = urllib.request.Request(url, method='HEAD')
-            resp = urllib.request.urlopen(req, timeout=5)
-            if resp.status == 200:
-                available.append(year)
-        except Exception:
-            pass
+        if _image_exists(url):
+            available.append(year)
     return available
 
 
@@ -274,6 +276,41 @@ def load_player_projections(target_season: int, player_type: str = "hitter") -> 
         return df
     except Exception:
         return pd.DataFrame()
+
+
+@st.cache_data(ttl=3600)
+def load_all_season_pa_rankings(player_type: str = "hitter") -> dict:
+    """Load PA rankings for all available seasons (cached 1h).
+
+    Returns dict mapping season (int) to DataFrame.
+    """
+    result = {}
+    for s in get_available_player_evaluation_seasons():
+        pa_data = load_player_evaluations_pa(s, player_type)
+        if not pa_data.empty:
+            result[s] = pa_data
+    return result
+
+
+@st.cache_data(ttl=3600)
+def compute_league_percentiles(season: int, group_col: str = "player") -> dict:
+    """Compute league-wide EV, barrel rate, and avg EB per player (cached 1h).
+
+    Returns dict with keys: ev_by_player, barrel_rates, avg_eb_by_player.
+    Each value is a pandas Series indexed by player/pitcher name.
+    Returns empty dict if no data.
+    """
+    from .player_helpers import is_barrel_vectorized
+
+    bb_df = load_batted_balls(season)
+    if bb_df.empty:
+        return {}
+    is_barrel_col = is_barrel_vectorized(bb_df["launch_speed"], bb_df["launch_angle"])
+    return {
+        "ev_by_player": bb_df.groupby(group_col)["launch_speed"].mean(),
+        "barrel_rates": bb_df.assign(is_barrel=is_barrel_col).groupby(group_col)["is_barrel"].mean() * 100,
+        "avg_eb_by_player": bb_df.groupby(group_col)["estimated_bases"].mean(),
+    }
 
 
 def filter_games(

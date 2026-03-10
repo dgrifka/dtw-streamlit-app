@@ -2,6 +2,7 @@
 Shared player-related helpers used by Hitter Profile, Pitcher Profile, and Hitter Comparison pages.
 """
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 import unicodedata
@@ -61,6 +62,14 @@ def is_barrel(ev, la):
     la_low = max(8, 26 - extra)
     la_high = min(50, 30 + 2 * extra)
     return la_low <= la <= la_high
+
+
+def is_barrel_vectorized(ev: pd.Series, la: pd.Series) -> pd.Series:
+    """Vectorized barrel check — same logic as is_barrel but on entire columns."""
+    extra = ev - 98
+    la_low = np.maximum(8, 26 - extra)
+    la_high = np.minimum(50, 30 + 2 * extra)
+    return (ev >= 98) & (la >= la_low) & (la <= la_high)
 
 
 def _ordinal(n):

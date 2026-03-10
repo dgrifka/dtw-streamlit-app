@@ -94,8 +94,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+@st.cache_data(ttl=86400)
 def _get_player_eval_image_url(current_season):
-    """Return a working player evaluation image URL, falling back to prior year."""
+    """Return a working player evaluation image URL, falling back to prior year (cached 24h)."""
     from datetime import datetime
     current_year = datetime.now().year
     candidates = dict.fromkeys([current_season, current_year, current_season - 1, current_year - 1])
@@ -110,8 +111,9 @@ def _get_player_eval_image_url(current_season):
     return None
 
 
+@st.cache_data(ttl=86400)
 def _get_playoff_image_url(current_season):
-    """Return a working playoff image URL, falling back to prior/current year."""
+    """Return a working playoff image URL, falling back to prior/current year (cached 24h)."""
     from datetime import datetime
     current_year = datetime.now().year
     # Try current season, current calendar year, then one year back from each

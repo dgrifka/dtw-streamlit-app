@@ -10,8 +10,6 @@ images from S3, eliminating the need for matplotlib/pillow/requests.
 
 import streamlit as st
 import pandas as pd
-import urllib.request
-import urllib.error
 import os
 import sys
 
@@ -21,7 +19,7 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from utils.data_loader import load_game_summaries
+from utils.data_loader import load_game_summaries, _image_exists
 from utils.luck_calculations import (
     filter_to_regular_season,
     calculate_luck_metrics,
@@ -42,17 +40,6 @@ S3_CHARTS_URL = "https://dtw-streamlit.s3.amazonaws.com/team-rankings"
 # -----------------------------------------------------------------------------
 # HELPER FUNCTIONS
 # -----------------------------------------------------------------------------
-
-@st.cache_data(ttl=3600)
-def _image_exists(url: str) -> bool:
-    """Check if a URL returns a valid image (cached 1 hour)."""
-    try:
-        req = urllib.request.Request(url, method='HEAD')
-        resp = urllib.request.urlopen(req, timeout=5)
-        return resp.status == 200
-    except Exception:
-        return False
-
 
 def get_data_freshness_date(df: pd.DataFrame) -> str:
     """

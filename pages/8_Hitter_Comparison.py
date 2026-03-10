@@ -20,13 +20,14 @@ if parent_dir not in sys.path:
 
 from utils.data_loader import (
     load_batted_balls, get_available_batted_ball_seasons,
-    get_available_player_evaluation_seasons,
+    load_all_season_pa_rankings, compute_league_percentiles,
     load_player_evaluations_pa, load_player_metadata, load_pa_counts,
     resolve_player_id,
 )
 from utils.team_mappings import get_team_color, get_team_logo_url
 from utils.player_helpers import (
-    normalize_name, build_headshot_url, categorize_launch_angle, is_barrel,
+    normalize_name, build_headshot_url, categorize_launch_angle,
+    is_barrel, is_barrel_vectorized,
     _ordinal, _percentile_color, render_percentile_bar, render_comparison_metric,
     luck_tier_label,
     TB_MAP, PLOTLY_CONFIG, PLOTLY_CONFIG_STATIC,
@@ -78,12 +79,7 @@ metadata_df = load_player_metadata(season)
 pa_rankings = load_player_evaluations_pa(season, "hitter")
 
 # Multi-season PA rankings for historical timeline
-eval_seasons = get_available_player_evaluation_seasons()
-all_season_pa_rankings = {}
-for s in eval_seasons:
-    pa_data = load_player_evaluations_pa(s, "hitter")
-    if not pa_data.empty:
-        all_season_pa_rankings[s] = pa_data
+all_season_pa_rankings = load_all_season_pa_rankings("hitter")
 
 _title_col, _logo_col = st.columns([5, 1])
 with _title_col:
@@ -219,7 +215,7 @@ def resolve_player_data(display_label):
 
     # Computed stats
     pbb["actual_tb"] = pbb["actual_result"].map(TB_MAP).fillna(0)
-    pbb["is_barrel"] = pbb.apply(lambda r: is_barrel(r["launch_speed"], r["launch_angle"]), axis=1)
+    pbb["is_barrel"] = is_barrel_vectorized(pbb["launch_speed"], pbb["launch_angle"])
     pbb["bb_type"] = pbb["launch_angle"].apply(categorize_launch_angle)
 
     return {
@@ -297,21 +293,17 @@ for col, p, color in [(hero1, p1, p1_color), (hero2, p2, p2_color)]:
 st.markdown("#### Head-to-Head")
 st.caption(f"{season} Season")
 
-# Compute percentiles for EV and barrel rate
-all_evs = bb_df.groupby("player")["launch_speed"].mean()
-ev_pct_1 = (all_evs < p1["avg_ev"]).mean() * 100
-ev_pct_2 = (all_evs < p2["avg_ev"]).mean() * 100
-
-all_barrel = bb_df.copy()
-all_barrel["is_barrel"] = all_barrel.apply(lambda r: is_barrel(r["launch_speed"], r["launch_angle"]), axis=1)
-all_barrel_rates = all_barrel.groupby("player")["is_barrel"].mean() * 100
-barrel_pct_1 = (all_barrel_rates < p1["barrel_rate"]).mean() * 100
-barrel_pct_2 = (all_barrel_rates < p2["barrel_rate"]).mean() * 100
-
-# Avg EB/BB percentile
-all_avg_eb = bb_df.groupby("player")["estimated_bases"].mean()
-avg_eb_pct_1 = (all_avg_eb < p1["avg_eb"]).mean() * 100
-avg_eb_pct_2 = (all_avg_eb < p2["avg_eb"]).mean() * 100
+# Compute percentiles for EV, barrel rate, avg EB
+league_pcts = compute_league_percentiles(season, "player")
+if league_pcts:
+    ev_pct_1 = (league_pcts["ev_by_player"] < p1["avg_ev"]).mean() * 100
+    ev_pct_2 = (league_pcts["ev_by_player"] < p2["avg_ev"]).mean() * 100
+    barrel_pct_1 = (league_pcts["barrel_rates"] < p1["barrel_rate"]).mean() * 100
+    barrel_pct_2 = (league_pcts["barrel_rates"] < p2["barrel_rate"]).mean() * 100
+    avg_eb_pct_1 = (league_pcts["avg_eb_by_player"] < p1["avg_eb"]).mean() * 100
+    avg_eb_pct_2 = (league_pcts["avg_eb_by_player"] < p2["avg_eb"]).mean() * 100
+else:
+    ev_pct_1 = ev_pct_2 = barrel_pct_1 = barrel_pct_2 = avg_eb_pct_1 = avg_eb_pct_2 = 50
 
 # EB/PA percentile
 eb_pa_pct_1 = eb_pa_pct_2 = None

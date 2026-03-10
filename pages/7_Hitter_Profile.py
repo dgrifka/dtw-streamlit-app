@@ -21,7 +21,7 @@ if parent_dir not in sys.path:
 
 from utils.data_loader import (
     load_batted_balls, get_available_batted_ball_seasons,
-    get_available_player_evaluation_seasons,
+    load_all_season_pa_rankings, compute_league_percentiles,
     load_player_evaluations_pa, load_player_metadata, load_pa_counts,
     load_player_projections, resolve_player_id,
 )
@@ -31,7 +31,8 @@ from utils.team_mappings import (
 )
 from utils.player_helpers import (
     normalize_name, build_headshot_url, build_video_url,
-    categorize_launch_angle, is_barrel, _ordinal, _percentile_color,
+    categorize_launch_angle, is_barrel, is_barrel_vectorized,
+    _ordinal, _percentile_color,
     render_percentile_bar, luck_tier_label,
     TB_MAP, PLOTLY_CONFIG, PLOTLY_CONFIG_STATIC,
 )
@@ -87,12 +88,7 @@ pa_rankings = load_player_evaluations_pa(season, "hitter")
 pa_counts_df = load_pa_counts(season)
 
 # Load multi-season PA rankings for historical timeline
-eval_seasons = get_available_player_evaluation_seasons()
-all_season_pa_rankings = {}
-for s in eval_seasons:
-    pa_data = load_player_evaluations_pa(s, "hitter")
-    if not pa_data.empty:
-        all_season_pa_rankings[s] = pa_data
+all_season_pa_rankings = load_all_season_pa_rankings("hitter")
 
 
 # =============================================================================
@@ -240,9 +236,7 @@ primary_color, secondary_color = get_team_color(player_team_short)
 avg_eb = player_bb["estimated_bases"].mean()
 avg_ev = player_bb["launch_speed"].mean()
 n_bb = len(player_bb)
-player_bb["is_barrel"] = player_bb.apply(
-    lambda r: is_barrel(r["launch_speed"], r["launch_angle"]), axis=1
-)
+player_bb["is_barrel"] = is_barrel_vectorized(player_bb["launch_speed"], player_bb["launch_angle"])
 barrel_rate = player_bb["is_barrel"].mean() * 100
 
 # Hero layout
@@ -282,13 +276,9 @@ with hero_mid:
     st.markdown(f"**{player_team_short}**{pos_str}{age_str}")
 
     # Key stats row — 3 metrics with percentiles
-    ev_pct = (bb_df.groupby("player")["launch_speed"].mean() < avg_ev).mean() * 100
-    all_barrel = bb_df.copy()
-    all_barrel["is_barrel"] = all_barrel.apply(
-        lambda r: is_barrel(r["launch_speed"], r["launch_angle"]), axis=1
-    )
-    all_barrel_rates = all_barrel.groupby("player")["is_barrel"].mean() * 100
-    barrel_pct = (all_barrel_rates < barrel_rate).mean() * 100
+    league_pcts = compute_league_percentiles(season, "player")
+    ev_pct = (league_pcts["ev_by_player"] < avg_ev).mean() * 100 if league_pcts else 50
+    barrel_pct = (league_pcts["barrel_rates"] < barrel_rate).mean() * 100 if league_pcts else 50
 
     qs1, qs2, qs3 = st.columns(3)
     qs1.metric("Batted Balls", f"{n_bb:,}")
@@ -1077,9 +1067,7 @@ if not metadata_df.empty and "pitcher" in player_bb.columns:
                         st.markdown(f"**{hand_label}**")
                         s_ev = subset["launch_speed"].mean()
                         s_eb = subset["estimated_bases"].mean()
-                        s_barrel = subset.apply(
-                            lambda r: is_barrel(r["launch_speed"], r["launch_angle"]), axis=1
-                        ).mean() * 100
+                        s_barrel = is_barrel_vectorized(subset["launch_speed"], subset["launch_angle"]).mean() * 100
                         s1, s2 = st.columns(2)
                         s1.metric("Count", f"{n}")
                         s2.metric("Avg EV", f"{s_ev:.1f}")

@@ -7,8 +7,6 @@ pipeline) and a sortable probability table.  Data is loaded from S3.
 
 import streamlit as st
 import pandas as pd
-import urllib.request
-import urllib.error
 import os
 import sys
 import time
@@ -23,7 +21,7 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from utils.data_loader import load_playoff_probabilities, S3_BASE_URL
+from utils.data_loader import load_playoff_probabilities, _image_exists, S3_BASE_URL
 
 # Page config
 st.set_page_config(
@@ -40,15 +38,15 @@ S3_PLAYOFF_URL = f"{S3_BASE_URL}/playoff-probabilities"
 # HELPER FUNCTIONS
 # -----------------------------------------------------------------------------
 
-@st.cache_data(ttl=3600)
-def _image_exists(url: str) -> bool:
-    """Check if a URL returns a valid image (cached 1 hour)."""
-    try:
-        req = urllib.request.Request(url, method='HEAD')
-        resp = urllib.request.urlopen(req, timeout=5)
-        return resp.status == 200
-    except Exception:
-        return False
+@st.cache_data(ttl=86400)
+def _get_available_playoff_seasons():
+    """Auto-detect which seasons have playoff data on S3 (cached 24h)."""
+    available = []
+    for year in range(datetime.now().year, datetime.now().year - 3, -1):
+        url = f"{S3_PLAYOFF_URL}/{year}/latest/results.parquet"
+        if _image_exists(url):
+            available.append(year)
+    return available
 
 
 # -----------------------------------------------------------------------------
@@ -71,11 +69,7 @@ st.markdown(
 from datetime import datetime
 current_year = datetime.now().year
 
-available_seasons = []
-for year in range(current_year, current_year - 3, -1):
-    url = f"{S3_PLAYOFF_URL}/{year}/latest/results.parquet"
-    if _image_exists(url):
-        available_seasons.append(year)
+available_seasons = _get_available_playoff_seasons()
 
 if available_seasons:
     selected_season = st.selectbox(
