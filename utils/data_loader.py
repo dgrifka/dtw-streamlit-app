@@ -256,6 +256,26 @@ def load_pa_counts(season: int) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=3600)
+def load_player_projections(target_season: int, player_type: str = "hitter") -> pd.DataFrame:
+    """Load preseason player projections from S3 (1-hour cache).
+
+    Args:
+        target_season: Season being projected (e.g. 2026)
+        player_type: 'hitter' or 'pitcher'
+
+    Returns:
+        DataFrame with columns: player_id, player, team, projected_eb_pa,
+        projected_hdi_low, projected_hdi_high, aging_effect, p_active_next_season, etc.
+    """
+    url = f"{S3_BASE_URL}/player-projections/{target_season}/latest/{player_type}_projections.parquet"
+    try:
+        df = pd.read_parquet(url)
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
 def filter_games(
     df: pd.DataFrame,
     teams: list = None,

@@ -23,7 +23,7 @@ from utils.data_loader import (
     load_batted_balls, get_available_batted_ball_seasons,
     get_available_player_evaluation_seasons,
     load_player_evaluations_pa, load_player_metadata, load_pa_counts,
-    resolve_player_id,
+    load_player_projections, resolve_player_id,
 )
 from utils.team_mappings import (
     get_team_color, get_team_logo_url, get_short_name,
@@ -522,8 +522,100 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                 hovertemplate="Season: %{x}<br>EB/PA Allowed: %{y:.3f}<extra></extra>",
             ))
 
+        # Multi-year projections (shaded zone with trajectory)
+        proj_points = []
+        for proj_season in range(max_s + 1, max_s + 4):
+            proj_df = load_player_projections(proj_season, "pitcher")
+            if proj_df.empty:
+                continue
+            proj_match = proj_df[proj_df["player_id"] == player_id] if "player_id" in proj_df.columns else pd.DataFrame()
+            if proj_match.empty:
+                proj_match = proj_df[proj_df["player"] == selected_pitcher]
+            if not proj_match.empty:
+                proj_points.append(proj_match.iloc[0].to_dict() | {"season": proj_season})
+
+        if proj_points:
+            c = primary_color.lstrip("#")
+            pr, pg, pb = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+            proj_seasons = [p["season"] for p in proj_points]
+            proj_values = [p["projected_eb_pa"] for p in proj_points]
+            proj_hdi_hi = [p["projected_hdi_high"] for p in proj_points]
+            proj_hdi_lo = [p["projected_hdi_low"] for p in proj_points]
+
+            # Shaded background for projection zone
+            fig_timeline.add_vrect(
+                x0=max_s + 0.5, x1=max(proj_seasons) + 0.5,
+                fillcolor="rgba(180,180,220,0.10)", line_width=0,
+                layer="below",
+            )
+            fig_timeline.add_annotation(
+                x=(max_s + 0.5 + max(proj_seasons) + 0.5) / 2,
+                y=1.0, yref="paper", yanchor="bottom",
+                text="Projected", showarrow=False,
+                font=dict(size=11, color="rgba(120,120,160,0.7)"),
+            )
+
+            # HDI ribbon
+            fig_timeline.add_trace(go.Scatter(
+                x=proj_seasons, y=proj_hdi_hi,
+                mode="lines", line=dict(width=0),
+                showlegend=False, hoverinfo="skip",
+            ))
+            fig_timeline.add_trace(go.Scatter(
+                x=proj_seasons, y=proj_hdi_lo,
+                mode="lines", line=dict(width=0),
+                fill="tonexty",
+                fillcolor=f"rgba({pr},{pg},{pb},0.10)",
+                showlegend=False, hoverinfo="skip",
+            ))
+
+            # Dashed connection from last actual to first projection
+            last_actual = tl_df[tl_df["season"] == max_s].iloc[0]
+            fig_timeline.add_trace(go.Scatter(
+                x=[max_s, proj_seasons[0]],
+                y=[last_actual["value"], proj_values[0]],
+                mode="lines",
+                line=dict(color=f"rgba({pr},{pg},{pb},0.4)", width=1.5, dash="dot"),
+                showlegend=False, hoverinfo="skip",
+            ))
+
+            # Projection trajectory line
+            if len(proj_seasons) > 1:
+                fig_timeline.add_trace(go.Scatter(
+                    x=proj_seasons, y=proj_values,
+                    mode="lines",
+                    line=dict(color=f"rgba({pr},{pg},{pb},0.5)", width=2, dash="dash"),
+                    showlegend=False, hoverinfo="skip",
+                ))
+
+            # Projection markers
+            fig_timeline.add_trace(go.Scatter(
+                x=proj_seasons, y=proj_values,
+                mode="markers",
+                name="Projection",
+                marker=dict(
+                    color="rgba(255,255,255,0)", size=12,
+                    symbol="diamond-open",
+                    line=dict(width=2.5, color=primary_color),
+                ),
+                customdata=[
+                    [p.get("aging_effect", 0), p["projected_hdi_low"], p["projected_hdi_high"]]
+                    for p in proj_points
+                ],
+                hovertemplate=(
+                    "Projection %{x}<br>"
+                    "EB/PA Allowed: %{y:.3f}<br>"
+                    "89% HDI: [%{customdata[1]:.3f}, %{customdata[2]:.3f}]<br>"
+                    "Aging effect: %{customdata[0]:+.3f}"
+                    "<extra></extra>"
+                ),
+            ))
+
+        # Compute x-axis range including projections
+        x_max = max(proj_seasons) if proj_points else max_s
         fig_timeline.update_layout(
-            xaxis=dict(title="Season", title_font_size=14, tickfont_size=13, dtick=1, tickformat="d"),
+            xaxis=dict(title="Season", title_font_size=14, tickfont_size=13, dtick=1, tickformat="d",
+                       range=[min_s - 0.5, x_max + 0.5]),
             yaxis=dict(title="Est. Bases Allowed per PA  (↓ better)", title_font_size=14, tickfont_size=13),
             height=400, template="plotly_white",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=13)),
