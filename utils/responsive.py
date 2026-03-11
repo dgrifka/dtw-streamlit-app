@@ -48,10 +48,9 @@ _RESPONSIVE_CSS = """
     /* Prevent long page titles from wrapping */
     h1 { font-size: 1.6rem !important; }
 
-    /* Narrower sidebar */
-    [data-testid="stSidebar"] {
-        min-width: 180px !important;
-        max-width: 180px !important;
+    /* Narrower sidebar — only constrain content width, let Streamlit control collapse/expand */
+    [data-testid="stSidebar"] > div:first-child {
+        max-width: 200px !important;
     }
 }
 

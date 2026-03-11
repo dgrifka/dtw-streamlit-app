@@ -29,7 +29,7 @@ st.set_page_config(
 # Custom CSS
 st.markdown("""
 <style>
-    #MainMenu {visibility: hidden;}
+    #MainMenu {display: none;}
 
     .hero-title {
         font-size: 2.75rem;
