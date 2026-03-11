@@ -177,7 +177,7 @@ display_cols = ["Player", "Team", "Exit Velo", "Launch Angle", "Spray",
 st.dataframe(
     format_table(top_eb, display_cols),
     hide_index=True,
-    use_container_width=True,
+    width="stretch",
     column_config=COLUMN_CONFIG,
 )
 
@@ -199,7 +199,7 @@ else:
     st.dataframe(
         format_table(unlucky, unlucky_cols),
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         column_config=COLUMN_CONFIG,
     )
 
@@ -222,7 +222,7 @@ else:
     st.dataframe(
         format_table(lucky, lucky_cols),
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         column_config=COLUMN_CONFIG,
     )
 

@@ -333,7 +333,7 @@ def main():
                     """, unsafe_allow_html=True)
 
                     # View button
-                    if st.button("View Details", key=f"game_{row['gamePk']}", use_container_width=True):
+                    if st.button("View Details", key=f"game_{row['gamePk']}", width="stretch"):
                         st.session_state['selected_game_pk'] = int(row['gamePk'])
                         st.switch_page("pages/_Game_Detail.py")
 

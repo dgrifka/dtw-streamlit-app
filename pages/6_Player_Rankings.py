@@ -165,13 +165,13 @@ else:
     chart_url = get_player_evaluation_image_url(season, chart_name)
 
 try:
-    st.image(chart_url, use_container_width=True)
+    st.image(chart_url, width="stretch")
 except Exception:
     if selected_team != "All Teams":
         # Fall back to all-teams chart if team chart unavailable
         fallback_url = get_player_evaluation_image_url(season, chart_name)
         try:
-            st.image(fallback_url, use_container_width=True)
+            st.image(fallback_url, width="stretch")
         except Exception:
             st.warning(f"Chart image not available for {season}.")
     else:
@@ -281,7 +281,7 @@ COLUMN_CONFIG = {
 
 st.dataframe(
     display,
-    use_container_width=True,
+    width="stretch",
     column_config=COLUMN_CONFIG,
 )
 

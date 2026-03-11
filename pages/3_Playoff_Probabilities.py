@@ -159,7 +159,7 @@ st.caption(
 )
 
 if has_prob_chart:
-    st.image(prob_chart_url, use_container_width=True)
+    st.image(prob_chart_url, width="stretch")
 else:
     st.info("Playoff probability chart not yet available for this season.")
 
@@ -171,7 +171,7 @@ st.caption(
 )
 
 if has_strength_chart:
-    st.image(strength_chart_url, use_container_width=True)
+    st.image(strength_chart_url, width="stretch")
 else:
     st.info("Team strength chart not yet available for this season.")
 
@@ -200,7 +200,7 @@ if has_rooting_al or has_rooting_nl:
         if has_rooting_al:
             _, center, _ = st.columns([1, 5, 1])
             with center:
-                st.image(rooting_al_url, use_container_width=True)
+                st.image(rooting_al_url, width="stretch")
         else:
             st.info("No AL rooting guide available today.")
 
@@ -208,7 +208,7 @@ if has_rooting_al or has_rooting_nl:
         if has_rooting_nl:
             _, center, _ = st.columns([1, 5, 1])
             with center:
-                st.image(rooting_nl_url, use_container_width=True)
+                st.image(rooting_nl_url, width="stretch")
         else:
             st.info("No NL rooting guide available today.")
 
@@ -250,7 +250,7 @@ if has_data:
     st.dataframe(
         display_df,
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         column_config={
             'Team': st.column_config.TextColumn('Team', width='medium'),
             'League': st.column_config.TextColumn('League', width='small'),

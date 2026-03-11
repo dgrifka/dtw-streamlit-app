@@ -243,7 +243,7 @@ if 'Video' in display.columns:
 st.dataframe(
     display,
     hide_index=True,
-    use_container_width=True,
+    width="stretch",
     column_config=col_config,
 )
 
@@ -298,7 +298,7 @@ if total_results > 0:
         st.dataframe(
             leader_display,
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             column_config={
                 'Avg EV': st.column_config.NumberColumn(format="%.1f"),
                 'Max EV': st.column_config.NumberColumn(format="%.1f"),

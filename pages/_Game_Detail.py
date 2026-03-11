@@ -88,7 +88,7 @@ def main():
     if game_pk is None:
         st.title("Game Detail")
         st.warning("No game selected. Please select a game from Game Simulations.")
-        st.page_link("pages/1_Game_Simulations.py", label="🔍 Browse All Games", use_container_width=True)
+        st.page_link("pages/1_Game_Simulations.py", label="🔍 Browse All Games", width="stretch")
         return
     
     # Load specific game
@@ -96,7 +96,7 @@ def main():
     
     if game_row.empty:
         st.error(f"Game {game_pk} not found.")
-        st.page_link("pages/1_Game_Simulations.py", label="🔍 Browse All Games", use_container_width=True)
+        st.page_link("pages/1_Game_Simulations.py", label="🔍 Browse All Games", width="stretch")
         return
     
     row = game_row.iloc[0]
@@ -184,7 +184,7 @@ def main():
             <div class="image-caption">Where batted balls landed in the ballpark</div>
         </div>
         """, unsafe_allow_html=True)
-        st.image(images['spray'], use_container_width=True)
+        st.image(images['spray'], width="stretch")
     
     with col2:
         st.markdown("""
@@ -193,7 +193,7 @@ def main():
             <div class="image-caption">Expected bases vs actual bases by player</div>
         </div>
         """, unsafe_allow_html=True)
-        st.image(images['estimated_bases'], use_container_width=True)
+        st.image(images['estimated_bases'], width="stretch")
     
     # Separator
     st.markdown("<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 1rem 0;'>", unsafe_allow_html=True)
@@ -208,7 +208,7 @@ def main():
             <div class="image-caption">Simulated run outcomes from 10,000 simulations</div>
         </div>
         """, unsafe_allow_html=True)
-        st.image(images['rd'], use_container_width=True)
+        st.image(images['rd'], width="stretch")
     
     with col4:
         st.markdown("""
@@ -217,7 +217,7 @@ def main():
             <div class="image-caption">Individual player impact on win probability</div>
         </div>
         """, unsafe_allow_html=True)
-        st.image(images['player_contributions'], use_container_width=True)
+        st.image(images['player_contributions'], width="stretch")
     
     # ============ SIDEBAR ============
     st.sidebar.header("🔍 Find Another Game")

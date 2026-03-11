@@ -135,7 +135,7 @@ def render_recent_games(df):
                 </div>
                 """, unsafe_allow_html=True)
 
-                if st.button("View →", key=f"home_game_{row['gamePk']}", use_container_width=True):
+                if st.button("View →", key=f"home_game_{row['gamePk']}", width="stretch"):
                     st.session_state['selected_game_pk'] = int(row['gamePk'])
                     st.switch_page("pages/_Game_Detail.py")
 
@@ -143,7 +143,7 @@ def render_recent_games(df):
 def _render_card(page, label, image_url, caption, fit="cover"):
     """Render a single feature card with border, image, and caption."""
     with st.container(border=True):
-        st.page_link(page, label=f"**{label}**", use_container_width=True)
+        st.page_link(page, label=f"**{label}**", width="stretch")
         if image_url:
             bg = "background:#F7FAFC;" if fit == "contain" else ""
             st.markdown(

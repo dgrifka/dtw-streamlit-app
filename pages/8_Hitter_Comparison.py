@@ -149,7 +149,7 @@ with sel1:
     selected_p1 = st.selectbox("Player 1", options=display_list, index=default_idx1, key="cmp_p1")
 with swap_col:
     st.markdown("<div style='height: 29px'></div>", unsafe_allow_html=True)
-    if st.button("Swap", use_container_width=True):
+    if st.button("Swap", width="stretch"):
         st.query_params["p1"] = st.session_state.get("cmp_p2", display_list[default_idx2])
         st.query_params["p2"] = st.session_state.get("cmp_p1", display_list[default_idx1])
         st.rerun()
@@ -157,7 +157,7 @@ with sel2:
     selected_p2 = st.selectbox("Player 2", options=display_list, index=default_idx2, key="cmp_p2")
 with shuffle_col:
     st.markdown("<div style='height: 29px'></div>", unsafe_allow_html=True)
-    if st.button("Shuffle Both", use_container_width=True):
+    if st.button("Shuffle Both", width="stretch"):
         picks = random.sample(eligible_displays, min(2, len(eligible_displays)))
         st.query_params["p1"] = picks[0]
         st.query_params["p2"] = picks[1] if len(picks) > 1 else picks[0]
@@ -699,7 +699,7 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=13)),
             dragmode=False,
         )
-        st.plotly_chart(fig_tl, use_container_width=True, config=PLOTLY_CONFIG)
+        st.plotly_chart(fig_tl, width="stretch", config=PLOTLY_CONFIG)
 
 
 # =============================================================================
@@ -729,7 +729,7 @@ with col_ev:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
         dragmode=False,
     )
-    st.plotly_chart(fig_ev, use_container_width=True, config=PLOTLY_CONFIG)
+    st.plotly_chart(fig_ev, width="stretch", config=PLOTLY_CONFIG)
 
 with col_la:
     st.markdown("#### Launch Angle")
@@ -748,7 +748,7 @@ with col_la:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
         dragmode=False,
     )
-    st.plotly_chart(fig_la, use_container_width=True, config=PLOTLY_CONFIG)
+    st.plotly_chart(fig_la, width="stretch", config=PLOTLY_CONFIG)
 
 with col_eb:
     st.markdown("#### Estimated Bases")
@@ -767,7 +767,7 @@ with col_eb:
         legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
         margin=dict(t=30), dragmode=False,
     )
-    st.plotly_chart(fig_eb, use_container_width=True, config=PLOTLY_CONFIG)
+    st.plotly_chart(fig_eb, width="stretch", config=PLOTLY_CONFIG)
 
 
 # =============================================================================
@@ -843,7 +843,7 @@ if "coord_x" in p1["bb"].columns and "coord_x" in p2["bb"].columns:
                     yaxis=dict(visible=False, autorange="reversed"),
                     dragmode=False,
                 )
-                st.plotly_chart(fig_spray, use_container_width=True, config=PLOTLY_CONFIG_STATIC)
+                st.plotly_chart(fig_spray, width="stretch", config=PLOTLY_CONFIG_STATIC)
 
                 # Spray direction breakdown
                 if "spray_direction" in spray_data.columns:
@@ -910,7 +910,7 @@ ct_col_config = {
     f"{p2_last} %": st.column_config.NumberColumn(format="%.1f%%"),
 }
 
-st.dataframe(merged, hide_index=True, use_container_width=True, column_config=ct_col_config)
+st.dataframe(merged, hide_index=True, width="stretch", column_config=ct_col_config)
 
 
 # =============================================================================
@@ -975,7 +975,7 @@ fig_luck.update_layout(
     legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
     dragmode=False,
 )
-st.plotly_chart(fig_luck, use_container_width=True, config=PLOTLY_CONFIG)
+st.plotly_chart(fig_luck, width="stretch", config=PLOTLY_CONFIG)
 
 
 # =============================================================================

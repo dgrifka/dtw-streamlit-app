@@ -176,7 +176,7 @@ with luck_tab_net:
     st.caption("Net lucky wins = lucky wins minus unlucky losses. Teams on the right have more luck-driven wins.")
     net_lucky_url = f"{S3_CHARTS_URL}/{selected_season}/net_lucky_wins{chart_suffix}.png"
     if _image_exists(net_lucky_url):
-        st.image(net_lucky_url, use_container_width=True)
+        st.image(net_lucky_url, width="stretch")
     else:
         st.info("Net Lucky Wins chart not yet available. Check back when games are being played.")
 
@@ -184,7 +184,7 @@ with luck_tab_wp:
     st.caption("Teams on the right have won more games than expected; teams on the left have won fewer.")
     luck_diff_url = f"{S3_CHARTS_URL}/{selected_season}/luck_differential{chart_suffix}.png"
     if _image_exists(luck_diff_url):
-        st.image(luck_diff_url, use_container_width=True)
+        st.image(luck_diff_url, width="stretch")
     else:
         st.info("Charts are generated during the MLB season. Check back when games are being played.")
 
@@ -194,7 +194,7 @@ st.caption("Lucky win = won when underdog (<50% win prob). Unlucky loss = lost w
 
 lucky_unlucky_url = f"{S3_CHARTS_URL}/{selected_season}/lucky_vs_unlucky{chart_suffix}.png"
 if _image_exists(lucky_unlucky_url):
-    st.image(lucky_unlucky_url, use_container_width=True)
+    st.image(lucky_unlucky_url, width="stretch")
 else:
     st.info("Charts are generated during the MLB season. Check back when games are being played.")
 
@@ -226,7 +226,7 @@ display_df['Expected Win %'] = (display_df['Expected Win %'] * 100).round(1).ast
 st.dataframe(
     display_df,
     hide_index=True,
-    use_container_width=True,
+    width="stretch",
     column_config={
         'Luck Diff': st.column_config.NumberColumn(format="%.1f"),
     }

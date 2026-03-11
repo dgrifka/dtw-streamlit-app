@@ -159,7 +159,7 @@ with search_col:
     )
 with shuffle_col:
     st.markdown("<div style='height: 29px'></div>", unsafe_allow_html=True)
-    if st.button("Shuffle", use_container_width=True):
+    if st.button("Shuffle", width="stretch"):
         eligible_names = bb_df.groupby(["pitcher", "opponent"]).size()
         eligible_names = eligible_names[eligible_names >= 50].index.tolist()
         eligible_displays = [f"{n} ({t})" for n, t in eligible_names]
@@ -615,7 +615,7 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=13)),
             dragmode=False,
         )
-        st.plotly_chart(fig_timeline, use_container_width=True, config=PLOTLY_CONFIG)
+        st.plotly_chart(fig_timeline, width="stretch", config=PLOTLY_CONFIG)
 
         if len(timeline_data) == 1:
             st.caption("Only one season of data available. More history will accumulate over time.")
@@ -695,7 +695,7 @@ fig_luck.update_layout(
     xaxis_title="Batted Ball #", yaxis_title="Cumulative Luck (TB)",
     height=400, template="plotly_white", dragmode=False,
 )
-st.plotly_chart(fig_luck, use_container_width=True, config=PLOTLY_CONFIG)
+st.plotly_chart(fig_luck, width="stretch", config=PLOTLY_CONFIG)
 
 
 # =============================================================================
@@ -729,7 +729,7 @@ with col_ev:
         showlegend=True, legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
         dragmode=False,
     )
-    st.plotly_chart(fig_ev, use_container_width=True, config=PLOTLY_CONFIG)
+    st.plotly_chart(fig_ev, width="stretch", config=PLOTLY_CONFIG)
 
 with col_la:
     st.markdown("#### Launch Angle Allowed")
@@ -749,7 +749,7 @@ with col_la:
         showlegend=True, legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
         dragmode=False,
     )
-    st.plotly_chart(fig_la, use_container_width=True, config=PLOTLY_CONFIG)
+    st.plotly_chart(fig_la, width="stretch", config=PLOTLY_CONFIG)
 
 # --- EV x LA Scatter + Spray Chart ---
 col_evla, col_spray = st.columns(2)
@@ -789,7 +789,7 @@ with col_evla:
             xaxis_title="Exit Velocity (mph)", yaxis_title="Launch Angle (&deg;)",
             height=500, template="plotly_white", dragmode=False,
         )
-        st.plotly_chart(fig_evla, use_container_width=True, config=PLOTLY_CONFIG)
+        st.plotly_chart(fig_evla, width="stretch", config=PLOTLY_CONFIG)
 
 with col_spray:
     st.markdown("#### Spray Chart")
@@ -855,7 +855,7 @@ with col_spray:
                 yaxis=dict(visible=False, autorange="reversed"),
                 dragmode=False,
             )
-            st.plotly_chart(fig_spray, use_container_width=True, config=PLOTLY_CONFIG_STATIC)
+            st.plotly_chart(fig_spray, width="stretch", config=PLOTLY_CONFIG_STATIC)
 
             if "spray_direction" in spray_data.columns:
                 player_dirs = spray_data["spray_direction"].value_counts(normalize=True) * 100
@@ -896,7 +896,7 @@ fig_eb_dist.update_layout(
     legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
     margin=dict(t=30), dragmode=False,
 )
-st.plotly_chart(fig_eb_dist, use_container_width=True, config=PLOTLY_CONFIG)
+st.plotly_chart(fig_eb_dist, width="stretch", config=PLOTLY_CONFIG)
 
 # --- Contact Type Breakdown ---
 st.markdown("#### Contact Type Breakdown")
@@ -944,7 +944,7 @@ ct_col_config = {
     "Pull%": st.column_config.NumberColumn(format="%.1f%%"),
     "%": st.column_config.NumberColumn(format="%.1f%%"),
 }
-st.dataframe(ct_display, hide_index=True, use_container_width=True, column_config=ct_col_config)
+st.dataframe(ct_display, hide_index=True, width="stretch", column_config=ct_col_config)
 
 # --- vs LHH / vs RHH Splits ---
 if not metadata_df.empty and "player" in pitcher_bb.columns:
@@ -1018,7 +1018,7 @@ if not outs.empty:
     if "Video" in out_display.columns:
         col_config["Video"] = st.column_config.LinkColumn(display_text="Watch")
 
-    st.dataframe(out_display, hide_index=True, use_container_width=True,
+    st.dataframe(out_display, hide_index=True, width="stretch",
                   column_config=col_config)
 else:
     st.info("No outs recorded.")
@@ -1057,7 +1057,7 @@ if not hits.empty:
     if "Video" in hit_display.columns:
         hit_col_config["Video"] = st.column_config.LinkColumn(display_text="Watch")
 
-    st.dataframe(hit_display, hide_index=True, use_container_width=True,
+    st.dataframe(hit_display, hide_index=True, width="stretch",
                   column_config=hit_col_config)
 else:
     st.info("No hits allowed.")
@@ -1096,7 +1096,7 @@ all_bb_col_config = {
 if "Video" in all_bb_show.columns:
     all_bb_col_config["Video"] = st.column_config.LinkColumn(display_text="Watch")
 
-st.dataframe(all_bb_show, hide_index=True, use_container_width=True,
+st.dataframe(all_bb_show, hide_index=True, width="stretch",
               column_config=all_bb_col_config, height=400)
 
 # Download CSV
