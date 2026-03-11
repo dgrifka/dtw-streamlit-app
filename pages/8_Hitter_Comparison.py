@@ -22,7 +22,7 @@ from utils.data_loader import (
     load_batted_balls, get_available_batted_ball_seasons,
     load_all_season_pa_rankings, compute_league_percentiles,
     load_player_evaluations_pa, load_player_metadata, load_pa_counts,
-    resolve_player_id,
+    load_player_projections, resolve_player_id,
 )
 from utils.team_mappings import get_team_color, get_team_logo_url
 from utils.player_helpers import (
@@ -491,7 +491,7 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
 
     if tl_data[1] or tl_data[2]:
         st.divider()
-        st.subheader("Historical Est. Bases / PA")
+        st.subheader("Est. Bases / PA")
 
         lg_df = pd.DataFrame(league_avg_data)
         best_df = pd.DataFrame(best_player_data)
@@ -587,8 +587,110 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                     xanchor="left",
                 )
 
+        # Multi-year projections for both players
+        x_max = max_s
+        proj_data = {}
+        for pnum, pdata, color in [(1, p1, p1_color), (2, p2, p2_color)]:
+            if pdata["player_id"] is None:
+                continue
+            points = []
+            for proj_season in range(max_s + 1, max_s + 4):
+                proj_df = load_player_projections(proj_season, "hitter")
+                if proj_df.empty:
+                    continue
+                proj_match = proj_df[proj_df["player_id"] == pdata["player_id"]] if "player_id" in proj_df.columns else pd.DataFrame()
+                if proj_match.empty:
+                    proj_match = proj_df[proj_df["player"] == pdata["name"]]
+                if not proj_match.empty:
+                    points.append(proj_match.iloc[0].to_dict() | {"season": proj_season})
+            if points:
+                proj_data[pnum] = (points, color, pdata)
+
+        if proj_data:
+            all_proj_seasons = [p["season"] for pts, _, _ in proj_data.values() for p in pts]
+            x_max = max(all_proj_seasons)
+
+            # Shared projection zone
+            fig_tl.add_vrect(
+                x0=max_s + 0.5, x1=max(all_proj_seasons) + 0.5,
+                fillcolor="rgba(180,180,220,0.10)", line_width=0,
+                layer="below",
+            )
+            fig_tl.add_annotation(
+                x=(max_s + 0.5 + max(all_proj_seasons) + 0.5) / 2,
+                y=1.0, yref="paper", yanchor="bottom",
+                text="Projected", showarrow=False,
+                font=dict(size=13, color="rgba(120,120,160,0.7)"),
+            )
+
+            for pnum, (points, color, pdata) in proj_data.items():
+                c = color.lstrip("#")
+                pr, pg, pb = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+
+                p_seasons = [p["season"] for p in points]
+                p_values = [p["projected_eb_pa"] for p in points]
+                p_hdi_hi = [p["projected_hdi_high"] for p in points]
+                p_hdi_lo = [p["projected_hdi_low"] for p in points]
+
+                # HDI ribbon
+                fig_tl.add_trace(go.Scatter(
+                    x=p_seasons, y=p_hdi_hi,
+                    mode="lines", line=dict(width=0),
+                    showlegend=False, hoverinfo="skip",
+                ))
+                fig_tl.add_trace(go.Scatter(
+                    x=p_seasons, y=p_hdi_lo,
+                    mode="lines", line=dict(width=0),
+                    fill="tonexty", fillcolor=f"rgba({pr},{pg},{pb},0.10)",
+                    showlegend=False, hoverinfo="skip",
+                ))
+
+                # Dashed connection from last actual to first projection
+                if tl_data[pnum]:
+                    last_actual_pt = tl_data[pnum][-1]
+                    fig_tl.add_trace(go.Scatter(
+                        x=[last_actual_pt["season"], p_seasons[0]],
+                        y=[last_actual_pt["value"], p_values[0]],
+                        mode="lines",
+                        line=dict(color=f"rgba({pr},{pg},{pb},0.4)", width=1.5, dash="dot"),
+                        showlegend=False, hoverinfo="skip",
+                    ))
+
+                # Projection trajectory line
+                if len(p_seasons) > 1:
+                    fig_tl.add_trace(go.Scatter(
+                        x=p_seasons, y=p_values,
+                        mode="lines",
+                        line=dict(color=f"rgba({pr},{pg},{pb},0.5)", width=2, dash="dash"),
+                        showlegend=False, hoverinfo="skip",
+                    ))
+
+                # Projection markers (open diamonds)
+                fig_tl.add_trace(go.Scatter(
+                    x=p_seasons, y=p_values,
+                    mode="markers",
+                    showlegend=False,
+                    marker=dict(
+                        color="rgba(255,255,255,0)", size=12,
+                        symbol="diamond-open",
+                        line=dict(width=2.5, color=color),
+                    ),
+                    customdata=[
+                        [p.get("aging_effect", 0), p["projected_hdi_low"], p["projected_hdi_high"]]
+                        for p in points
+                    ],
+                    hovertemplate=(
+                        "Projection %{x}<br>"
+                        "EB/PA: %{y:.3f}<br>"
+                        "89% HDI: [%{customdata[1]:.3f}, %{customdata[2]:.3f}]<br>"
+                        "Aging effect: %{customdata[0]:+.3f}"
+                        "<extra></extra>"
+                    ),
+                ))
+
         fig_tl.update_layout(
-            xaxis=dict(title="Season", title_font_size=14, tickfont_size=13, dtick=1, tickformat="d"),
+            xaxis=dict(title="Season", title_font_size=14, tickfont_size=13, dtick=1, tickformat="d",
+                       range=[min_s - 0.5, x_max + 0.5]),
             yaxis=dict(title="Est. Bases per PA", title_font_size=14, tickfont_size=13),
             height=400, template="plotly_white",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=13)),

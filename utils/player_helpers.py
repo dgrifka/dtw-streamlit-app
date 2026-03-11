@@ -114,7 +114,7 @@ def render_percentile_bar(percentile, label=None, container=None):
                         background:{color}; border-radius:50%;
                         box-shadow:0 1px 3px rgba(0,0,0,0.15);"></div>
         </div>
-        <div style="text-align:center; font-size:11px; color:rgba(150,150,150,0.9);
+        <div style="text-align:center; font-size:13px; color:rgba(150,150,150,0.9);
                     margin-top:2px;">{label}</div>
     </div>
     """, unsafe_allow_html=True)
@@ -161,7 +161,7 @@ def render_comparison_metric(label, v1_str, v2_str, v1_num, v2_num, pct1=None, p
             f' background:{color}; border-radius:50%;'
             f' box-shadow:0 1px 2px rgba(0,0,0,0.12);"></div>'
             f'</div>'
-            f'<div style="text-align:center; font-size:10px; color:rgba(150,150,150,0.85);'
+            f'<div style="text-align:center; font-size:12px; color:rgba(150,150,150,0.85);'
             f' margin-top:1px;">{_ordinal(int(pct))} pct</div>'
         )
 

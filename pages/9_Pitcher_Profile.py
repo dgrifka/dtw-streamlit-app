@@ -347,7 +347,7 @@ with hero_right:
         best_label = best_name.split(" ")[-1][:10] if " " in best_name else best_name[:10]
 
         st.markdown(f"""
-        <div style="font-size:12px; margin:8px 0 2px 0;">
+        <div style="font-size:13px; margin:8px 0 2px 0;">
             <!-- Row 1: Pitcher -->
             <div style="display:flex; align-items:center; height:26px; margin-bottom:4px;">
                 <div style="width:70px; text-align:right; padding-right:8px; font-weight:600; color:{primary_color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{selected_pitcher.split(' ')[-1][:10]}</div>
@@ -359,7 +359,7 @@ with hero_right:
                                 background:white; border:3px solid {primary_color};
                                 border-radius:50%;"></div>
                 </div>
-                <div style="width:50px; padding-left:6px; font-size:11px; color:{primary_color}; font-weight:600;">{bayesian_eb:.3f}</div>
+                <div style="width:50px; padding-left:6px; font-size:12px; color:{primary_color}; font-weight:600;">{bayesian_eb:.3f}</div>
             </div>
             <!-- Row 2: Best Pitcher -->
             <div style="display:flex; align-items:center; height:26px; margin-bottom:4px;">
@@ -371,7 +371,7 @@ with hero_right:
                                 width:14px; height:14px; margin-left:-7px;
                                 background:{best_color}; transform:rotate(45deg);"></div>
                 </div>
-                <div style="width:50px; padding-left:6px; font-size:11px; color:{best_color};">{best_eb:.3f}</div>
+                <div style="width:50px; padding-left:6px; font-size:12px; color:{best_color};">{best_eb:.3f}</div>
             </div>
             <!-- Row 3: League Average +/- 1 SD -->
             <div style="display:flex; align-items:center; height:26px;">
@@ -383,7 +383,7 @@ with hero_right:
                                 width:12px; height:12px; margin-left:-6px;
                                 background:rgba(150,150,150,0.7); border-radius:50%;"></div>
                 </div>
-                <div style="width:50px; padding-left:6px; font-size:11px; color:rgba(120,120,120,0.9);">{league_mean_eb:.3f}</div>
+                <div style="width:50px; padding-left:6px; font-size:12px; color:rgba(120,120,120,0.9);">{league_mean_eb:.3f}</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -542,7 +542,7 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                 x=(max_s + 0.5 + max(proj_seasons) + 0.5) / 2,
                 y=1.0, yref="paper", yanchor="bottom",
                 text="Projected", showarrow=False,
-                font=dict(size=11, color="rgba(120,120,160,0.7)"),
+                font=dict(size=13, color="rgba(120,120,160,0.7)"),
             )
 
             # HDI ribbon
@@ -583,6 +583,7 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                 x=proj_seasons, y=proj_values,
                 mode="markers",
                 name="Projection",
+                showlegend=False,
                 marker=dict(
                     color="rgba(255,255,255,0)", size=12,
                     symbol="diamond-open",
