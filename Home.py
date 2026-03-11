@@ -16,6 +16,7 @@ import requests
 
 from utils.data_loader import load_game_summaries, get_game_images, get_deserved_winner
 from utils.team_mappings import get_short_name
+from utils.responsive import inject_responsive_css
 
 # Page configuration
 st.set_page_config(
@@ -30,12 +31,6 @@ st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
 
-    /* Slightly narrower sidebar */
-    [data-testid="stSidebar"] {
-        min-width: 200px;
-        max-width: 200px;
-    }
-    
     .hero-title {
         font-size: 2.75rem;
         font-weight: 800;
@@ -69,6 +64,8 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+inject_responsive_css()
 
 
 @st.cache_data(ttl=86400)
@@ -150,7 +147,7 @@ def _render_card(page, label, image_url, caption, fit="cover"):
         if image_url:
             bg = "background:#F7FAFC;" if fit == "contain" else ""
             st.markdown(
-                f'<img src="{image_url}" style="width:100%; height:220px; '
+                f'<img src="{image_url}" class="responsive-card-img" style="width:100%; height:220px; '
                 f'object-fit:{fit}; object-position:top; border-radius:6px; {bg}">',
                 unsafe_allow_html=True,
             )

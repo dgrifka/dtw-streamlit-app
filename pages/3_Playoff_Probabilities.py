@@ -22,6 +22,7 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from utils.data_loader import load_playoff_probabilities, _image_exists, S3_BASE_URL
+from utils.responsive import inject_responsive_css, render_page_logo, render_home_link
 
 # Page config
 st.set_page_config(
@@ -29,6 +30,8 @@ st.set_page_config(
     page_icon="🎯",
     layout="wide"
 )
+
+inject_responsive_css()
 
 # S3 base URL for playoff probability charts
 S3_PLAYOFF_URL = f"{S3_BASE_URL}/playoff-probabilities"
@@ -57,9 +60,7 @@ _title_col, _logo_col = st.columns([5, 1])
 with _title_col:
     st.title("🎯 Playoff Probabilities")
 with _logo_col:
-    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
-    if os.path.exists(_logo_path):
-        st.image(_logo_path, width=85)
+    render_page_logo(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png"))
 st.markdown(
     "Monte Carlo simulations of the rest of the season using "
     "**Bayesian team strength estimates** from the deserve-to-win model."
@@ -311,3 +312,5 @@ with st.expander("📖 Methodology"):
     assessment of team quality (batted ball outcomes), not traditional
     win-loss records.
     """)
+
+render_home_link()

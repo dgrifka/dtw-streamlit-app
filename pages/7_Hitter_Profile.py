@@ -36,6 +36,7 @@ from utils.player_helpers import (
     render_percentile_bar, luck_tier_label,
     TB_MAP, PLOTLY_CONFIG, PLOTLY_CONFIG_STATIC,
 )
+from utils.responsive import inject_responsive_css, render_home_link
 
 # Page config
 st.set_page_config(
@@ -43,6 +44,8 @@ st.set_page_config(
     page_icon="⚾",
     layout="wide"
 )
+
+inject_responsive_css()
 
 # Disable autocorrect/autocapitalize on selectbox search input
 import streamlit.components.v1 as components
@@ -1244,3 +1247,5 @@ Pop Up (50°+).
 
 {"**Video links**: Click to watch the play on Baseball Savant." if "play_id" in bb_df.columns else ""}
     """)
+
+render_home_link()

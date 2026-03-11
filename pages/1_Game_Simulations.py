@@ -17,6 +17,7 @@ if parent_dir not in sys.path:
 
 from utils.data_loader import load_game_summaries, get_game_images, get_deserved_winner
 from utils.team_mappings import get_all_teams, get_short_name, get_team_logo_url, get_team_color
+from utils.responsive import inject_responsive_css, render_home_link
 
 st.set_page_config(
     page_title="Game Simulations | DTW Simulator",
@@ -30,11 +31,6 @@ MLB_LOGO_URL = "https://a.espncdn.com/i/teamlogos/leagues/500/mlb.png"
 # Custom CSS
 st.markdown("""
 <style>
-    /* Slightly narrower sidebar */
-    [data-testid="stSidebar"] {
-        min-width: 200px;
-        max-width: 200px;
-    }
     .game-card {
         background: #f8f9fa;
         border-radius: 8px;
@@ -73,6 +69,8 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+inject_responsive_css()
 
 
 def get_month_options(df):
@@ -338,6 +336,8 @@ def main():
                     if st.button("View Details", key=f"game_{row['gamePk']}", use_container_width=True):
                         st.session_state['selected_game_pk'] = int(row['gamePk'])
                         st.switch_page("pages/_Game_Detail.py")
+
+    render_home_link()
 
 
 if __name__ == "__main__":

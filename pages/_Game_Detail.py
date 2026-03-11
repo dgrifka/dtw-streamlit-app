@@ -15,6 +15,7 @@ if parent_dir not in sys.path:
 
 from utils.data_loader import load_game_summaries, get_game_images, get_deserved_winner
 from utils.team_mappings import get_short_name
+from utils.responsive import inject_responsive_css, render_home_link
 
 st.set_page_config(
     page_title="Game Detail | DTW Simulator",
@@ -62,6 +63,8 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+inject_responsive_css()
 
 
 def main():
@@ -258,6 +261,8 @@ def main():
     
     st.sidebar.divider()
     st.sidebar.page_link("pages/1_Game_Simulations.py", label="📋 Browse All Games")
+
+    render_home_link()
 
 
 if __name__ == "__main__":

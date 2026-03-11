@@ -32,12 +32,15 @@ from utils.player_helpers import (
     luck_tier_label,
     TB_MAP, PLOTLY_CONFIG, PLOTLY_CONFIG_STATIC,
 )
+from utils.responsive import inject_responsive_css, render_home_link
 
 st.set_page_config(
     page_title="Hitter Comparison | DTW Simulator",
     page_icon="⚾",
     layout="wide",
 )
+
+inject_responsive_css()
 
 # Disable autocorrect/autocapitalize on selectbox search input
 import streamlit.components.v1 as components
@@ -987,3 +990,5 @@ with fc1:
     st.markdown(f"[View {p1['name']}'s full profile](Hitter_Profile?player={p1_display.replace(' ', '+')})")
 with fc2:
     st.markdown(f"[View {p2['name']}'s full profile](Hitter_Profile?player={p2_display.replace(' ', '+')})")
+
+render_home_link()
