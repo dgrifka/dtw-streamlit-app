@@ -86,7 +86,7 @@ def main():
     
     # If no game selected, show message and link
     if game_pk is None:
-        st.title("⚾ Game Detail")
+        st.title("Game Detail")
         st.warning("No game selected. Please select a game from Game Simulations.")
         st.page_link("pages/1_Game_Simulations.py", label="🔍 Browse All Games", use_container_width=True)
         return

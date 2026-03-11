@@ -37,8 +37,16 @@ _RESPONSIVE_CSS = """
         max-height: 200px !important;
     }
 
-    /* Hide decorative page logo on smaller screens */
-    .page-logo { display: none !important; }
+    /* Center page logo on mobile, slightly smaller for balance */
+    .page-logo-container {
+        justify-content: center !important;
+    }
+    .page-logo {
+        width: 60px !important;
+    }
+
+    /* Prevent long page titles from wrapping */
+    h1 { font-size: 1.6rem !important; }
 
     /* Narrower sidebar */
     [data-testid="stSidebar"] {
@@ -58,8 +66,11 @@ _RESPONSIVE_CSS = """
     .hero-title { font-size: 1.4rem !important; }
     .hero-subtitle { font-size: 0.85rem !important; }
 
-    /* Collapse sidebar on very small screens */
-    [data-testid="stSidebar"] { display: none !important; }
+    /* Smaller page titles on phones */
+    h1 { font-size: 1.4rem !important; }
+
+    /* Slightly smaller logo on phones */
+    .page-logo { width: 50px !important; }
 
     /* Reduce padding in game cards */
     .game-card { padding: 0.6rem !important; }
@@ -87,17 +98,17 @@ def inject_responsive_css(extra_css: str = ""):
 
 
 def render_page_logo(logo_path: str, width: int = 85):
-    """Render the page logo as an HTML img that hides on mobile via CSS.
+    """Render the page logo as an HTML img that centers on mobile via CSS.
 
     Uses base64 encoding so the image works as an <img> tag with a CSS class,
-    allowing the responsive media query to hide it on narrow screens.
+    allowing the responsive media query to center and resize it on narrow screens.
     """
     if not os.path.exists(logo_path):
         return
     with open(logo_path, "rb") as f:
         logo_b64 = base64.b64encode(f.read()).decode()
     st.markdown(
-        f'<div style="display:flex; justify-content:flex-end;">'
+        f'<div class="page-logo-container" style="display:flex; justify-content:flex-end;">'
         f'<img src="data:image/png;base64,{logo_b64}" class="page-logo" '
         f'style="width:{width}px; height:auto;">'
         f'</div>',

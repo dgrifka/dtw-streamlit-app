@@ -58,7 +58,7 @@ def _get_available_playoff_seasons():
 
 _title_col, _logo_col = st.columns([5, 1])
 with _title_col:
-    st.title("🎯 Playoff Probabilities")
+    st.title("Playoff Probabilities")
 with _logo_col:
     render_page_logo(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png"))
 st.markdown(

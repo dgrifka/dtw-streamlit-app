@@ -36,7 +36,7 @@ MAX_DISPLAY_ROWS = 500
 
 _title_col, _logo_col = st.columns([5, 1])
 with _title_col:
-    st.title("⚾ Batted Ball Explorer")
+    st.title("Batted Ball Explorer")
 with _logo_col:
     render_page_logo(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png"))
 st.markdown("Search and filter individual batted balls to see model-predicted outcome probabilities.")

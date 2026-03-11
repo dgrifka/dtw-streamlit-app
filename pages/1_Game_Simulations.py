@@ -87,7 +87,7 @@ def main():
     # Load data
     df = load_game_summaries()
     
-    st.title("📊 Game Simulations")
+    st.title("Game Simulations")
     st.markdown("Browse all games with deserve-to-win analysis. Click any game to see full visualizations.")
     
     if df.empty:

@@ -63,7 +63,7 @@ def get_data_freshness_date(df: pd.DataFrame) -> str:
 
 _title_col, _logo_col = st.columns([5, 1])
 with _title_col:
-    st.title("🏆 Team Luck Rankings")
+    st.title("Team Luck Rankings")
 with _logo_col:
     render_page_logo(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png"))
 st.markdown("Which teams have been **lucky** (more wins than expected) or **unlucky** (fewer wins than expected)?")
