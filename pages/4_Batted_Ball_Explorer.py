@@ -17,7 +17,7 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from utils.data_loader import load_batted_balls, get_available_batted_ball_seasons
-from utils.responsive import inject_responsive_css, render_page_logo, render_home_link
+from utils.responsive import inject_responsive_css, render_home_link
 
 # Page config
 st.set_page_config(
@@ -34,11 +34,9 @@ MAX_DISPLAY_ROWS = 500
 # MAIN PAGE
 # -----------------------------------------------------------------------------
 
-_title_col, _logo_col = st.columns([5, 1])
-with _title_col:
-    st.title("Batted Ball Explorer")
-with _logo_col:
-    render_page_logo(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png"))
+_logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
+st.logo(_logo_path)
+st.title("Batted Ball Explorer")
 st.markdown("Search and filter individual batted balls to see model-predicted outcome probabilities.")
 
 # Season selector

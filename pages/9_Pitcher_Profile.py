@@ -103,13 +103,9 @@ all_season_pa_rankings = load_all_season_pa_rankings("pitcher")
 # PITCHER SEARCH
 # =============================================================================
 
-_title_col, _logo_col = st.columns([5, 1])
-with _title_col:
-    st.title("Pitcher Profile")
-with _logo_col:
-    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
-    if os.path.exists(_logo_path):
-        st.image(_logo_path, width=85)
+_logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
+st.logo(_logo_path)
+st.title("Pitcher Profile")
 
 # Check if we arrived via query param (cross-page linking)
 query_player = st.query_params.get("player", "")
@@ -240,55 +236,64 @@ n_bb = len(pitcher_bb)
 pitcher_bb["is_barrel"] = is_barrel_vectorized(pitcher_bb["launch_speed"], pitcher_bb["launch_angle"])
 barrel_rate = pitcher_bb["is_barrel"].mean() * 100
 
-# Hero layout
-hero_left, hero_mid, hero_right = st.columns([1, 2, 2])
-
-with hero_left:
-    if player_id:
+# Hero identity card — stays cohesive on mobile
+pos_str = ""
+age_str = ""
+throw_str = ""
+if pitcher_meta is not None:
+    pos = pitcher_meta.get("position", "")
+    if pos:
+        pos_str = f" | {pos}"
+    bd = pitcher_meta.get("birth_date", "")
+    if bd:
         try:
-            st.image(build_headshot_url(player_id), width=160)
+            birth = pd.to_datetime(bd)
+            age = (pd.Timestamp.now() - birth).days // 365
+            age_str = f" | Age {age}"
         except Exception:
-            logo_url = get_team_logo_url(pitcher_team_short)
-            if logo_url:
-                st.image(logo_url, width=120)
-    else:
-        logo_url = get_team_logo_url(pitcher_team_short)
-        if logo_url:
-            st.image(logo_url, width=120)
+            pass
+    th = pitcher_meta.get("throw_hand", "")
+    if th:
+        throw_str = f" | Throws {th}"
 
-with hero_mid:
-    st.markdown(f"### {selected_pitcher}")
-    pos_str = ""
-    age_str = ""
-    throw_str = ""
-    if pitcher_meta is not None:
-        pos = pitcher_meta.get("position", "")
-        if pos:
-            pos_str = f" | {pos}"
-        bd = pitcher_meta.get("birth_date", "")
-        if bd:
-            try:
-                birth = pd.to_datetime(bd)
-                age = (pd.Timestamp.now() - birth).days // 365
-                age_str = f" | Age {age}"
-            except Exception:
-                pass
-        th = pitcher_meta.get("throw_hand", "")
-        if th:
-            throw_str = f" | Throws {th}"
+# PA count from rankings
+n_pa = int(pitcher_ranking["n_batted_balls"]) if pitcher_ranking is not None and "n_batted_balls" in pitcher_ranking.index else None
+pa_str = f" | {n_pa:,} PA" if n_pa else ""
 
-    st.markdown(f"**{pitcher_team_short}**{pos_str}{throw_str}{age_str}")
+img_url = build_headshot_url(player_id) if player_id else (get_team_logo_url(pitcher_team_short) or "")
+img_html = ""
+if img_url:
+    img_html = (
+        f'<img src="{img_url}" '
+        f'style="width:120px; height:120px; object-fit:contain; border-radius:8px; flex-shrink:0;" '
+        f'onerror="this.style.display=\'none\'">'
+    )
 
-    # Key stats — inverted percentiles (lower = better for pitcher)
-    league_pcts = compute_league_percentiles(season, "pitcher")
-    if league_pcts:
-        ev_pct_raw = (league_pcts["ev_by_player"] < avg_ev).mean() * 100
-        ev_pct = 100 - ev_pct_raw  # invert: low EV allowed = high percentile
-        barrel_pct_raw = (league_pcts["barrel_rates"] < barrel_rate).mean() * 100
-        barrel_pct = 100 - barrel_pct_raw  # invert: low barrel rate = high percentile
-    else:
-        ev_pct = barrel_pct = 50
+st.markdown(
+    f'<div style="display:flex; align-items:center; gap:20px; '
+    f'background:#f8f9fa; border-radius:10px; padding:16px; '
+    f'border-left:4px solid {primary_color};">'
+    f'{img_html}'
+    f'<div>'
+    f'<div style="font-size:1.5rem; font-weight:700; margin-bottom:2px;">{selected_pitcher}</div>'
+    f'<div style="color:#4A5568; font-size:1rem;"><b>{pitcher_team_short}</b>{pos_str}{throw_str}{age_str}{pa_str}</div>'
+    f'</div></div>',
+    unsafe_allow_html=True,
+)
 
+# Key stats — inverted percentiles (lower = better for pitcher)
+league_pcts = compute_league_percentiles(season, "pitcher")
+if league_pcts:
+    ev_pct_raw = (league_pcts["ev_by_player"] < avg_ev).mean() * 100
+    ev_pct = 100 - ev_pct_raw  # invert: low EV allowed = high percentile
+    barrel_pct_raw = (league_pcts["barrel_rates"] < barrel_rate).mean() * 100
+    barrel_pct = 100 - barrel_pct_raw  # invert: low barrel rate = high percentile
+else:
+    ev_pct = barrel_pct = 50
+
+hero_stats, hero_bayesian = st.columns([3, 2])
+
+with hero_stats:
     qs1, qs2, qs3 = st.columns(3)
     qs1.metric("Batted Balls Faced", f"{n_bb:,}")
     qs2.metric("Avg EV Allowed", f"{avg_ev:.1f} mph",
@@ -298,7 +303,7 @@ with hero_mid:
                help="Barrel rate allowed. Barrels: EV >= 98 mph + launch angle in the sweet spot zone. Lower is better.")
     render_percentile_bar(barrel_pct, label=f"{_ordinal(int(barrel_pct))} pct (fewer barrels = better)", container=qs3)
 
-with hero_right:
+with hero_bayesian:
     if pitcher_ranking is not None:
         bayesian_eb = pitcher_ranking["posterior_mean"]
         hdi_low = pitcher_ranking["hdi_low"]

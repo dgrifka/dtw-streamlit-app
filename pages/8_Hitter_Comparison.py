@@ -84,13 +84,9 @@ pa_rankings = load_player_evaluations_pa(season, "hitter")
 # Multi-season PA rankings for historical timeline
 all_season_pa_rankings = load_all_season_pa_rankings("hitter")
 
-_title_col, _logo_col = st.columns([5, 1])
-with _title_col:
-    st.title("Hitter Comparison")
-with _logo_col:
-    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
-    if os.path.exists(_logo_path):
-        st.image(_logo_path, width=85)
+_logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
+st.logo(_logo_path)
+st.title("Hitter Comparison")
 
 # =============================================================================
 # PLAYER SELECTION
@@ -231,6 +227,7 @@ def resolve_player_data(display_label):
         "barrel_rate": pbb["is_barrel"].mean() * 100,
         "total_actual_tb": pbb["actual_tb"].sum(),
         "total_expected_tb": pbb["estimated_bases"].sum(),
+        "n_pa": int(ranking["n_batted_balls"]) if ranking is not None and "n_batted_balls" in ranking.index else None,
     }
 
 
@@ -261,40 +258,62 @@ hero1, hero2 = st.columns(2)
 
 for col, p, color in [(hero1, p1, p1_color), (hero2, p2, p2_color)]:
     with col:
-        img_col, info_col = st.columns([1, 2])
-        with img_col:
-            if p["player_id"]:
+        # Build info strings
+        pos_str = ""
+        age_str = ""
+        if p["meta"] is not None:
+            pos = p["meta"].get("position", "")
+            if pos:
+                pos_str = f" | {pos}"
+            bd = p["meta"].get("birth_date", "")
+            if bd:
                 try:
-                    st.image(build_headshot_url(p["player_id"]), width=130)
+                    birth = pd.to_datetime(bd)
+                    age = (pd.Timestamp.now() - birth).days // 365
+                    age_str = f" | Age {age}"
                 except Exception:
-                    logo = get_team_logo_url(p["team"])
-                    if logo:
-                        st.image(logo, width=100)
-            else:
-                logo = get_team_logo_url(p["team"])
-                if logo:
-                    st.image(logo, width=100)
-        with info_col:
-            st.markdown(f"### {p['name']}")
-            pos_str = ""
-            age_str = ""
-            if p["meta"] is not None:
-                pos = p["meta"].get("position", "")
-                if pos:
-                    pos_str = f" | {pos}"
-                bd = p["meta"].get("birth_date", "")
-                if bd:
-                    try:
-                        birth = pd.to_datetime(bd)
-                        age = (pd.Timestamp.now() - birth).days // 365
-                        age_str = f" | Age {age}"
-                    except Exception:
-                        pass
-            st.markdown(f"**{p['team']}**{pos_str}{age_str}")
+                    pass
 
-# Comparison metrics
+        # PA string
+        pa_str = f" | {p['n_pa']:,} PA" if p.get("n_pa") else ""
+
+        # Headshot URL
+        img_url = ""
+        if p["player_id"]:
+            img_url = build_headshot_url(p["player_id"])
+        else:
+            img_url = get_team_logo_url(p["team"]) or ""
+
+        img_html = ""
+        if img_url:
+            img_html = (
+                f'<img src="{img_url}" '
+                f'style="width:100px; height:100px; object-fit:contain; border-radius:8px; flex-shrink:0;" '
+                f'onerror="this.style.display=\'none\'">'
+            )
+
+        st.markdown(
+            f'<div style="display:flex; align-items:center; gap:16px; '
+            f'background:#f8f9fa; border-radius:10px; padding:16px; '
+            f'border-left:4px solid {color};">'
+            f'{img_html}'
+            f'<div>'
+            f'<div style="font-size:1.3rem; font-weight:700; margin-bottom:2px;">{p["name"]}</div>'
+            f'<div style="color:#4A5568; font-size:0.95rem;"><b>{p["team"]}</b>{pos_str}{age_str}{pa_str}</div>'
+            f'</div></div>',
+            unsafe_allow_html=True,
+        )
+
+# Comparison metrics — with player name header row
 st.markdown("#### Head-to-Head")
-st.caption(f"{season} Season")
+st.markdown(
+    f'<div style="display:flex; justify-content:space-between; padding:4px 12px; margin-bottom:-4px;">'
+    f'<span style="font-weight:700; color:{p1_color}; font-size:0.95rem;">{p1["name"]}</span>'
+    f'<span style="color:#718096; font-size:0.85rem;">{season} Season</span>'
+    f'<span style="font-weight:700; color:{p2_color}; font-size:0.95rem;">{p2["name"]}</span>'
+    f'</div>',
+    unsafe_allow_html=True,
+)
 
 # Compute percentiles for EV, barrel rate, avg EB
 league_pcts = compute_league_percentiles(season, "player")

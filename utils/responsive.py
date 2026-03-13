@@ -12,6 +12,22 @@ import streamlit as st
 
 _RESPONSIVE_CSS = """
 <style>
+/* ── Gradient dividers ────────────────────────────────────────────── */
+[data-testid="stDivider"] { margin: 1.25rem 0 !important; }
+[data-testid="stDivider"] hr {
+    border: none !important;
+    height: 1px !important;
+    background: linear-gradient(to right, transparent, #CBD5E0, transparent) !important;
+}
+
+/* ── Metric card backgrounds ─────────────────────────────────────── */
+[data-testid="stMetric"] {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 12px 16px;
+    border: 1px solid #e8ecf1;
+}
+
 /* ── Tablet / landscape phone (≤768px) ───────────────────────────── */
 @media (max-width: 768px) {
     /* Force multi-column layouts to wrap (2-per-row) */
