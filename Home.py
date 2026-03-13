@@ -16,7 +16,7 @@ import requests
 
 from utils.data_loader import load_game_summaries, get_game_images, get_deserved_winner
 from utils.team_mappings import get_short_name
-from utils.responsive import inject_responsive_css
+from utils.responsive import inject_responsive_css, upset_badge_html
 
 # Page configuration
 st.set_page_config(
@@ -119,7 +119,7 @@ def render_recent_games(df):
                 away_short = get_short_name(row['away'])
                 home_short = get_short_name(row['home'])
                 winner_info = get_deserved_winner(row)
-                upset_marker = " UPSET" if winner_info['was_upset'] else ""
+                upset_marker = upset_badge_html(winner_info['was_upset'])
 
                 away_wp = int(round(row['away_wp'] * 100))
                 home_wp = int(round(row['home_wp'] * 100))
@@ -185,18 +185,13 @@ def render_feature_cards(current_season):
 
     # --- Batted Ball Data ---
     st.markdown("#### Batted Ball Data")
-    col4, col5, col6 = st.columns(3)
+    col4, col5 = st.columns(2)
     with col4:
         _render_card(
             "pages/4_Batted_Ball_Explorer.py", "Batted Ball Explorer",
             f"{S3}/sample-images/sample_batted_ball_explorer.png",
-            "Search individual batted balls. See outcome probabilities for any exit velocity, launch angle, and spray angle.")
+            "Search individual batted balls. See outcome probabilities, plus unluckiest outs and luckiest hits for any filter.")
     with col5:
-        _render_card(
-            "pages/5_Daily_Highlights.py", "Daily Highlights",
-            f"{S3}/sample-images/sample_daily_highlights.png",
-            "Best and worst batted balls from each game day — top estimated bases, unluckiest outs, and luckiest hits.")
-    with col6:
         _render_card(
             "pages/6_Player_Rankings.py", "Player Rankings",
             player_eval_img,

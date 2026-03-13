@@ -29,6 +29,7 @@ st.set_page_config(
 inject_responsive_css()
 
 MAX_DISPLAY_ROWS = 500
+MAX_HIGHLIGHT_ROWS = 15
 
 # -----------------------------------------------------------------------------
 # MAIN PAGE
@@ -253,6 +254,114 @@ st.download_button(
     file_name=f"batted_balls_{season}.csv",
     mime="text/csv"
 )
+
+# -----------------------------------------------------------------------------
+# UNLUCKIEST OUTS
+# -----------------------------------------------------------------------------
+
+st.divider()
+st.subheader("Unluckiest Outs")
+st.caption("Outs with the highest expected batting average — balls that *should* have been hits.")
+
+outs_df = filtered[filtered['actual_result'] == "Out"].copy()
+if outs_df.empty:
+    st.info("No outs match your current filters.")
+else:
+    unlucky = outs_df.sort_values("xba", ascending=False).head(MAX_HIGHLIGHT_ROWS)
+
+    unlucky_display_cols = [
+        'player', 'team', 'launch_speed', 'launch_angle', 'spray_direction',
+        'estimated_bases', 'xba', 'hr_prob', 'date', 'opponent',
+    ]
+    if has_play_id:
+        unlucky_display_cols.append('play_id')
+    unlucky_available = [c for c in unlucky_display_cols if c in unlucky.columns]
+    unlucky_display = unlucky[unlucky_available].copy()
+
+    unlucky_display['hr_prob'] = unlucky_display['hr_prob'] * 100
+
+    if has_play_id and 'play_id' in unlucky_display.columns:
+        unlucky_display['video'] = unlucky_display['play_id'].apply(
+            lambda pid: f"https://baseballsavant.mlb.com/sporty-videos?playId={pid}"
+            if pd.notna(pid) and pid != "" else None
+        )
+        unlucky_display = unlucky_display.drop(columns=['play_id'])
+
+    unlucky_display = unlucky_display.rename(columns=rename_map)
+
+    unlucky_col_config = {
+        'Exit Velo': st.column_config.NumberColumn(format="%.1f mph"),
+        'Launch Angle': st.column_config.NumberColumn(format="%d°"),
+        'Est. Bases': st.column_config.NumberColumn(format="%.2f"),
+        'xBA': st.column_config.NumberColumn(format="%.3f"),
+        'HR%': st.column_config.NumberColumn(format="%.2f%%"),
+    }
+    if 'Video' in unlucky_display.columns:
+        unlucky_col_config['Video'] = st.column_config.LinkColumn(display_text="Watch")
+
+    st.dataframe(
+        unlucky_display,
+        hide_index=True,
+        width="stretch",
+        column_config=unlucky_col_config,
+    )
+
+# -----------------------------------------------------------------------------
+# LUCKIEST HITS
+# -----------------------------------------------------------------------------
+
+st.divider()
+st.subheader("Luckiest Hits")
+st.caption("Hits with the lowest expected batting average — balls that probably *shouldn't* have been hits.")
+
+hit_types = ["Single", "Double", "Triple", "Home Run"]
+hits_df = filtered[filtered['actual_result'].isin(hit_types)].copy()
+if hits_df.empty:
+    st.info("No hits match your current filters.")
+else:
+    lucky = hits_df.sort_values("xba", ascending=True).head(MAX_HIGHLIGHT_ROWS)
+
+    lucky_display_cols = [
+        'player', 'team', 'launch_speed', 'launch_angle', 'spray_direction',
+        'actual_result', 'estimated_bases', 'xba', 'out_prob', 'date', 'opponent',
+    ]
+    if has_play_id:
+        lucky_display_cols.append('play_id')
+    lucky_available = [c for c in lucky_display_cols if c in lucky.columns]
+    lucky_display = lucky[lucky_available].copy()
+
+    if 'out_prob' in lucky_display.columns:
+        lucky_display['out_prob'] = lucky_display['out_prob'] * 100
+
+    if has_play_id and 'play_id' in lucky_display.columns:
+        lucky_display['video'] = lucky_display['play_id'].apply(
+            lambda pid: f"https://baseballsavant.mlb.com/sporty-videos?playId={pid}"
+            if pd.notna(pid) and pid != "" else None
+        )
+        lucky_display = lucky_display.drop(columns=['play_id'])
+
+    lucky_display = lucky_display.rename(columns={
+        **rename_map,
+        'out_prob': 'Out%',
+    })
+
+    lucky_col_config = {
+        'Exit Velo': st.column_config.NumberColumn(format="%.1f mph"),
+        'Launch Angle': st.column_config.NumberColumn(format="%d°"),
+        'Est. Bases': st.column_config.NumberColumn(format="%.2f"),
+        'xBA': st.column_config.NumberColumn(format="%.3f"),
+        'HR%': st.column_config.NumberColumn(format="%.2f%%"),
+        'Out%': st.column_config.NumberColumn(format="%.2f%%"),
+    }
+    if 'Video' in lucky_display.columns:
+        lucky_col_config['Video'] = st.column_config.LinkColumn(display_text="Watch")
+
+    st.dataframe(
+        lucky_display,
+        hide_index=True,
+        width="stretch",
+        column_config=lucky_col_config,
+    )
 
 # -----------------------------------------------------------------------------
 # PLAYER LEADERBOARD

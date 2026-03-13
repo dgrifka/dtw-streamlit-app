@@ -15,7 +15,7 @@ if parent_dir not in sys.path:
 
 from utils.data_loader import load_game_summaries, get_game_images, get_deserved_winner
 from utils.team_mappings import get_short_name
-from utils.responsive import inject_responsive_css, render_home_link
+from utils.responsive import inject_responsive_css, render_home_link, upset_badge_html
 
 st.set_page_config(
     page_title="Game Detail | DTW Simulator",
@@ -123,8 +123,8 @@ def main():
     st.divider()
     
     # Game title
-    upset_badge = " — UPSET" if winner_info['was_upset'] else ""
-    st.markdown(f"## {row['away']} @ {row['home']}{upset_badge}")
+    badge = upset_badge_html(winner_info['was_upset'])
+    st.markdown(f"<h2>{row['away']} @ {row['home']}{badge}</h2>", unsafe_allow_html=True)
     
     # Score and info row
     col1, col2, col3, col4 = st.columns(4)

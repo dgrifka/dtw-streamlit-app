@@ -126,6 +126,15 @@ def render_page_logo(logo_path: str, width: int = 85):
     )
 
 
+def upset_badge_html(is_upset: bool) -> str:
+    """Return a styled HTML badge for upset games, or empty string."""
+    if not is_upset:
+        return ""
+    return ('<span style="background:#E53E3E; color:white; font-size:0.65em; '
+            'font-weight:700; padding:2px 8px; border-radius:10px; '
+            'vertical-align:middle; margin-left:6px;">UPSET</span>')
+
+
 def render_home_link():
     """Render a subtle 'Return to Home' link at the bottom of the page."""
     st.divider()

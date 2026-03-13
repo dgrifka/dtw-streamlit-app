@@ -434,11 +434,13 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
             match = pa_df[pa_df["player"] == selected_player]
         if not match.empty:
             row = match.iloc[0]
+            n_pa_val = int(row["n_batted_balls"]) if "n_batted_balls" in row.index else None
             timeline_data.append({
                 "season": s,
                 "value": row["posterior_mean"],
                 "hdi_low": row["hdi_low"],
                 "hdi_high": row["hdi_high"],
+                "n_pa": n_pa_val,
             })
 
     if timeline_data:
@@ -448,6 +450,13 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
         tl_df = pd.DataFrame(timeline_data)
         best_df = pd.DataFrame(best_player_data)
         lg_df = pd.DataFrame(league_avg_data)
+
+        # Build PA count lookup for custom tick labels
+        pa_by_season = {
+            row["season"]: row["n_pa"]
+            for row in timeline_data
+            if row.get("n_pa") is not None
+        }
 
         # Trim to player's season range
         player_seasons = tl_df["season"].tolist()
@@ -641,13 +650,23 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
 
         # Compute x-axis range including projections
         x_max = max(proj_seasons) if proj_points else max_s
+
+        # Build custom tick labels with PA counts
+        all_tick_seasons = list(range(min_s, x_max + 1))
+        tick_labels = []
+        for s in all_tick_seasons:
+            if s in pa_by_season:
+                tick_labels.append(f"{s}<br><sub>{pa_by_season[s]:,} PA</sub>")
+            else:
+                tick_labels.append(str(s))
+
         fig_timeline.update_layout(
             xaxis=dict(
                 title="Season",
                 title_font_size=14,
                 tickfont_size=13,
-                dtick=1,
-                tickformat="d",
+                tickvals=all_tick_seasons,
+                ticktext=tick_labels,
                 range=[min_s - 0.5, x_max + 0.5],
             ),
             yaxis=dict(

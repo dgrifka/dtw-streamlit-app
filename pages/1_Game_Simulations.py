@@ -17,7 +17,7 @@ if parent_dir not in sys.path:
 
 from utils.data_loader import load_game_summaries, get_game_images, get_deserved_winner
 from utils.team_mappings import get_all_teams, get_short_name, get_team_logo_url, get_team_color
-from utils.responsive import inject_responsive_css, render_home_link
+from utils.responsive import inject_responsive_css, render_home_link, upset_badge_html
 
 st.set_page_config(
     page_title="Game Simulations | DTW Simulator",
@@ -268,7 +268,7 @@ def main():
                     away_short = get_short_name(row['away'])
                     home_short = get_short_name(row['home'])
                     winner_info = get_deserved_winner(row)
-                    upset_marker = " UPSET" if winner_info['was_upset'] else ""
+                    upset_marker = upset_badge_html(winner_info['was_upset'])
 
                     away_wp = int(round(row['away_wp'] * 100))
                     home_wp = int(round(row['home_wp'] * 100))
