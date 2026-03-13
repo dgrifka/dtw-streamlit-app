@@ -129,4 +129,4 @@ def render_page_logo(logo_path: str, width: int = 85):
 def render_home_link():
     """Render a subtle 'Return to Home' link at the bottom of the page."""
     st.divider()
-    st.page_link("Home.py", label="← Return to Home", icon="🏠")
+    st.page_link("Home.py", label="← Return to Home")

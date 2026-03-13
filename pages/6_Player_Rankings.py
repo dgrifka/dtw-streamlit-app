@@ -46,11 +46,9 @@ _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ass
 st.logo(_logo_path)
 st.title("Player Rankings")
 st.markdown(
-    "Bayesian rankings of hitters and pitchers with credible intervals. "
-    "The model estimates each player's true underlying performance by pooling "
-    "information across all players — players with fewer observations are pulled "
-    "toward the league average, while players with more data retain estimates "
-    "closer to their observed performance."
+    "Statistical rankings of hitters and pitchers that account for sample size. "
+    "Players with fewer at-bats are pulled toward the league average, while "
+    "players with more data keep estimates closer to their observed performance."
 )
 
 # Season selector
@@ -101,54 +99,49 @@ with st.expander("How does this work?"):
 Each plate appearance outcome is valued: walks = 1 base, HBP = 1 base, strikeouts = 0 bases,
 and batted balls use the model's estimated bases (based on exit velocity, launch angle, and spray angle).
 
-**What is a hierarchical model?**
+**How it works:**
 
-Instead of treating each player independently, a hierarchical model learns a "league-wide"
-baseline and estimates how much each player deviates from it. This is called **partial pooling** —
-every player's estimate is informed by both their own data and the overall population.
+Instead of treating each player independently, the model learns a league-wide baseline and
+estimates how much each player deviates from it. Every player's estimate is informed by both
+their own data and the overall population — so small samples get pulled toward the average,
+while players with lots of data keep estimates close to their raw numbers.
 
 **Reading the chart:**
 
-- **Circle**: the model's best estimate of a player's true production (posterior mean)
-- **Thick line**: 50% credible interval — there's a 50% chance the true value falls in this range
-- **Thin line**: 89% credible interval — a wider range capturing more uncertainty
+- **Circle**: the model's best estimate of a player's true production
+- **Thick line**: likely range (50% of the time, the true value falls here)
+- **Thin line**: wider uncertainty range (89%)
 
 **Column definitions:**
 
-- **Est. Bases (Bayesian)**: Posterior mean — the model's best estimate of true production per PA
-- **Est. Bases (Raw)**: Simple observed mean estimated bases per plate appearance
-- **Shrinkage**: Difference between Bayesian and raw estimates (negative = shrunk downward)
+- **Est. Bases (Model)**: the model's best estimate of true production per PA
+- **Est. Bases (Raw)**: simple observed average estimated bases per plate appearance
+- **Adjustment**: difference between model and raw estimates (negative = adjusted downward)
 """)
     else:
         st.markdown("""
 **Per Batted Ball mode** measures contact quality only — how well a player hits the ball when
 they put it in play, based on exit velocity, launch angle, and spray angle.
 
-**What is a hierarchical model?**
+**Why not just use raw averages?**
 
-Instead of treating each player independently, a hierarchical model learns a "league-wide"
-baseline and estimates how much each player deviates from it. This is called **partial pooling** —
-every player's estimate is informed by both their own data and the overall population.
-
-**Why does this matter?**
-
-A player with 20 batted balls and a high raw average might just be on a hot streak. The model
-recognizes the small sample and **pulls ("shrinks") their estimate toward the league average**.
-A player with 400+ batted balls keeps an estimate much closer to their raw observed rate,
+A player with 20 batted balls and a high average might just be on a hot streak. The model
+recognizes the small sample and **pulls their estimate toward the league average**.
+A player with 400+ batted balls keeps an estimate much closer to their raw numbers,
 because there's enough data to trust it.
 
 **Reading the chart:**
 
-- **Circle**: the model's best estimate of a player's true contact quality (posterior mean)
-- **Thick line**: 50% credible interval — there's a 50% chance the true value falls in this range
-- **Thin line**: 89% credible interval — a wider range capturing more uncertainty
-- Players with fewer batted balls have wider intervals, reflecting greater uncertainty
+- **Circle**: the model's best estimate of a player's true contact quality
+- **Thick line**: likely range (50% of the time, the true value falls here)
+- **Thin line**: wider uncertainty range (89%)
+- Players with fewer batted balls have wider ranges, reflecting greater uncertainty
 
 **Column definitions:**
 
-- **Est. Bases (Bayesian)**: Posterior mean — the model's best estimate of true contact quality
-- **Est. Bases (Raw)**: Simple observed mean estimated bases per batted ball
-- **Shrinkage**: Difference between Bayesian and raw estimates (negative = shrunk downward)
+- **Est. Bases (Model)**: the model's best estimate of true contact quality
+- **Est. Bases (Raw)**: simple observed average estimated bases per batted ball
+- **Adjustment**: difference between model and raw estimates (negative = adjusted downward)
 """)
 
 # -----------------------------------------------------------------------------
@@ -253,11 +246,11 @@ display = display.rename(columns={
     "player": "Player",
     "team": "Team",
     "n_batted_balls": n_col_name,
-    "posterior_mean": "Est. Bases (Bayesian)",
+    "posterior_mean": "Est. Bases (Model)",
     "raw_rate": "Est. Bases (Raw)",
-    "hdi_low": "HDI Low",
-    "hdi_high": "HDI High",
-    "shrinkage": "Shrinkage",
+    "hdi_low": "Range Low",
+    "hdi_high": "Range High",
+    "shrinkage": "Adjustment",
 })
 
 # Add player dashboard link
@@ -268,11 +261,11 @@ display["Profile"] = display["Player"].apply(
 )
 
 COLUMN_CONFIG = {
-    "Est. Bases (Bayesian)": st.column_config.NumberColumn(format="%.4f"),
+    "Est. Bases (Model)": st.column_config.NumberColumn(format="%.4f"),
     "Est. Bases (Raw)": st.column_config.NumberColumn(format="%.4f"),
-    "HDI Low": st.column_config.NumberColumn(format="%.4f"),
-    "HDI High": st.column_config.NumberColumn(format="%.4f"),
-    "Shrinkage": st.column_config.NumberColumn(format="%+.4f"),
+    "Range Low": st.column_config.NumberColumn(format="%.4f"),
+    "Range High": st.column_config.NumberColumn(format="%.4f"),
+    "Adjustment": st.column_config.NumberColumn(format="%+.4f"),
     n_col_name: st.column_config.NumberColumn(format="%d"),
     "Profile": st.column_config.LinkColumn(display_text="View"),
 }

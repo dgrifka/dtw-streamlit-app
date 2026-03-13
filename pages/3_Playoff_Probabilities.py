@@ -60,8 +60,8 @@ _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ass
 st.logo(_logo_path)
 st.title("Playoff Probabilities")
 st.markdown(
-    "Monte Carlo simulations of the rest of the season using "
-    "**Bayesian team strength estimates** from the deserve-to-win model."
+    "Season simulations using **team strength estimates** from the deserve-to-win model. "
+    "Updated daily."
 )
 
 # Determine season — auto-detect which years have data in S3
@@ -104,7 +104,7 @@ if not has_data and not has_prob_chart:
 
 if has_data:
     st.divider()
-    st.subheader("📊 Quick Stats")
+    st.subheader("Quick Stats")
 
     # Find notable teams
     top_al = results_df[results_df['League'] == 'AL'].nlargest(1, 'Playoff %')
@@ -118,7 +118,7 @@ if has_data:
         st.metric(
             label="Simulations",
             value="50,000",
-            help="Number of Monte Carlo season simulations"
+            help="Number of simulated seasons"
         )
 
     with stat_cols[1]:
@@ -150,7 +150,7 @@ if has_data:
 # -----------------------------------------------------------------------------
 
 st.divider()
-st.subheader("📈 Playoff Probabilities")
+st.subheader("Playoff Probabilities")
 st.caption(
     "Stacked bars show wild card (blue), division winner (red), "
     "and first-round bye (orange) probabilities."
@@ -162,10 +162,10 @@ else:
     st.info("Playoff probability chart not yet available for this season.")
 
 st.divider()
-st.subheader("💪 Team Strength")
+st.subheader("Team Strength")
 st.caption(
     "Estimated probability of beating an average team at a neutral site. "
-    "Thick bars = 50% credible interval; thin bars = 90% credible interval."
+    "Thick bars show likely range; thin bars show wider uncertainty."
 )
 
 if has_strength_chart:
@@ -185,11 +185,10 @@ has_rooting_nl = _image_exists(rooting_nl_url)
 
 if has_rooting_al or has_rooting_nl:
     st.divider()
-    st.subheader("🏟️ Today's Rooting Guide")
+    st.subheader("Today's Rooting Guide")
     st.caption(
         "Who should your team root for today? Each cell shows the team to root for "
-        "and the impact on your playoff odds. Based on conditional probability analysis "
-        "of 50,000 simulated seasons."
+        "and the impact on your playoff odds, based on 50,000 simulated seasons."
     )
 
     rooting_tab_al, rooting_tab_nl = st.tabs(["American League", "National League"])
@@ -228,7 +227,7 @@ if has_rooting_al or has_rooting_nl:
 
 if has_data:
     st.divider()
-    st.subheader("📋 Full Probability Table")
+    st.subheader("Full Probability Table")
 
     # League filter
     league_filter = st.radio(
@@ -267,7 +266,7 @@ if has_data:
     # Download button
     csv_data = display_df.to_csv(index=False)
     st.download_button(
-        label="📥 Download as CSV",
+        label="Download as CSV",
         data=csv_data,
         file_name=f"playoff_probabilities_{selected_season}.csv",
         mime="text/csv",
@@ -279,36 +278,28 @@ if has_data:
 # -----------------------------------------------------------------------------
 
 st.divider()
-with st.expander("📖 Methodology"):
+with st.expander("Methodology"):
     st.markdown("""
     **How playoff probabilities are calculated:**
 
-    1. **Team Strength Model**: A Bayesian model estimates each team's latent
-       strength using three signals from the deserve-to-win simulation:
-       win probability, run differential, and binary game outcomes. The model
-       uses non-centered parameterization with sum-to-zero constraints for
-       identifiability.
+    1. **Estimate team strength**: A statistical model estimates each team's true
+       strength using deserve-to-win probabilities, run differential, and game outcomes
+       from the season so far.
 
-    2. **Stochastic Variational Inference (SVI)**: Instead of slow MCMC
-       sampling, we use JAX-accelerated SVI to fit the posterior distribution
-       in ~30 seconds.
+    2. **Simulate 50,000 seasons**: For each simulation, the model estimates win
+       probabilities for every remaining game, simulates the outcomes, and determines
+       division winners, wild cards, and byes.
 
-    3. **Monte Carlo Simulation**: 50,000 seasons are simulated by:
-       - Drawing a posterior sample of team strengths
-       - Computing win probabilities for every remaining game
-       - Simulating game outcomes using those probabilities
-       - Determining division winners, wild cards, and byes
+    3. **Follow MLB's playoff format**: Each simulation uses the actual MLB structure —
+       3 division winners + 3 wild cards per league, with the top 2 seeds earning
+       first-round byes.
 
-    4. **Playoff Determination**: Each simulation follows MLB's actual
-       playoff format — 3 division winners + 3 wild cards per league,
-       with the top 2 seeds receiving first-round byes.
+    4. **Update daily**: Probabilities are recalculated each morning as new game
+       results come in.
 
-    5. **Daily Updates**: Probabilities are recalculated each morning
-       during the MLB season as new game results are incorporated.
-
-    **Note**: These probabilities are based on the deserve-to-win model's
-    assessment of team quality (batted ball outcomes), not traditional
-    win-loss records.
+    **Note**: These probabilities are based on batted ball quality (deserve-to-win),
+    not traditional win-loss records. A team's "strength" here reflects how well
+    they hit and pitch, not just whether they won.
     """)
 
 render_home_link()

@@ -1,6 +1,6 @@
 """
 MLB "Deserve to Win" Simulator - Streamlit App
-Landing page with recent games ticker, feature cards, and about section.
+Landing page with recent games ticker and feature cards.
 """
 
 import streamlit as st
@@ -42,7 +42,7 @@ st.markdown("""
     .hero-subtitle {
         font-size: 1.2rem;
         color: #4A5568;
-        margin-bottom: 0.75rem;
+        margin-bottom: 1.25rem;
     }
 
     /* Uniform card height per row */
@@ -52,8 +52,9 @@ st.markdown("""
 
     .footer {
         margin-top: 3rem;
-        padding-top: 1.5rem;
-        border-top: 1px solid #E2E8F0;
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 1.5rem;
         color: #718096;
         font-size: 0.85rem;
         text-align: center;
@@ -105,7 +106,7 @@ def _get_playoff_image_url(current_season):
 
 def render_recent_games(df):
     """Render clickable recent games section."""
-    st.markdown("### Recent Games")
+    st.subheader("Recent Games")
     st.caption("Click any game to view full simulation details")
     
     recent = df.head(4)
@@ -118,20 +119,20 @@ def render_recent_games(df):
                 away_short = get_short_name(row['away'])
                 home_short = get_short_name(row['home'])
                 winner_info = get_deserved_winner(row)
-                upset_marker = " 🎲" if winner_info['was_upset'] else ""
+                upset_marker = " UPSET" if winner_info['was_upset'] else ""
 
                 away_wp = int(round(row['away_wp'] * 100))
                 home_wp = int(round(row['home_wp'] * 100))
                 date_str = row['date'].strftime("%b %d")
 
                 st.markdown(f"""
-                <div style="background: linear-gradient(135deg, #1E3A5F 0%, #2C5282 100%);
+                <div style="background: #f8f9fa; border: 1px solid #e0e0e0;
                             padding: 0.75rem; border-radius: 8px; text-align: center;
-                            color: white; font-size: 0.85rem; margin-bottom: 0.5rem;">
-                    <div style="color: #A0AEC0; font-size: 0.7rem;">{date_str}</div>
-                    <div style="font-weight: 600;">{away_short} @ {home_short}{upset_marker}</div>
-                    <div style="color: #FFD700; font-weight: 700;">{row['away_score']} - {row['home_score']}</div>
-                    <div style="color: #A0AEC0; font-size: 0.75rem;">{away_wp}% - {home_wp}%</div>
+                            font-size: 0.85rem; margin-bottom: 0.5rem;">
+                    <div style="color: #718096; font-size: 0.7rem;">{date_str}</div>
+                    <div style="color: #1E3A5F; font-weight: 600;">{away_short} @ {home_short}{upset_marker}</div>
+                    <div style="color: #1E3A5F; font-weight: 700;">{row['away_score']} - {row['home_score']}</div>
+                    <div style="color: #718096; font-size: 0.75rem;">{away_wp}% - {home_wp}%</div>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -179,7 +180,7 @@ def render_feature_cards(current_season):
         _render_card(
             "pages/3_Playoff_Probabilities.py", "Playoff Probabilities",
             playoff_img,
-            "Monte Carlo simulations of the rest of the season using deserve-to-win team strengths.",
+            "Season simulations using deserve-to-win team strengths. Updated daily.",
             fit="contain")
 
     # --- Batted Ball Data ---
@@ -199,7 +200,7 @@ def render_feature_cards(current_season):
         _render_card(
             "pages/6_Player_Rankings.py", "Player Rankings",
             player_eval_img,
-            "Bayesian rankings of hitters and pitchers by contact quality, with credible intervals and shrinkage.",
+            "Statistical rankings of hitters and pitchers that account for sample size, with uncertainty ranges.",
             fit="contain")
 
     # --- Player Profiles ---
@@ -209,71 +210,17 @@ def render_feature_cards(current_season):
         _render_card(
             "pages/7_Hitter_Profile.py", "Hitter Profile",
             f"{S3}/sample-images/sample_hitter_profile.png",
-            "Individual hitter deep-dives: contact quality heatmaps, luck reports, platoon splits, and Bayesian rankings.")
+            "Individual hitter deep-dives: contact quality, luck reports, platoon splits, and statistical rankings.")
     with col8:
         _render_card(
             "pages/9_Pitcher_Profile.py", "Pitcher Profile",
             f"{S3}/sample-images/sample_pitcher_profile.png",
-            "Pitcher deep-dives: contact quality allowed, luck reports, batter splits, and Bayesian rankings.")
+            "Pitcher deep-dives: contact quality allowed, luck reports, batter splits, and statistical rankings.")
     with col9:
         _render_card(
             "pages/8_Hitter_Comparison.py", "Hitter Comparison",
             f"{S3}/sample-images/sample_hitter_comparison.png",
-            "Compare two hitters side-by-side: distributions, spray charts, luck, and Bayesian rankings.")
-
-
-def render_about_section():
-    """Render about section with all content visible (no tabs)."""
-    
-    # -----------------------------
-    # How It Works
-    # -----------------------------
-    st.subheader("How It Works")
-
-    st.markdown("""
-    1. **Get the data** — Pull all batted ball events from a completed MLB game via the MLB Stats API
-    2. **Predict outcomes** — Use a gradient boosting model trained on Statcast data to predict hit probability for each batted ball
-    3. **Simulate 10,000 times** — Resample each batted ball outcome based on predicted probabilities, including walks, strikeouts, and baserunning
-    4. **Calculate win probability** — Count how often each team wins across all simulations
-    """)
-    
-    st.divider()
-    
-    # -----------------------------
-    # Read More
-    # -----------------------------
-    st.subheader("Read More")
-
-    st.markdown("""
-    **[Who Deserved to Win? Building an MLB Game Outcome Simulator](https://medium.com/@dmgrifka_64770/who-deserved-to-win-building-an-mlb-game-outcome-simulator-b4a8d4bca2a9)**
-    Original methodology, motivation, and results from the 2024 season.
-
-    **[Applying Bayesian Hierarchical Methods to MLB Season Win Probabilities](https://medium.com/@dmgrifka_64770/applying-bayesian-hierarchical-methods-to-mlb-season-win-probabilties-with-pystan-468572abb932)**
-    Using deserve-to-win results to estimate true team strength with PyStan.
-    """)
-    
-    st.divider()
-    
-    # -----------------------------
-    # Connect
-    # -----------------------------
-    st.subheader("Connect")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**Social Media**")
-        st.markdown("""
-        **Twitter:** [@mlb_simulator](https://x.com/mlb_simulator)
-        **Bluesky:** [@mlb-simulator.bsky.social](https://bsky.app/profile/mlb-simulator.bsky.social)
-        """)
-    
-    with col2:
-        st.markdown("**Code & Portfolio**")
-        st.markdown("""
-        **Simulator Code:** [baseball_game_simulator](https://github.com/dgrifka/baseball_game_simulator)
-        **Portfolio:** [dgrifka.github.io](https://dgrifka.github.io)
-        """)
+            "Compare two hitters side-by-side: distributions, spray charts, luck, and statistical rankings.")
 
 
 def main():
@@ -291,15 +238,11 @@ def main():
         st.divider()
 
     render_feature_cards(current_season)
-    
-    st.divider()
-    
-    render_about_section()
-    
+
     st.markdown("""
     <div class="footer">
-        Built by <a href="https://dgrifka.github.io">Derek Grifka</a> · 
-        Model trained on Statcast data
+        Built by <a href="https://dgrifka.github.io">Derek Grifka</a> ·
+        Model trained on historical MLB data
     </div>
     """, unsafe_allow_html=True)
 

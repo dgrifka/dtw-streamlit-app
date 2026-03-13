@@ -166,7 +166,7 @@ def format_table(data, cols):
 # -----------------------------------------------------------------------------
 
 st.divider()
-st.subheader("🔥 Top Estimated Bases")
+st.subheader("Top Estimated Bases")
 st.caption("Highest model-predicted expected bases — the day's best batted balls by outcome probability.")
 
 top_eb = day_df.sort_values("estimated_bases", ascending=False)
@@ -184,7 +184,7 @@ st.dataframe(
 # -----------------------------------------------------------------------------
 
 st.divider()
-st.subheader("😤 Unluckiest Outs")
+st.subheader("Unluckiest Outs")
 st.caption("Outs with the highest expected batting average — balls that *should* have been hits.")
 
 outs_df = day_df[day_df["actual_result"] == "Out"].copy()
@@ -206,7 +206,7 @@ else:
 # -----------------------------------------------------------------------------
 
 st.divider()
-st.subheader("🍀 Luckiest Hits")
+st.subheader("Luckiest Hits")
 st.caption("Hits with the lowest expected batting average — balls that probably *shouldn't* have been hits.")
 
 hit_types = ["Single", "Double", "Triple", "Home Run"]
@@ -229,7 +229,7 @@ else:
 # -----------------------------------------------------------------------------
 
 st.divider()
-with st.expander("📖 Methodology"):
+with st.expander("Methodology"):
     st.markdown("""
     **Column Definitions:**
 

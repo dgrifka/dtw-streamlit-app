@@ -125,7 +125,7 @@ extreme_teams = get_extreme_teams(luck_stats)
 # -----------------------------------------------------------------------------
 
 st.divider()
-st.subheader("📊 Quick Stats")
+st.subheader("Quick Stats")
 
 stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
 
@@ -166,7 +166,7 @@ with stat_col4:
 chart_suffix = "" if regular_season_only else "_full"
 
 st.divider()
-st.subheader("📈 Luck Overview")
+st.subheader("Luck Overview")
 
 luck_tab_net, luck_tab_wp = st.tabs(["Net Lucky Wins", "Wins - xWins"])
 
@@ -187,7 +187,7 @@ with luck_tab_wp:
         st.info("Charts are generated during the MLB season. Check back when games are being played.")
 
 st.divider()
-st.subheader("📉 Lucky Wins vs Unlucky Losses")
+st.subheader("Lucky Wins vs Unlucky Losses")
 st.caption("Lucky win = won when underdog (<50% win prob). Unlucky loss = lost when favorite (>50% win prob).")
 
 lucky_unlucky_url = f"{S3_CHARTS_URL}/{selected_season}/lucky_vs_unlucky{chart_suffix}.png"
@@ -201,8 +201,8 @@ else:
 # -----------------------------------------------------------------------------
 
 st.divider()
-st.subheader("📋 Full Rankings Table")
-st.caption("Some games may be excluded due to incomplete Statcast data or unsupported ballparks.")
+st.subheader("Full Rankings Table")
+st.caption("Some games may be excluded due to incomplete tracking data or unsupported ballparks.")
 
 # Prepare display dataframe
 display_df = luck_stats[[
@@ -233,7 +233,7 @@ st.dataframe(
 # Download button
 csv_data = display_df.to_csv(index=False)
 st.download_button(
-    label="📥 Download as CSV",
+    label="Download as CSV",
     data=csv_data,
     file_name=f"team_rankings_{selected_season}.csv",
     mime="text/csv"
@@ -244,7 +244,7 @@ st.download_button(
 # -----------------------------------------------------------------------------
 
 st.divider()
-with st.expander("📖 Methodology"):
+with st.expander("Methodology"):
     st.markdown("""
     **How luck is calculated:**
 

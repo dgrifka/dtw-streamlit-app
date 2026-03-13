@@ -139,12 +139,11 @@ default_pick1 = display_list[default_idx1]
 default_idx2 = _resolve_index(qp2, exclude_display=default_pick1)
 
 # Layout: Player 1 | Swap | Player 2 | Shuffle Both
-sel1, swap_col, sel2, shuffle_col = st.columns([3, 0.5, 3, 1])
+sel1, swap_col, sel2, shuffle_col = st.columns([3, 0.5, 3, 1], vertical_alignment="bottom")
 
 with sel1:
     selected_p1 = st.selectbox("Player 1", options=display_list, index=default_idx1, key="cmp_p1")
 with swap_col:
-    st.markdown("<div style='height: 29px'></div>", unsafe_allow_html=True)
     if st.button("Swap", width="stretch"):
         st.query_params["p1"] = st.session_state.get("cmp_p2", display_list[default_idx2])
         st.query_params["p2"] = st.session_state.get("cmp_p1", display_list[default_idx1])
@@ -152,7 +151,6 @@ with swap_col:
 with sel2:
     selected_p2 = st.selectbox("Player 2", options=display_list, index=default_idx2, key="cmp_p2")
 with shuffle_col:
-    st.markdown("<div style='height: 29px'></div>", unsafe_allow_html=True)
     if st.button("Shuffle Both", width="stretch"):
         picks = random.sample(eligible_displays, min(2, len(eligible_displays)))
         st.query_params["p1"] = picks[0]
@@ -164,7 +162,7 @@ st.query_params["p1"] = selected_p1
 st.query_params["p2"] = selected_p2
 
 if selected_p1 == selected_p2:
-    st.info("Same player selected for both sides. Select different players to see a comparison.")
+    st.warning("Same player selected for both sides. Select different players to see a comparison.")
 
 
 # =============================================================================
@@ -470,7 +468,7 @@ if p1["ranking"] is not None and p2["ranking"] is not None:
         + '</div>'
     )
     st.markdown(bar_html, unsafe_allow_html=True)
-    st.caption("Bayesian estimate of true production per plate appearance with 89% HDI credible intervals.")
+    st.caption("Estimated true production per plate appearance with uncertainty ranges.")
 
 
 # =============================================================================

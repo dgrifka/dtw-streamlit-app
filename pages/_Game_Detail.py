@@ -41,6 +41,10 @@ st.markdown("""
         padding: 1rem;
         text-align: center;
         border: 1px solid #e0e0e0;
+        min-height: 110px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
     }
     .image-container {
         background: #ffffff;
@@ -68,6 +72,9 @@ inject_responsive_css()
 
 
 def main():
+    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
+    st.logo(_logo_path)
+
     # Get gamePk from session state first, then query params as fallback
     game_pk = st.session_state.get('selected_game_pk', None)
     
@@ -88,15 +95,15 @@ def main():
     if game_pk is None:
         st.title("Game Detail")
         st.warning("No game selected. Please select a game from Game Simulations.")
-        st.page_link("pages/1_Game_Simulations.py", label="🔍 Browse All Games", width="stretch")
+        st.page_link("pages/1_Game_Simulations.py", label="Browse All Games", width="stretch")
         return
-    
+
     # Load specific game
     game_row = df[df['gamePk'] == game_pk]
-    
+
     if game_row.empty:
         st.error(f"Game {game_pk} not found.")
-        st.page_link("pages/1_Game_Simulations.py", label="🔍 Browse All Games", width="stretch")
+        st.page_link("pages/1_Game_Simulations.py", label="Browse All Games", width="stretch")
         return
     
     row = game_row.iloc[0]
@@ -110,15 +117,13 @@ def main():
     home_wp = int(round(row['home_wp'] * 100))
     
     # ============ HEADER ============
-    col_back, col_spacer = st.columns([1, 4])
-    with col_back:
-        if st.button("← Back to Games"):
-            st.switch_page("pages/1_Game_Simulations.py")
+    if st.button("← Back to Games"):
+        st.switch_page("pages/1_Game_Simulations.py")
     
     st.divider()
     
     # Game title
-    upset_badge = " 🎲 UPSET" if winner_info['was_upset'] else ""
+    upset_badge = " — UPSET" if winner_info['was_upset'] else ""
     st.markdown(f"## {row['away']} @ {row['home']}{upset_badge}")
     
     # Score and info row
@@ -153,11 +158,11 @@ def main():
     
     with col4:
         if winner_info['was_upset']:
-            result_text = "🎲 Upset!"
+            result_text = "Upset"
             result_detail = f"{get_short_name(winner_info['deserved_winner'])} deserved to win"
         else:
-            result_text = "✓ Deserved"
-            result_detail = "Correct team won"
+            result_text = "Deserved"
+            result_detail = "Expected team won"
         
         st.markdown(f"""
         <div class="game-info-box">
@@ -170,7 +175,7 @@ def main():
     st.divider()
     
     # ============ IMAGES IN COMPARTMENTS ============
-    st.markdown("### Simulation Visualizations")
+    st.subheader("Simulation Visualizations")
     
     images = get_game_images(row)
     
@@ -180,7 +185,7 @@ def main():
     with col1:
         st.markdown("""
         <div class="image-container">
-            <div class="image-title">📍 Spray Chart</div>
+            <div class="image-title">Spray Chart</div>
             <div class="image-caption">Where batted balls landed in the ballpark</div>
         </div>
         """, unsafe_allow_html=True)
@@ -189,7 +194,7 @@ def main():
     with col2:
         st.markdown("""
         <div class="image-container">
-            <div class="image-title">📈 Estimated Bases</div>
+            <div class="image-title">Estimated Bases</div>
             <div class="image-caption">Expected bases vs actual bases by player</div>
         </div>
         """, unsafe_allow_html=True)
@@ -204,7 +209,7 @@ def main():
     with col3:
         st.markdown("""
         <div class="image-container">
-            <div class="image-title">📊 Run Distribution</div>
+            <div class="image-title">Run Distribution</div>
             <div class="image-caption">Simulated run outcomes from 10,000 simulations</div>
         </div>
         """, unsafe_allow_html=True)
@@ -213,14 +218,14 @@ def main():
     with col4:
         st.markdown("""
         <div class="image-container">
-            <div class="image-title">👤 Player Contributions</div>
+            <div class="image-title">Player Contributions</div>
             <div class="image-caption">Individual player impact on win probability</div>
         </div>
         """, unsafe_allow_html=True)
         st.image(images['player_contributions'], width="stretch")
     
     # ============ SIDEBAR ============
-    st.sidebar.header("🔍 Find Another Game")
+    st.sidebar.header("Find Another Game")
     
     teams = sorted(df['home'].unique().tolist())
     selected_team = st.sidebar.selectbox("Filter by Team", ["All Teams"] + teams)
@@ -260,7 +265,7 @@ def main():
         st.sidebar.info("No games found for this date/team.")
     
     st.sidebar.divider()
-    st.sidebar.page_link("pages/1_Game_Simulations.py", label="📋 Browse All Games")
+    st.sidebar.page_link("pages/1_Game_Simulations.py", label="Browse All Games")
 
     render_home_link()
 

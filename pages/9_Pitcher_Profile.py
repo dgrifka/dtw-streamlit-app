@@ -145,7 +145,7 @@ else:
         default_index = display_list.index(random_pick)
 
 # Pitcher selector dropdown
-search_col, shuffle_col = st.columns([3, 1])
+search_col, shuffle_col = st.columns([3, 1], vertical_alignment="bottom")
 with search_col:
     selected_display = st.selectbox(
         "Select pitcher",
@@ -154,7 +154,6 @@ with search_col:
         key="pp_pitcher_select",
     )
 with shuffle_col:
-    st.markdown("<div style='height: 29px'></div>", unsafe_allow_html=True)
     if st.button("Shuffle", width="stretch"):
         eligible_names = bb_df.groupby(["pitcher", "opponent"]).size()
         eligible_names = eligible_names[eligible_names >= 50].index.tolist()
@@ -314,7 +313,7 @@ with hero_bayesian:
         eb_pct = 100 - eb_pct_raw
 
         st.metric("Est. Bases Allowed/PA", f"{bayesian_eb:.3f}",
-                  help="Bayesian estimate of true production allowed per plate appearance. Lower is better for pitchers. Small samples are shrunk toward league average.")
+                  help="Estimated true production allowed per plate appearance. Lower is better for pitchers. Small samples are adjusted toward league average.")
         render_percentile_bar(eb_pct, label=f"{_ordinal(int(eb_pct))} pct (lower EB/PA = better)")
 
         # --- 3-Row Comparison Bar ---
@@ -1121,22 +1120,21 @@ st.download_button(
 st.divider()
 with st.expander("Methodology"):
     st.markdown(f"""
-**Estimated Bases** is the model-predicted expected bases for each batted ball:
-`P(1B)*1 + P(2B)*2 + P(3B)*3 + P(HR)*4`. The probabilities come from a Gradient
-Boosting Classifier trained on Statcast data, accounting for exit velocity, launch angle,
-spray angle, and ballpark.
+**Estimated Bases** is the model-predicted expected bases for each batted ball,
+based on the probability of each outcome (single, double, triple, home run)
+given the exit velocity, launch angle, spray angle, and ballpark.
 
-**Est. Bases Allowed per PA** is a hierarchical Bayesian estimate (NumPyro NUTS MCMC) that
-accounts for walks (1 base), HBP (1 base), and strikeouts (0 bases) alongside batted ball
-contact quality allowed. Pitchers with fewer plate appearances are "shrunk" toward the league
-average. **Lower is better** — the best pitchers allow the fewest estimated bases per PA.
-The comparison bar shows the pitcher vs. the best pitcher and league average, with 89% HDI.
+**Est. Bases Allowed per PA** is a statistical estimate of true production allowed per
+plate appearance that accounts for walks (1 base), HBP (1 base), and strikeouts (0 bases)
+alongside batted ball quality. Pitchers with fewer plate appearances are adjusted toward the
+league average. **Lower is better** — the best pitchers allow the fewest estimated bases per PA.
+The comparison bar shows the pitcher vs. the best pitcher and league average, with uncertainty ranges.
 
-**Historical Timeline** tracks a pitcher's Bayesian Est. Bases Allowed / PA across seasons
-with 89% HDI error bars. The diamond shows the best pitcher each season for reference.
+**Historical Timeline** tracks a pitcher's Est. Bases Allowed / PA across seasons with
+uncertainty bars. The diamond shows the best pitcher each season for reference.
 
 **Net Lucky Bases** (pitcher perspective) = expected total bases minus actual total bases allowed.
-Positive = lucky (allowed fewer bases than expected from contact quality).
+Positive = lucky (allowed fewer bases than contact quality suggested).
 Negative = unlucky. Over a full season, extreme values tend to regress toward zero.
 Tier labels: Very Unlucky (0-10th pct), Unlucky (10-30th), Luck Neutral (30-70th),
 Lucky (70-90th), Very Lucky (90-100th).

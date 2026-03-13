@@ -248,7 +248,7 @@ st.dataframe(
 # Download button
 csv_data = filtered.to_csv(index=False)
 st.download_button(
-    label="📥 Download as CSV",
+    label="Download as CSV",
     data=csv_data,
     file_name=f"batted_balls_{season}.csv",
     mime="text/csv"
@@ -259,7 +259,7 @@ st.download_button(
 # -----------------------------------------------------------------------------
 
 st.divider()
-st.subheader("📊 Player Leaderboard")
+st.subheader("Player Leaderboard")
 st.caption("Aggregated stats for players in your filtered results (min. 10 batted balls).")
 
 if total_results > 0:
@@ -313,12 +313,12 @@ if total_results > 0:
 # -----------------------------------------------------------------------------
 
 st.divider()
-with st.expander("📖 Methodology"):
+with st.expander("Methodology"):
     st.markdown("""
     **Column Definitions:**
 
-    - **Exit Velocity (EV)**: Speed of the ball off the bat in mph (from Statcast)
-    - **Launch Angle (LA)**: Vertical angle of the ball off the bat in degrees (from Statcast)
+    - **Exit Velocity (EV)**: Speed of the ball off the bat in mph
+    - **Launch Angle (LA)**: Vertical angle of the ball off the bat in degrees
     - **Spray Direction**: Pull, Center, or Oppo — computed from hit coordinates and batter handedness
     - **Estimated Bases**: Model-predicted expected bases for this batted ball
       (P(1B)×1 + P(2B)×2 + P(3B)×3 + P(HR)×4)
@@ -328,8 +328,8 @@ with st.expander("📖 Methodology"):
 
     **How the model works:**
 
-    A Gradient Boosting Classifier trained on historical Statcast data predicts the
-    probability of each outcome (out, single, double, triple, home run) given the
+    A machine learning model trained on millions of historical MLB batted balls predicts
+    the probability of each outcome (out, single, double, triple, home run) given the
     exit velocity, launch angle, spray angle, and ballpark. The model accounts for
     park-specific dimensions and effects.
     """)

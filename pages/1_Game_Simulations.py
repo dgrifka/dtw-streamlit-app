@@ -25,6 +25,9 @@ st.set_page_config(
     layout="wide"
 )
 
+_logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
+st.logo(_logo_path)
+
 # MLB logo for default state
 MLB_LOGO_URL = "https://a.espncdn.com/i/teamlogos/leagues/500/mlb.png"
 
@@ -37,35 +40,6 @@ st.markdown("""
         padding: 1rem;
         margin-bottom: 0.5rem;
         border: 1px solid #e0e0e0;
-    }
-    .filter-section {
-        background: #f0f4f8;
-        padding: 1rem;
-        border-radius: 8px;
-        margin-bottom: 1rem;
-    }
-    /* Upset toggle styling */
-    .upset-toggle {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        background: #FFF8E1;
-        border: 2px solid #FFB300;
-        border-radius: 24px;
-        padding: 0.4rem 1rem;
-        cursor: pointer;
-        font-weight: 600;
-        font-size: 0.95rem;
-        color: #E65100;
-        transition: all 0.15s ease;
-    }
-    .upset-toggle.active {
-        background: #FF6F00;
-        border-color: #E65100;
-        color: white;
-    }
-    .upset-toggle .dice {
-        font-size: 1.4rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -189,7 +163,7 @@ def main():
 
     with col5:
         upsets_only = st.toggle(
-            "Upsets Only  🎲",
+            "Upsets Only",
             help="Show only games where the 'wrong' team won"
         )
 
@@ -294,7 +268,7 @@ def main():
                     away_short = get_short_name(row['away'])
                     home_short = get_short_name(row['home'])
                     winner_info = get_deserved_winner(row)
-                    upset_marker = " 🎲" if winner_info['was_upset'] else ""
+                    upset_marker = " UPSET" if winner_info['was_upset'] else ""
 
                     away_wp = int(round(row['away_wp'] * 100))
                     home_wp = int(round(row['home_wp'] * 100))
