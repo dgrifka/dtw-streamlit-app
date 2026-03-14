@@ -195,7 +195,7 @@ def render_feature_cards(current_season):
         _render_card(
             "pages/6_Player_Rankings.py", "Player Rankings",
             player_eval_img,
-            "Statistical rankings of hitters and pitchers that account for sample size, with uncertainty ranges.",
+            "Bayesian hitter and pitcher rankings with credible intervals, interactive charts, platoon splits, and small sample standouts.",
             fit="contain")
 
     # --- Player Profiles ---

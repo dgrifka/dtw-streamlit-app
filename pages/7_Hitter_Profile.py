@@ -397,6 +397,138 @@ with hero_bayesian:
 
 
 # =============================================================================
+# FANTASY CONTEXT
+# =============================================================================
+
+from utils.fantasy_helpers import classify_contact_tier
+
+# Compute player luck
+player_bb["_actual_tb"] = player_bb["actual_result"].map(TB_MAP).fillna(0)
+_player_luck = player_bb["_actual_tb"].sum() - player_bb["estimated_bases"].sum()
+
+# League luck for percentile
+_league_luck = bb_df.copy()
+_league_luck["_actual_tb"] = _league_luck["actual_result"].map(TB_MAP).fillna(0)
+_league_luck_per_player = _league_luck.groupby("player").apply(
+    lambda x: x["_actual_tb"].sum() - x["estimated_bases"].sum(),
+    include_groups=False,
+)
+_luck_pct = (_league_luck_per_player < _player_luck).mean() * 100
+
+# Count unlucky outs (outs where estimated_bases was high)
+_unlucky_outs = player_bb[
+    (player_bb["_actual_tb"] == 0) & (player_bb["estimated_bases"] > 0.5)
+]
+_n_unlucky = len(_unlucky_outs)
+
+# Recent trend (14 days)
+_recent_eb = None
+_recent_vs_season = 0.0
+if "date_parsed" in player_bb.columns and len(player_bb) > 0:
+    _max_date = player_bb["date_parsed"].max()
+    _recent = player_bb[player_bb["date_parsed"] > _max_date - pd.Timedelta(days=14)]
+    if len(_recent) > 5:
+        _recent_eb = _recent["estimated_bases"].mean()
+        _recent_vs_season = _recent_eb - avg_eb
+
+# Platoon edge
+_platoon_str = None
+if not metadata_df.empty and "pitcher" in player_bb.columns:
+    _thm = metadata_df.set_index("player_name")["throw_hand"].to_dict()
+    player_bb["_pitcher_hand"] = player_bb["pitcher"].map(_thm)
+    _vs_l = player_bb[player_bb["_pitcher_hand"] == "L"]
+    _vs_r = player_bb[player_bb["_pitcher_hand"] == "R"]
+    if len(_vs_l) >= 10 and len(_vs_r) >= 10:
+        _gap = _vs_l["estimated_bases"].mean() - _vs_r["estimated_bases"].mean()
+        if abs(_gap) > 0.03:
+            _better = "vs LHP" if _gap > 0 else "vs RHP"
+            _platoon_str = f"+{abs(_gap):.3f} EB/BB {_better}"
+    # Clean up temp column
+    player_bb.drop(columns=["_pitcher_hand"], inplace=True, errors="ignore")
+
+# K%/BB% from pa_counts
+_k_rate = 20.0
+_bb_rate = 8.0
+if not pa_counts_df.empty:
+    _pc = pa_counts_df[pa_counts_df["player"] == selected_player]
+    if not _pc.empty:
+        _total_k = _pc["strikeouts"].sum()
+        _total_bb = _pc["walks"].sum()
+        _pa_for_rate = n_pa if n_pa else n_bb
+        if _pa_for_rate > 0:
+            _k_rate = _total_k / _pa_for_rate * 100
+            _bb_rate = _total_bb / _pa_for_rate * 100
+
+# Tier classification
+_post_mean_pct = 50.0
+if player_ranking is not None and not pa_rankings.empty:
+    _post_mean_pct = (
+        (pa_rankings["posterior_mean"] < player_ranking["posterior_mean"]).mean() * 100
+    )
+
+_tier = classify_contact_tier(
+    _post_mean_pct, barrel_rate, _k_rate, _bb_rate,
+    {"barrel_rate_median": 7.0, "k_rate_median": 20.0},
+)
+
+# Display
+st.divider()
+st.subheader("Fantasy Context")
+
+_fc1, _fc2, _fc3 = st.columns(3)
+
+with _fc1:
+    st.markdown(
+        f'<div style="font-weight:600; margin-bottom:4px;">Player Tier</div>'
+        f'<div style="color:#4A5568; font-size:0.9rem;"><b>{_tier}</b></div>'
+        f'<div style="color:#718096; font-size:0.8rem; margin-top:4px;">'
+        f'{_ordinal(int(_post_mean_pct))} percentile EB/PA</div>',
+        unsafe_allow_html=True,
+    )
+
+with _fc2:
+    _luck_str = f"{_player_luck:+.1f} net lucky bases"
+    _luck_pct_str = f"{_luck_pct:.0f}th pct"
+    _unlucky_str = f"{_n_unlucky} unlucky outs (EB > 0.5)"
+    st.markdown(
+        f'<div style="font-weight:600; margin-bottom:4px;">Contact Quality vs Results</div>'
+        f'<div style="color:#4A5568; font-size:0.9rem;">{_luck_str} ({_luck_pct_str})</div>'
+        f'<div style="color:#718096; font-size:0.85rem;">{_unlucky_str}</div>',
+        unsafe_allow_html=True,
+    )
+
+with _fc3:
+    _trend_parts = []
+    if _recent_eb is not None:
+        _arrow = "up" if _recent_vs_season > 0.005 else ("down" if _recent_vs_season < -0.005 else "flat")
+        _arrow_sym = {"up": "+", "down": "", "flat": ""}[_arrow]
+        _trend_parts.append(
+            f"Last 14d: {_recent_eb:.3f} EB/BB ({_arrow_sym}{_recent_vs_season:.3f} vs season)"
+        )
+    if _platoon_str:
+        _trend_parts.append(f"Platoon: {_platoon_str}")
+
+    if _trend_parts:
+        st.markdown(
+            f'<div style="font-weight:600; margin-bottom:4px;">Trends & Splits</div>'
+            + "".join(
+                f'<div style="color:#4A5568; font-size:0.9rem;">{p}</div>'
+                for p in _trend_parts
+            ),
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div style="font-weight:600; margin-bottom:4px;">Trends & Splits</div>'
+            '<div style="color:#718096; font-size:0.9rem;">Not enough data for trends</div>',
+            unsafe_allow_html=True,
+        )
+
+# Clean up temp columns
+player_bb.drop(columns=["_actual_tb"], inplace=True, errors="ignore")
+
+
+# =============================================================================
 # HISTORICAL EST. BASES / PA TIMELINE
 # =============================================================================
 
