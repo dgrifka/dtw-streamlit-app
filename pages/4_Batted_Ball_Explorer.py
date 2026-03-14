@@ -19,13 +19,6 @@ if parent_dir not in sys.path:
 from utils.data_loader import load_batted_balls, get_available_batted_ball_seasons
 from utils.responsive import inject_responsive_css, render_home_link
 
-# Page config
-st.set_page_config(
-    page_title="Batted Ball Explorer | DTW Simulator",
-    page_icon="⚾",
-    layout="wide"
-)
-
 inject_responsive_css()
 
 MAX_DISPLAY_ROWS = 500
@@ -35,8 +28,6 @@ MAX_HIGHLIGHT_ROWS = 15
 # MAIN PAGE
 # -----------------------------------------------------------------------------
 
-_logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
-st.logo(_logo_path)
 st.title("Batted Ball Explorer")
 st.markdown("Search and filter individual batted balls to see model-predicted outcome probabilities.")
 

@@ -34,12 +34,6 @@ from utils.player_helpers import (
 )
 from utils.responsive import inject_responsive_css, render_home_link
 
-st.set_page_config(
-    page_title="Hitter Comparison | DTW Simulator",
-    page_icon="⚾",
-    layout="wide",
-)
-
 inject_responsive_css()
 
 # Disable autocorrect/autocapitalize on selectbox search input
@@ -84,8 +78,6 @@ pa_rankings = load_player_evaluations_pa(season, "hitter")
 # Multi-season PA rankings for historical timeline
 all_season_pa_rankings = load_all_season_pa_rankings("hitter")
 
-_logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
-st.logo(_logo_path)
 st.title("Hitter Comparison")
 
 # =============================================================================

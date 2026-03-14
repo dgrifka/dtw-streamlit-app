@@ -24,13 +24,6 @@ if parent_dir not in sys.path:
 from utils.data_loader import load_playoff_probabilities, _image_exists, S3_BASE_URL
 from utils.responsive import inject_responsive_css, render_home_link
 
-# Page config
-st.set_page_config(
-    page_title="Playoff Probabilities | DTW Simulator",
-    page_icon="🎯",
-    layout="wide"
-)
-
 inject_responsive_css()
 
 # S3 base URL for playoff probability charts
@@ -56,8 +49,6 @@ def _get_available_playoff_seasons():
 # MAIN PAGE
 # -----------------------------------------------------------------------------
 
-_logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
-st.logo(_logo_path)
 st.title("Playoff Probabilities")
 st.markdown(
     "Season simulations using **team strength estimates** from the deserve-to-win model. "

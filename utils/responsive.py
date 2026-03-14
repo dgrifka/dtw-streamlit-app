@@ -138,4 +138,4 @@ def upset_badge_html(is_upset: bool) -> str:
 def render_home_link():
     """Render a subtle 'Return to Home' link at the bottom of the page."""
     st.divider()
-    st.page_link("Home.py", label="← Return to Home")
+    st.page_link("_home.py", label="← Return to Home")

@@ -31,20 +31,10 @@ from utils.data_loader import (
 )
 from utils.team_mappings import TEAM_COLORS
 from utils.player_analytics import compute_platoon_splits
+from utils.player_helpers import PLOTLY_CONFIG
 from utils.responsive import inject_responsive_css, render_home_link
 
-# Page config
-st.set_page_config(
-    page_title="Player Rankings | DTW Simulator",
-    page_icon="⚾",
-    layout="wide",
-)
-
 inject_responsive_css()
-
-_logo_path = os.path.join(parent_dir, "assets", "mlb_simulator_logo.png")
-if os.path.exists(_logo_path):
-    st.logo(_logo_path)
 
 st.title("Player Rankings")
 st.markdown(
@@ -317,12 +307,18 @@ st.download_button(
 
 
 # =============================================================================
-# SECTION 4: SMALL SAMPLE STANDOUTS (Hitters, PA mode only)
+# SECTION 4: PLAYER SPOTLIGHT (Hitters, PA mode only)
 # =============================================================================
 
 if type_key == "hitter" and is_pa_mode and df["hdi_high"].notna().any():
     st.divider()
-    st.subheader("Small sample standouts")
+    st.subheader("Player spotlight")
+    st.caption(
+        "Estimated Bases per Plate Appearance (EB/PA) — accounts for all plate "
+        "appearance outcomes including walks, strikeouts, and batted ball quality."
+    )
+
+    # ── Compute both standout groups before rendering ────────────────────
 
     # Use full df with a low floor (30 PA) to find small-sample players
     # whose wide HDI intervals give them elite ceilings
@@ -330,27 +326,98 @@ if type_key == "hitter" and is_pa_mode and df["hdi_high"].notna().any():
     if selected_team != "All Teams":
         standouts_pool = standouts_pool[standouts_pool["team"] == selected_team]
 
-    col_upside, col_floor = st.columns(2)
+    # High upside
+    upside = pd.DataFrame()
+    if standouts_pool["hdi_high"].notna().any():
+        elite_threshold = standouts_pool["hdi_high"].quantile(0.80)
+        moderate_threshold = standouts_pool["posterior_mean"].quantile(0.70)
+        upside = standouts_pool[
+            (standouts_pool["hdi_high"] >= elite_threshold) &
+            (standouts_pool["posterior_mean"] < moderate_threshold)
+        ].sort_values("hdi_high", ascending=False).head(15)
 
-    with col_upside:
-        st.markdown("**High upside**")
-        st.caption(
-            "Players whose HDI ceiling is elite even though their point estimate "
-            "is moderate — lottery tickets with breakout potential."
+    # Reliable floor
+    safe_floor = pd.DataFrame()
+    with_hdi = filtered[filtered["hdi_high"].notna()].copy()
+    if not with_hdi.empty:
+        with_hdi["hdi_width"] = with_hdi["hdi_high"] - with_hdi["hdi_low"]
+        above_avg = with_hdi[
+            with_hdi["posterior_mean"] >= with_hdi["posterior_mean"].median()
+        ]
+        safe_floor = above_avg.nsmallest(15, "hdi_width")
+
+    # ── Forest plot (tabbed) ─────────────────────────────────────────────
+
+    has_50_hdi = "hdi_50_low" in df.columns and "hdi_50_high" in df.columns
+
+    def _build_forest_plot(plot_df, color, label):
+        """Build a Plotly forest plot showing credible intervals."""
+        plot_df = plot_df.sort_values("posterior_mean", ascending=True).copy()
+        fig = go.Figure()
+
+        # 89% HDI thin lines
+        for _, row in plot_df.iterrows():
+            fig.add_trace(go.Scatter(
+                x=[row["hdi_low"], row["hdi_high"]],
+                y=[row["player"], row["player"]],
+                mode="lines",
+                line=dict(color=color, width=1.5),
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+
+        # 50% HDI thick lines (if available)
+        if has_50_hdi and plot_df["hdi_50_low"].notna().any():
+            for _, row in plot_df.iterrows():
+                if pd.notna(row.get("hdi_50_low")) and pd.notna(row.get("hdi_50_high")):
+                    fig.add_trace(go.Scatter(
+                        x=[row["hdi_50_low"], row["hdi_50_high"]],
+                        y=[row["player"], row["player"]],
+                        mode="lines",
+                        line=dict(color=color, width=5),
+                        showlegend=False,
+                        hoverinfo="skip",
+                    ))
+
+        # Posterior mean dots
+        fig.add_trace(go.Scatter(
+            x=plot_df["posterior_mean"],
+            y=plot_df["player"],
+            mode="markers",
+            marker=dict(color=color, size=8),
+            name=label,
+            customdata=plot_df[["hdi_low", "hdi_high", "n_batted_balls"]].values,
+            hovertemplate=(
+                "<b>%{y}</b><br>"
+                f"{metric_short}: %{{x:.3f}}<br>"
+                "Range: %{customdata[0]:.3f} – %{customdata[1]:.3f}<br>"
+                "PA: %{customdata[2]:.0f}<extra></extra>"
+            ),
+        ))
+
+        fig.update_layout(
+            template="plotly_white",
+            xaxis_title="Est. Bases / PA",
+            height=max(300, len(plot_df) * 28),
+            margin=dict(l=140, r=20, t=10, b=40),
+            showlegend=False,
+            yaxis=dict(tickfont=dict(size=11)),
         )
+        return fig
 
-        if standouts_pool["hdi_high"].notna().any():
-            elite_threshold = standouts_pool["hdi_high"].quantile(0.80)
-            moderate_threshold = standouts_pool["posterior_mean"].quantile(0.70)
+    if not upside.empty or not safe_floor.empty:
+        tab_upside, tab_floor = st.tabs(["High Upside (Small Samples)", "Reliable Floor (Established)"])
 
-            upside = standouts_pool[
-                (standouts_pool["hdi_high"] >= elite_threshold) &
-                (standouts_pool["posterior_mean"] < moderate_threshold)
-            ].sort_values("hdi_high", ascending=False).head(15)
+        with tab_upside:
+            st.caption(
+                "Players with limited plate appearances whose ceiling is elite even though "
+                "their current estimate is moderate. High variability means high risk — "
+                "but also breakout potential."
+            )
+            if not upside.empty:
+                fig_upside = _build_forest_plot(upside, "#2563eb", "High Upside")
+                st.plotly_chart(fig_upside, use_container_width=True, config=PLOTLY_CONFIG, theme=None)
 
-            if upside.empty:
-                st.info("No high-upside players found with current filters.")
-            else:
                 up_display = upside[["player", "team", "posterior_mean",
                                       "hdi_low", "hdi_high", "n_batted_balls"]].copy()
                 up_display["Profile"] = up_display["player"].apply(
@@ -371,29 +438,18 @@ if type_key == "hitter" and is_pa_mode and df["hdi_high"].notna().any():
                         "Profile": st.column_config.LinkColumn(display_text="View"),
                     },
                 )
-        else:
-            st.info("Bayesian ranking data not available.")
-
-    with col_floor:
-        st.markdown("**Reliable floor**")
-        st.caption(
-            "Above-median players with the narrowest credible intervals — "
-            "consistent production, less risk."
-        )
-
-        # Reliable floor uses the main filtered set (high-PA players)
-        with_hdi = filtered[filtered["hdi_high"].notna()].copy()
-        if not with_hdi.empty:
-            with_hdi["hdi_width"] = with_hdi["hdi_high"] - with_hdi["hdi_low"]
-
-            above_avg = with_hdi[
-                with_hdi["posterior_mean"] >= with_hdi["posterior_mean"].median()
-            ]
-            safe_floor = above_avg.nsmallest(15, "hdi_width")
-
-            if safe_floor.empty:
-                st.info("No reliable-floor players found with current filters.")
             else:
+                st.info("No high-upside players found with current filters.")
+
+        with tab_floor:
+            st.caption(
+                "Above-average players with enough data that the model is confident in their "
+                "estimate. Narrow ranges mean consistent, predictable production."
+            )
+            if not safe_floor.empty:
+                fig_floor = _build_forest_plot(safe_floor, "#16a34a", "Reliable Floor")
+                st.plotly_chart(fig_floor, use_container_width=True, config=PLOTLY_CONFIG, theme=None)
+
                 sf_display = safe_floor[["player", "team", "posterior_mean",
                                           "hdi_low", "hdi_high", "n_batted_balls"]].copy()
                 sf_display["Profile"] = sf_display["player"].apply(
@@ -414,8 +470,15 @@ if type_key == "hitter" and is_pa_mode and df["hdi_high"].notna().any():
                         "Profile": st.column_config.LinkColumn(display_text="View"),
                     },
                 )
-        else:
-            st.info("Bayesian ranking data not available.")
+            else:
+                st.info("No reliable-floor players found with current filters.")
+
+        hdi_caption = "Thin lines = possible range, dots = model estimate"
+        if has_50_hdi:
+            hdi_caption = "Thin lines = possible range, thick lines = likely range, dots = model estimate"
+        st.caption(hdi_caption)
+    else:
+        st.info("Bayesian ranking data not available.")
 
 
 # =============================================================================

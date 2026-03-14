@@ -28,13 +28,6 @@ from utils.luck_calculations import (
 )
 from utils.responsive import inject_responsive_css, render_home_link
 
-# Page config
-st.set_page_config(
-    page_title="Team Luck Rankings | DTW Simulator",
-    page_icon="🏆",
-    layout="wide"
-)
-
 inject_responsive_css()
 
 # S3 base URL for pre-rendered charts
@@ -61,8 +54,6 @@ def get_data_freshness_date(df: pd.DataFrame) -> str:
 # MAIN PAGE
 # -----------------------------------------------------------------------------
 
-_logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
-st.logo(_logo_path)
 st.title("Team Luck Rankings")
 st.markdown("Which teams have been **lucky** (more wins than expected) or **unlucky** (fewer wins than expected)?")
 

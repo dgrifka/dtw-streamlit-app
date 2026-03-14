@@ -14,15 +14,6 @@ if parent_dir not in sys.path:
 
 from utils.responsive import inject_responsive_css, render_home_link
 
-st.set_page_config(
-    page_title="About | DTW Simulator",
-    page_icon="⚾",
-    layout="wide",
-)
-
-_logo_path = os.path.join(current_dir, "..", "assets", "mlb_simulator_logo.png")
-st.logo(_logo_path)
-
 inject_responsive_css()
 
 st.title("About")

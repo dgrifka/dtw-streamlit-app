@@ -17,12 +17,6 @@ from utils.data_loader import load_game_summaries, get_game_images, get_deserved
 from utils.team_mappings import get_short_name
 from utils.responsive import inject_responsive_css, render_home_link, upset_badge_html
 
-st.set_page_config(
-    page_title="Game Detail | DTW Simulator",
-    page_icon="⚾",
-    layout="wide"
-)
-
 # Custom CSS
 st.markdown("""
 <style>
@@ -72,9 +66,6 @@ inject_responsive_css()
 
 
 def main():
-    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
-    st.logo(_logo_path)
-
     # Get gamePk from session state first, then query params as fallback
     game_pk = st.session_state.get('selected_game_pk', None)
     

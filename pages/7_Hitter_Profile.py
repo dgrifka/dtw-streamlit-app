@@ -38,13 +38,6 @@ from utils.player_helpers import (
 )
 from utils.responsive import inject_responsive_css, render_home_link
 
-# Page config
-st.set_page_config(
-    page_title="Hitter Profile | DTW Simulator",
-    page_icon="⚾",
-    layout="wide"
-)
-
 inject_responsive_css()
 
 # Disable autocorrect/autocapitalize on selectbox search input
@@ -98,8 +91,6 @@ all_season_pa_rankings = load_all_season_pa_rankings("hitter")
 # PLAYER SEARCH
 # =============================================================================
 
-_logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
-st.logo(_logo_path)
 st.title("Hitter Profile")
 
 # Check if we arrived via query param (cross-page linking)

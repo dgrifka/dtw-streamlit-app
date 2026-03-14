@@ -19,15 +19,6 @@ from utils.data_loader import load_game_summaries, get_game_images, get_deserved
 from utils.team_mappings import get_all_teams, get_short_name, get_team_logo_url, get_team_color
 from utils.responsive import inject_responsive_css, render_home_link, upset_badge_html
 
-st.set_page_config(
-    page_title="Game Simulations | DTW Simulator",
-    page_icon="⚾",
-    layout="wide"
-)
-
-_logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "mlb_simulator_logo.png")
-st.logo(_logo_path)
-
 # MLB logo for default state
 MLB_LOGO_URL = "https://a.espncdn.com/i/teamlogos/leagues/500/mlb.png"
 
