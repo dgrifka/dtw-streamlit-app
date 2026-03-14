@@ -51,8 +51,8 @@ def _get_available_playoff_seasons():
 
 st.title("Playoff Probabilities")
 st.markdown(
-    "Season simulations using **team strength estimates** from the deserve-to-win model. "
-    "Updated daily."
+    "How likely is your team to make the playoffs? "
+    "Powered by **50,000 season simulations**, updated daily."
 )
 
 # Determine season — auto-detect which years have data in S3
@@ -202,13 +202,16 @@ if has_rooting_al or has_rooting_nl:
 
     with st.expander("How to read the rooting guide"):
         st.markdown("""
-        - **Green (Your game)**: This is your team's own game — root for yourselves!
-        - **Red (High, ≥5%)**: This game has a large impact on your playoff odds
-        - **Orange (Medium, ≥1.5%)**: This game has a meaningful impact on your playoff odds
-        - **Yellow (Low, ≥0.75%)**: A smaller but real impact
-        - **Grey with asterisk (Lesser evil)**: Both outcomes hurt your team — this is the less bad option
-        - **Dash (—)**: This game has negligible impact on your playoff odds
-        - **BYE impacts**: For top contenders, shows impact on first-round bye probability
+Each cell shows which team to root for in today's games and how much it matters for your
+team's playoff chances, based on 50,000 simulated seasons.
+
+- **Green (Your game)** — root for yourselves
+- **Red (High, ≥5%)** — this game has a big impact on your playoff odds
+- **Orange (Medium, ≥1.5%)** — meaningful impact
+- **Yellow (Low, ≥0.75%)** — smaller but real
+- **Grey with asterisk (Lesser evil)** — both outcomes hurt, this is the less bad one
+- **Dash (—)** — negligible impact
+- **BYE impacts** — for top contenders, shows impact on first-round bye probability
         """)
 
 
@@ -271,26 +274,24 @@ if has_data:
 st.divider()
 with st.expander("Methodology"):
     st.markdown("""
-    **How playoff probabilities are calculated:**
+**How playoff probabilities work:**
 
-    1. **Estimate team strength**: A statistical model estimates each team's true
-       strength using deserve-to-win probabilities, run differential, and game outcomes
-       from the season so far.
+Win-loss record tells you what happened. We want to know what's *likely to happen next*.
 
-    2. **Simulate 50,000 seasons**: For each simulation, the model estimates win
-       probabilities for every remaining game, simulates the outcomes, and determines
-       division winners, wild cards, and byes.
+1. **Estimate team strength** — a Bayesian statistical model (one that updates its beliefs
+   as new data comes in) looks at each team's deserve-to-win results, run differential,
+   and outcomes to estimate how good they actually are, separate from luck.
+2. **Simulate 50,000 remaining seasons** — for every unplayed game, the model generates
+   a win probability and flips the coin. Repeat 50,000 times.
+3. **Apply MLB's playoff rules** — 3 division winners + 3 wild cards per league, top 2
+   seeds get first-round byes. Same structure MLB uses.
+4. **Count the outcomes** — if a team makes the playoffs in 35,000 of 50,000 simulations,
+   that's a 70% playoff probability.
 
-    3. **Follow MLB's playoff format**: Each simulation uses the actual MLB structure —
-       3 division winners + 3 wild cards per league, with the top 2 seeds earning
-       first-round byes.
-
-    4. **Update daily**: Probabilities are recalculated each morning as new game
-       results come in.
-
-    **Note**: These probabilities are based on batted ball quality (deserve-to-win),
-    not traditional win-loss records. A team's "strength" here reflects how well
-    they hit and pitch, not just whether they won.
+These numbers reflect overall deserve-to-win performance (batted ball quality, walks,
+strikeouts, baserunning), not just wins and losses. A 45-40 team that's been crushing
+the ball and drawing walks will project better than a 47-38 team running on fumes and
+lucky bounces.
     """)
 
 render_home_link()

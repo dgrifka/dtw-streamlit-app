@@ -415,23 +415,24 @@ if total_results > 0:
 st.divider()
 with st.expander("Methodology"):
     st.markdown("""
-    **Column Definitions:**
+**How the model works:**
 
-    - **Exit Velocity (EV)**: Speed of the ball off the bat in mph
-    - **Launch Angle (LA)**: Vertical angle of the ball off the bat in degrees
-    - **Spray Direction**: Pull, Center, or Oppo — computed from hit coordinates and batter handedness
-    - **Estimated Bases**: Model-predicted expected bases for this batted ball
-      (P(1B)×1 + P(2B)×2 + P(3B)×3 + P(HR)×4)
-    - **xBA**: Expected batting average (1 - out probability) — the model's estimate of
-      how often this batted ball would result in a hit
-    - **HR%**: Model-predicted probability of a home run
+Every batted ball has a fingerprint: exit velocity, launch angle, and spray direction. A
+105 mph line drive pulled down the line is almost always extra bases. A lazy fly to center
+at 85 mph is almost always an out. Our model, trained on millions of historical MLB batted
+balls, assigns probabilities to each outcome (out, single, double, triple, homer) given
+those inputs and the specific ballpark.
 
-    **How the model works:**
+**Column definitions:**
 
-    A machine learning model trained on millions of historical MLB batted balls predicts
-    the probability of each outcome (out, single, double, triple, home run) given the
-    exit velocity, launch angle, spray angle, and ballpark. The model accounts for
-    park-specific dimensions and effects.
+- **Exit Velocity (EV)** — speed off the bat in mph
+- **Launch Angle (LA)** — vertical angle off the bat in degrees (negative = groundball,
+  10-25° = line drive, 25-50° = fly ball)
+- **Spray Direction** — pull, center, or oppo, based on hit coordinates and batter handedness
+- **Estimated Bases** — expected value of this batted ball: P(1B)×1 + P(2B)×2 + P(3B)×3 + P(HR)×4
+- **xBA** — expected batting average (1 minus out probability). How often this batted ball
+  would be a hit if you replayed it thousands of times.
+- **HR%** — model-predicted home run probability
     """)
 
 render_home_link()

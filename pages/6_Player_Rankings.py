@@ -38,9 +38,9 @@ inject_responsive_css()
 
 st.title("Player Rankings")
 st.markdown(
-    "Statistical rankings of hitters and pitchers that account for sample size. "
-    "Players with fewer at-bats are pulled toward the league average, while "
-    "players with more data keep estimates closer to their observed performance."
+    "Bayesian statistical rankings that separate signal from noise. "
+    "Players with small samples get pulled toward the league average; "
+    "players with lots of data keep estimates close to their raw numbers."
 )
 
 
@@ -112,46 +112,48 @@ with st.expander("How does this work?"):
     if is_pa_mode:
         st.markdown("""
 **Per Plate Appearance mode** measures overall offensive production, not just contact quality.
-Each plate appearance outcome is valued: walks = 1 base, HBP = 1 base, strikeouts = 0 bases,
-and batted balls use the model's estimated bases (based on exit velocity, launch angle, and spray angle).
+Each plate appearance is valued: walks = 1 base, HBP = 1 base, strikeouts = 0 bases, and
+batted balls use the model's estimated bases (based on exit velocity, launch angle, and
+spray angle).
 
-**How it works:**
+**Why not just use raw stats?**
 
-Instead of treating each player independently, the model learns a league-wide baseline and
-estimates how much each player deviates from it. Every player's estimate is informed by both
-their own data and the overall population — so small samples get pulled toward the average,
-while players with lots of data keep estimates close to their raw numbers.
+A player hitting .350 through 80 plate appearances might be the real deal, or might be
+riding a hot streak. The Bayesian model accounts for sample size by pulling small samples
+toward the league average, while players with 400+ PA keep estimates close to their raw
+numbers. Think of it as a confidence-weighted average: more data means more trust in the
+individual player's numbers.
 
 **Reading the chart:**
 
-- **Circle**: the model's best estimate of a player's true production
-- **Thick line**: likely range (50% of the time, the true value falls here)
-- **Thin line**: wider uncertainty range (89%)
+- **Circle** — the model's best estimate of true production
+- **Thick line** — likely range (50% credible interval)
+- **Thin line** — wider uncertainty (89% credible interval)
 
-**Validation (2024-2025 holdout):**
+**Does shrinkage actually help?**
 
-Predictions from end-of-2024 data, validated against 2025 outcomes (min 100 PA both seasons):
-- EB/PA R² = 0.140 — modest but real year-over-year predictive power
-- Bayesian posterior mean beats raw rate (+0.004 R²) — shrinkage helps
+We tested it. Using end-of-2024 data to predict 2025 outcomes (min 100 PA both seasons):
+the Bayesian estimate beat the raw rate at predicting next-year EB/PA (R² = 0.140 vs 0.136).
+Modest, but that's the nature of year-over-year hitting — it's noisy, and every edge counts.
 """)
     else:
         st.markdown("""
-**Per Batted Ball mode** measures contact quality only — how well a player hits the ball when
-they put it in play, based on exit velocity, launch angle, and spray angle.
+**Per Batted Ball mode** measures contact quality only — how well a player hits the ball
+when they put it in play, based on exit velocity, launch angle, and spray angle.
 
 **Why not just use raw averages?**
 
 A player with 20 batted balls and a high average might just be on a hot streak. The model
-recognizes the small sample and **pulls their estimate toward the league average**.
-A player with 400+ batted balls keeps an estimate much closer to their raw numbers,
-because there's enough data to trust it.
+recognizes the small sample and pulls the estimate toward the league average. A player with
+400+ batted balls keeps an estimate much closer to their raw numbers, because there's enough
+data to trust it.
 
 **Reading the chart:**
 
-- **Circle**: the model's best estimate of a player's true contact quality
-- **Thick line**: likely range (50% of the time, the true value falls here)
-- **Thin line**: wider uncertainty range (89%)
-- Players with fewer batted balls have wider ranges, reflecting greater uncertainty
+- **Circle** — the model's best estimate of true contact quality
+- **Thick line** — likely range (50% credible interval)
+- **Thin line** — wider uncertainty (89% credible interval)
+- Wider ranges = more uncertainty (fewer batted balls)
 """)
 
 # =============================================================================

@@ -205,7 +205,7 @@ def render_feature_cards(current_season):
 df = load_game_summaries()
 
 st.markdown('<p class="hero-title">MLB Deserve-to-Win Simulator</p>', unsafe_allow_html=True)
-st.markdown('<p class="hero-subtitle">Who <em>should</em> have won? 10,000 simulations per game using exit velocity, launch angle, and spray angle.</p>', unsafe_allow_html=True)
+st.markdown('<p class="hero-subtitle">Who <em>should</em> have won? Every plate appearance, re-simulated 10,000 times.</p>', unsafe_allow_html=True)
 
 st.divider()
 

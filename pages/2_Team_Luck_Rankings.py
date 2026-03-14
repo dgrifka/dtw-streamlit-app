@@ -237,22 +237,25 @@ st.download_button(
 st.divider()
 with st.expander("Methodology"):
     st.markdown("""
-    **How luck is calculated:**
+**How luck is measured:**
 
-    1. **Expected Wins**: For each game, our model calculates a win probability for each team
-       based on batted ball quality (launch angle, exit velocity, spray angle). We sum these
-       probabilities across the season to get "expected wins."
+Think of a team that wins a bunch of one-run games on bloop singles and errors. They've
+got the same record as a team crushing the ball every night. Are they equally good? Probably not.
 
-    2. **Luck Differential**: `Actual Wins - Expected Wins`. Positive means the team won more
-       games than their batted ball quality suggested; negative means they won fewer.
+We measure the gap between what a team's plate appearances *should* have produced and what
+actually happened:
 
-    3. **Lucky Win**: A game where the team won despite having <50% win probability.
+1. **Expected Wins** — for each game, the simulator estimates a win probability based on
+   batted ball quality (exit velocity, launch angle, spray angle), walks, strikeouts, and
+   baserunning. Sum those probabilities across the season and you get expected wins.
+2. **Luck Differential** — actual wins minus expected wins. Positive means the team has
+   won more than their underlying performance suggests.
+3. **Lucky Win** — won despite having less than a 50% deserve-to-win probability.
+4. **Unlucky Loss** — lost despite having more than 50%.
 
-    4. **Unlucky Loss**: A game where the team lost despite having >50% win probability.
-
-    **Note**: This measures luck relative to *batted ball outcomes*, not overall team quality.
-    A team could be "lucky" here but still be genuinely good—it just means their wins exceeded
-    what their batted balls would typically produce.
+This measures luck relative to *on-field performance quality*, not overall team talent. A
+team can be genuinely good and still lucky — it just means they've won even more than their
+already-strong play would predict.
     """)
 
 render_home_link()

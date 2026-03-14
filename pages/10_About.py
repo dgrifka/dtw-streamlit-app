@@ -24,13 +24,21 @@ st.title("About")
 st.subheader("How It Works")
 
 st.markdown("""
-After every MLB game, the simulator re-evaluates each batted ball to answer one question:
-**did the right team win?**
+After every MLB game, we ask one question: **did the right team win?**
 
-1. **Collect every batted ball** from the completed game — exit velocity, launch angle, and spray angle
-2. **Estimate each outcome** using a machine learning model trained on millions of historical batted balls to predict the probability of a hit, double, home run, etc.
-3. **Simulate 10,000 games** by re-rolling each batted ball outcome based on those probabilities, along with walks, strikeouts, and baserunning
-4. **Determine a win probability** for each team based on how often they win across all 10,000 simulations
+A lot can go wrong between bat and scoreboard. A 110 mph line drive gets caught. A weak
+grounder finds a hole. Our simulator strips away that randomness and re-simulates the game
+10,000 times to find out what *should* have happened.
+
+Here's how:
+
+1. **Collect every plate appearance** from the game — batted balls (exit velocity, launch
+   angle, spray angle), plus walks, strikeouts, hit-by-pitches, and stolen bases
+2. **Estimate batted ball outcomes** using a model trained on millions of historical batted
+   balls to predict the probability of a hit, double, home run, etc.
+3. **Simulate 10,000 games** by re-rolling each batted ball outcome based on those
+   probabilities, while preserving walks, strikeouts, and baserunning
+4. **Calculate a win probability** — the percentage of simulations each team wins
 """)
 
 st.markdown("")
