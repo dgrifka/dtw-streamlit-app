@@ -58,13 +58,11 @@ components.html("""
 # DATA LOADING
 # =============================================================================
 
-col_season, _ = st.columns([1, 3])
-with col_season:
-    available_seasons = get_available_batted_ball_seasons()
-    if available_seasons:
-        season = st.selectbox("Season", options=available_seasons, index=0, key="cmp_season")
-    else:
-        season = pd.Timestamp.now().year
+# Season for batted ball data — selector widget is placed lower on the page
+# (before contact quality sections). Use session_state to read value early.
+available_seasons = get_available_batted_ball_seasons()
+_default_bb_season = available_seasons[0] if available_seasons else pd.Timestamp.now().year
+season = st.session_state.get("cmp_bb_season", _default_bb_season)
 
 bb_df = load_batted_balls(season)
 if bb_df.empty:
@@ -294,18 +292,117 @@ for col, p, color in [(hero1, p1, p1_color), (hero2, p2, p2_color)]:
             unsafe_allow_html=True,
         )
 
-# Comparison metrics — with player name header row
-st.markdown("#### Head-to-Head")
-st.markdown(
-    f'<div style="display:flex; justify-content:space-between; padding:4px 12px; margin-bottom:-4px;">'
-    f'<span style="font-weight:700; color:{p1_color}; font-size:0.95rem;">{p1["name"]}</span>'
-    f'<span style="color:#718096; font-size:0.85rem;">{season} Season</span>'
-    f'<span style="font-weight:700; color:{p2_color}; font-size:0.95rem;">{p2["name"]}</span>'
-    f'</div>',
-    unsafe_allow_html=True,
-)
+# =============================================================================
+# PROJECTION HELPER + BUILD COMPARISON OPTIONS
+# =============================================================================
 
-# Compute percentiles for EV, barrel rate, avg EB
+def _lookup_proj_row(proj_df, pdata):
+    """Find a player's full projection row in a projection DataFrame."""
+    pid = pdata.get("player_id")
+    match = pd.DataFrame()
+    if pid and "player_id" in proj_df.columns:
+        match = proj_df[proj_df["player_id"] == pid]
+    if match.empty:
+        match = proj_df[proj_df["player"] == pdata["name"]]
+    return match.iloc[0] if not match.empty else None
+
+def _lookup_eval_row(pa_df, pdata):
+    """Find a player's row in an evaluation rankings DataFrame."""
+    pid = pdata.get("player_id")
+    match = pd.DataFrame()
+    if pid and "player_id" in pa_df.columns:
+        match = pa_df[pa_df["player_id"] == pid]
+    if match.empty:
+        match = pa_df[pa_df["player"] == pdata["name"]]
+    return match.iloc[0] if not match.empty else None
+
+# Build list of seasons/projections where BOTH players have data
+# Projections first (more stable, especially early in season), then actuals
+_ebpa_options = []
+
+# Projection years (default — avoids small-sample noise early in season)
+for _proj_yr in range(season, season + 4):
+    _pjdf = load_player_projections(_proj_yr, "hitter")
+    if _pjdf.empty:
+        continue
+    if _lookup_proj_row(_pjdf, p1) is not None and _lookup_proj_row(_pjdf, p2) is not None:
+        _ebpa_options.append(f"{_proj_yr} Projected")
+
+# Current season actuals
+if p1["ranking"] is not None and p2["ranking"] is not None:
+    _ebpa_options.append(f"{season} Actual")
+
+# Past season actuals
+for _s in sorted(all_season_pa_rankings.keys(), reverse=True):
+    if _s == season:
+        continue
+    _pa_s = all_season_pa_rankings[_s]
+    if _lookup_eval_row(_pa_s, p1) is not None and _lookup_eval_row(_pa_s, p2) is not None:
+        _ebpa_options.append(f"{_s} Actual")
+
+# =============================================================================
+# HEAD-TO-HEAD
+# =============================================================================
+
+st.markdown("#### Head-to-Head")
+
+# Season/projection selector — shared between Head-to-Head EB/PA row and bar chart
+_h2h_header_cols = st.columns([2, 1.5, 2])
+with _h2h_header_cols[0]:
+    st.markdown(
+        f'<span style="font-weight:700; color:{p1_color}; font-size:0.95rem;">{p1["name"]}</span>',
+        unsafe_allow_html=True,
+    )
+with _h2h_header_cols[1]:
+    if len(_ebpa_options) > 1:
+        _ebpa_choice = st.selectbox("Compare", options=_ebpa_options, index=0,
+                                     key="cmp_ebpa_view", label_visibility="collapsed")
+    else:
+        _ebpa_choice = _ebpa_options[0] if _ebpa_options else f"{season} Actual"
+        st.markdown(
+            f'<div style="text-align:center; color:#718096; font-size:0.85rem; padding-top:8px;">{_ebpa_choice}</div>',
+            unsafe_allow_html=True,
+        )
+with _h2h_header_cols[2]:
+    st.markdown(
+        f'<span style="font-weight:700; color:{p2_color}; font-size:0.95rem; float:right;">{p2["name"]}</span>',
+        unsafe_allow_html=True,
+    )
+
+_ebpa_year = int(_ebpa_choice.split()[0])
+_ebpa_is_proj = "Projected" in _ebpa_choice
+
+# Resolve EB/PA data for the selected view
+_sel_eb1 = _sel_eb2 = None
+_sel_pct1 = _sel_pct2 = None
+_sel_ref_rankings = None  # evaluation DataFrame for bar chart
+
+if _ebpa_is_proj:
+    _sel_pjdf = load_player_projections(_ebpa_year, "hitter")
+    _sel_pr1 = _lookup_proj_row(_sel_pjdf, p1)
+    _sel_pr2 = _lookup_proj_row(_sel_pjdf, p2)
+    if _sel_pr1 is not None and _sel_pr2 is not None:
+        _sel_eb1 = _sel_pr1["projected_eb_pa"]
+        _sel_eb2 = _sel_pr2["projected_eb_pa"]
+        _sel_pct1 = (_sel_pjdf["projected_eb_pa"] < _sel_eb1).mean() * 100
+        _sel_pct2 = (_sel_pjdf["projected_eb_pa"] < _sel_eb2).mean() * 100
+else:
+    if _ebpa_year == season and p1["ranking"] is not None and p2["ranking"] is not None:
+        _sel_ref_rankings = pa_rankings
+        _sel_eb1 = p1["ranking"]["posterior_mean"]
+        _sel_eb2 = p2["ranking"]["posterior_mean"]
+    elif _ebpa_year in all_season_pa_rankings:
+        _sel_ref_rankings = all_season_pa_rankings[_ebpa_year]
+        _er1 = _lookup_eval_row(_sel_ref_rankings, p1)
+        _er2 = _lookup_eval_row(_sel_ref_rankings, p2)
+        if _er1 is not None and _er2 is not None:
+            _sel_eb1 = _er1["posterior_mean"]
+            _sel_eb2 = _er2["posterior_mean"]
+    if _sel_eb1 is not None and _sel_ref_rankings is not None:
+        _sel_pct1 = (_sel_ref_rankings["posterior_mean"] < _sel_eb1).mean() * 100
+        _sel_pct2 = (_sel_ref_rankings["posterior_mean"] < _sel_eb2).mean() * 100
+
+# Compute percentiles for EV, barrel rate, avg EB (always current season)
 league_pcts = compute_league_percentiles(season, "player")
 if league_pcts:
     ev_pct_1 = (league_pcts["ev_by_player"] < p1["avg_ev"]).mean() * 100
@@ -316,13 +413,6 @@ if league_pcts:
     avg_eb_pct_2 = (league_pcts["avg_eb_by_player"] < p2["avg_eb"]).mean() * 100
 else:
     ev_pct_1 = ev_pct_2 = barrel_pct_1 = barrel_pct_2 = avg_eb_pct_1 = avg_eb_pct_2 = 50
-
-# EB/PA percentile
-eb_pa_pct_1 = eb_pa_pct_2 = None
-if p1["ranking"] is not None and p2["ranking"] is not None and not pa_rankings.empty:
-    all_eb_pa = pa_rankings["posterior_mean"]
-    eb_pa_pct_1 = (all_eb_pa < p1["ranking"]["posterior_mean"]).mean() * 100
-    eb_pa_pct_2 = (all_eb_pa < p2["ranking"]["posterior_mean"]).mean() * 100
 
 luck_1 = p1["total_actual_tb"] - p1["total_expected_tb"]
 luck_2 = p2["total_actual_tb"] - p2["total_expected_tb"]
@@ -349,118 +439,168 @@ if len(bb_df) > 1000:
         actual_pct_2 = (player_luck["actual"] < p2["total_actual_tb"]).mean() * 100
         expected_pct_2 = (player_luck["expected"] < p2["total_expected_tb"]).mean() * 100
 
-# Build comparison rows using render_comparison_metric
+# Build comparison rows
 h2h_rows = ""
 h2h_rows += render_comparison_metric("Batted Balls", f"{p1['n_bb']:,}", f"{p2['n_bb']:,}", p1['n_bb'], p2['n_bb'], bold_higher=False)
 h2h_rows += render_comparison_metric("Avg EV", f"{p1['avg_ev']:.1f} mph", f"{p2['avg_ev']:.1f} mph", p1['avg_ev'], p2['avg_ev'], ev_pct_1, ev_pct_2)
 h2h_rows += render_comparison_metric("Barrel Rate", f"{p1['barrel_rate']:.1f}%", f"{p2['barrel_rate']:.1f}%", p1['barrel_rate'], p2['barrel_rate'], barrel_pct_1, barrel_pct_2)
 h2h_rows += render_comparison_metric("Avg EB/BB", f"{p1['avg_eb']:.3f}", f"{p2['avg_eb']:.3f}", p1['avg_eb'], p2['avg_eb'], avg_eb_pct_1, avg_eb_pct_2)
 
-if p1["ranking"] is not None and p2["ranking"] is not None:
-    eb1 = p1["ranking"]["posterior_mean"]
-    eb2 = p2["ranking"]["posterior_mean"]
-    h2h_rows += render_comparison_metric("EB/PA", f"{eb1:.3f}", f"{eb2:.3f}", eb1, eb2, eb_pa_pct_1, eb_pa_pct_2)
+# EB/PA row — uses the selected season/projection from the dropdown
+if _sel_eb1 is not None and _sel_eb2 is not None:
+    _ebpa_label = f"EB/PA ({_ebpa_year})" if _ebpa_year != season else "EB/PA"
+    if _ebpa_is_proj:
+        _ebpa_label = f"Proj. EB/PA ({_ebpa_year})"
+    h2h_rows += render_comparison_metric(
+        _ebpa_label, f"{_sel_eb1:.3f}", f"{_sel_eb2:.3f}",
+        _sel_eb1, _sel_eb2, _sel_pct1, _sel_pct2,
+    )
 
 h2h_rows += render_comparison_metric("Net Lucky Bases", f"{luck_1:+.1f}", f"{luck_2:+.1f}", luck_1, luck_2, luck_pct_1, luck_pct_2, bold_higher=False)
+
+# True talent row (in-season combined estimate)
+if p1["ranking"] is not None and p2["ranking"] is not None:
+    _tt1 = p1["ranking"].get("true_talent_eb_pa") if "true_talent_eb_pa" in p1["ranking"].index else None
+    _tt2 = p2["ranking"].get("true_talent_eb_pa") if "true_talent_eb_pa" in p2["ranking"].index else None
+    if _tt1 is not None and _tt2 is not None and pd.notna(_tt1) and pd.notna(_tt2):
+        h2h_rows += render_comparison_metric(
+            "True Talent EB/PA",
+            f"{_tt1:.3f}", f"{_tt2:.3f}", _tt1, _tt2,
+        )
 
 st.markdown(f'<div style="background:#F7FAFC; border-radius:8px; padding:8px 4px;">{h2h_rows}</div>', unsafe_allow_html=True)
 
 
 # =============================================================================
-# BAYESIAN EB/PA COMPARISON BAR
+# BAYESIAN EB/PA COMPARISON BAR — uses the same dropdown selection
 # =============================================================================
 
-if p1["ranking"] is not None and p2["ranking"] is not None:
+if _sel_eb1 is not None and _sel_eb2 is not None:
     st.divider()
     st.subheader("Est. Bases / PA Comparison")
-    st.caption(f"{season} Season")
+    st.caption(_ebpa_choice)
 
-    eb1 = p1["ranking"]["posterior_mean"]
-    hdi1_low = p1["ranking"]["hdi_low"]
-    hdi1_high = p1["ranking"]["hdi_high"]
-    eb2 = p2["ranking"]["posterior_mean"]
-    hdi2_low = p2["ranking"]["hdi_low"]
-    hdi2_high = p2["ranking"]["hdi_high"]
+    # Resolve HDI + best + league for bar chart
+    _bar_valid = False
 
-    # Best player
-    best_idx = pa_rankings["posterior_mean"].idxmax()
-    best_row = pa_rankings.loc[best_idx]
-    best_eb = best_row["posterior_mean"]
-    best_hdi_low = best_row["hdi_low"]
-    best_hdi_high = best_row["hdi_high"]
-    best_name = best_row["player"]
-    best_team = best_row.get("team", "")
-    best_color, _ = get_team_color(best_team) if best_team else ("#DAA520", "#DAA520")
+    if _ebpa_is_proj:
+        _sel_pjdf = load_player_projections(_ebpa_year, "hitter")
+        _pr1 = _lookup_proj_row(_sel_pjdf, p1)
+        _pr2 = _lookup_proj_row(_sel_pjdf, p2)
+        if _pr1 is not None and _pr2 is not None:
+            eb1 = _pr1["projected_eb_pa"]
+            hdi1_low = _pr1["projected_hdi_low"]
+            hdi1_high = _pr1["projected_hdi_high"]
+            eb2 = _pr2["projected_eb_pa"]
+            hdi2_low = _pr2["projected_hdi_low"]
+            hdi2_high = _pr2["projected_hdi_high"]
 
-    # League average
-    lg_mean = pa_rankings["posterior_mean"].mean()
-    lg_sd = pa_rankings["posterior_mean"].std()
-    lg_low = lg_mean - lg_sd
-    lg_high = lg_mean + lg_sd
+            best_idx_p = _sel_pjdf["projected_eb_pa"].idxmax()
+            best_row_p = _sel_pjdf.loc[best_idx_p]
+            best_eb = best_row_p["projected_eb_pa"]
+            best_hdi_low = best_row_p["projected_hdi_low"]
+            best_hdi_high = best_row_p["projected_hdi_high"]
+            best_name = best_row_p["player"]
+            best_team = best_row_p.get("team", "")
+            best_color, _ = get_team_color(best_team) if best_team else ("#DAA520", "#DAA520")
 
-    display_min = min(hdi1_low, hdi2_low, best_hdi_low, lg_low) - 0.03
-    display_max = max(hdi1_high, hdi2_high, best_hdi_high, lg_high) + 0.03
-    display_range = display_max - display_min
+            lg_mean = _sel_pjdf["projected_eb_pa"].mean()
+            lg_sd = _sel_pjdf["projected_eb_pa"].std()
+            lg_low = lg_mean - lg_sd
+            lg_high = lg_mean + lg_sd
+            _bar_valid = True
+    else:
+        _bar_ref = pa_rankings if _ebpa_year == season else all_season_pa_rankings.get(_ebpa_year)
+        if _bar_ref is not None:
+            _er1 = _lookup_eval_row(_bar_ref, p1)
+            _er2 = _lookup_eval_row(_bar_ref, p2)
+            if _er1 is not None and _er2 is not None:
+                eb1 = _er1["posterior_mean"]
+                hdi1_low = _er1["hdi_low"]
+                hdi1_high = _er1["hdi_high"]
+                eb2 = _er2["posterior_mean"]
+                hdi2_low = _er2["hdi_low"]
+                hdi2_high = _er2["hdi_high"]
 
-    def _pct_pos(val):
-        return max(0, min(100, (val - display_min) / display_range * 100))
+                best_idx_e = _bar_ref["posterior_mean"].idxmax()
+                best_row_e = _bar_ref.loc[best_idx_e]
+                best_eb = best_row_e["posterior_mean"]
+                best_hdi_low = best_row_e["hdi_low"]
+                best_hdi_high = best_row_e["hdi_high"]
+                best_name = best_row_e["player"]
+                best_team = best_row_e.get("team", "")
+                best_color, _ = get_team_color(best_team) if best_team else ("#DAA520", "#DAA520")
 
-    def _bar_row(label, color, mean_val, hdi_lo, hdi_hi, marker_style="circle"):
-        left = _pct_pos(hdi_lo)
-        width = _pct_pos(hdi_hi) - left
-        marker = _pct_pos(mean_val)
-        label_short = label.split(" ")[-1][:10] if " " in label else label[:10]
+                lg_mean = _bar_ref["posterior_mean"].mean()
+                lg_sd = _bar_ref["posterior_mean"].std()
+                lg_low = lg_mean - lg_sd
+                lg_high = lg_mean + lg_sd
+                _bar_valid = True
 
-        if marker_style == "diamond":
-            marker_html = (
-                f'<div style="position:absolute; top:1px; left:{marker:.1f}%; '
-                f'width:14px; height:14px; margin-left:-7px; '
-                f'background:{color}; transform:rotate(45deg);"></div>'
+    if _bar_valid:
+        display_min = min(hdi1_low, hdi2_low, best_hdi_low, lg_low) - 0.03
+        display_max = max(hdi1_high, hdi2_high, best_hdi_high, lg_high) + 0.03
+        display_range = display_max - display_min
+
+        def _pct_pos(val):
+            return max(0, min(100, (val - display_min) / display_range * 100))
+
+        def _bar_row(label, color, mean_val, hdi_lo, hdi_hi, marker_style="circle"):
+            left = _pct_pos(hdi_lo)
+            width = _pct_pos(hdi_hi) - left
+            marker = _pct_pos(mean_val)
+            label_short = label.split(" ")[-1][:10] if " " in label else label[:10]
+
+            if marker_style == "diamond":
+                marker_html = (
+                    f'<div style="position:absolute; top:1px; left:{marker:.1f}%; '
+                    f'width:14px; height:14px; margin-left:-7px; '
+                    f'background:{color}; transform:rotate(45deg);"></div>'
+                )
+            else:
+                marker_html = (
+                    f'<div style="position:absolute; top:0px; left:{marker:.1f}%; '
+                    f'width:16px; height:16px; margin-left:-8px; '
+                    f'background:white; border:3px solid {color}; '
+                    f'border-radius:50%;"></div>'
+                )
+
+            return (
+                f'<div style="display:flex; align-items:center; height:26px; margin-bottom:4px;">'
+                f'<div style="width:80px; text-align:right; padding-right:8px; font-weight:600; color:{color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{label}">{label_short}</div>'
+                f'<div style="flex:1; position:relative; height:16px;">'
+                f'<div style="position:absolute; top:2px; left:{left:.1f}%; width:{width:.1f}%; height:12px; background:{color}; opacity:0.5; border-radius:6px;"></div>'
+                f'{marker_html}'
+                f'</div>'
+                f'<div style="width:50px; padding-left:6px; font-size:11px; color:{color}; font-weight:600;">{mean_val:.3f}</div>'
+                f'</div>'
             )
-        else:
-            marker_html = (
-                f'<div style="position:absolute; top:0px; left:{marker:.1f}%; '
-                f'width:16px; height:16px; margin-left:-8px; '
-                f'background:white; border:3px solid {color}; '
-                f'border-radius:50%;"></div>'
-            )
 
-        return (
-            f'<div style="display:flex; align-items:center; height:26px; margin-bottom:4px;">'
-            f'<div style="width:80px; text-align:right; padding-right:8px; font-weight:600; color:{color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{label}">{label_short}</div>'
+        lg_left = _pct_pos(lg_low)
+        lg_width = _pct_pos(lg_high) - lg_left
+        lg_marker = _pct_pos(lg_mean)
+        lg_row = (
+            f'<div style="display:flex; align-items:center; height:26px;">'
+            f'<div style="width:80px; text-align:right; padding-right:8px; color:rgba(120,120,120,0.9);">Lg Avg</div>'
             f'<div style="flex:1; position:relative; height:16px;">'
-            f'<div style="position:absolute; top:2px; left:{left:.1f}%; width:{width:.1f}%; height:12px; background:{color}; opacity:0.5; border-radius:6px;"></div>'
-            f'{marker_html}'
+            f'<div style="position:absolute; top:2px; left:{lg_left:.1f}%; width:{lg_width:.1f}%; height:12px; background:rgba(160,160,160,0.35); border-radius:6px;"></div>'
+            f'<div style="position:absolute; top:2px; left:{lg_marker:.1f}%; width:12px; height:12px; margin-left:-6px; background:rgba(150,150,150,0.7); border-radius:50%;"></div>'
             f'</div>'
-            f'<div style="width:50px; padding-left:6px; font-size:11px; color:{color}; font-weight:600;">{mean_val:.3f}</div>'
+            f'<div style="width:50px; padding-left:6px; font-size:11px; color:rgba(120,120,120,0.9);">{lg_mean:.3f}</div>'
             f'</div>'
         )
 
-    # League avg row
-    lg_left = _pct_pos(lg_low)
-    lg_width = _pct_pos(lg_high) - lg_left
-    lg_marker = _pct_pos(lg_mean)
-    lg_row = (
-        f'<div style="display:flex; align-items:center; height:26px;">'
-        f'<div style="width:80px; text-align:right; padding-right:8px; color:rgba(120,120,120,0.9);">Lg Avg</div>'
-        f'<div style="flex:1; position:relative; height:16px;">'
-        f'<div style="position:absolute; top:2px; left:{lg_left:.1f}%; width:{lg_width:.1f}%; height:12px; background:rgba(160,160,160,0.35); border-radius:6px;"></div>'
-        f'<div style="position:absolute; top:2px; left:{lg_marker:.1f}%; width:12px; height:12px; margin-left:-6px; background:rgba(150,150,150,0.7); border-radius:50%;"></div>'
-        f'</div>'
-        f'<div style="width:50px; padding-left:6px; font-size:11px; color:rgba(120,120,120,0.9);">{lg_mean:.3f}</div>'
-        f'</div>'
-    )
-
-    bar_html = (
-        '<div style="font-size:12px; margin:8px 0 2px 0;">'
-        + _bar_row(p1["name"], p1_color, eb1, hdi1_low, hdi1_high)
-        + _bar_row(p2["name"], p2_color, eb2, hdi2_low, hdi2_high)
-        + _bar_row(best_name, best_color, best_eb, best_hdi_low, best_hdi_high, "diamond")
-        + lg_row
-        + '</div>'
-    )
-    st.markdown(bar_html, unsafe_allow_html=True)
-    st.caption("Estimated true production per plate appearance with uncertainty ranges.")
+        bar_html = (
+            '<div style="font-size:12px; margin:8px 0 2px 0;">'
+            + _bar_row(p1["name"], p1_color, eb1, hdi1_low, hdi1_high)
+            + _bar_row(p2["name"], p2_color, eb2, hdi2_low, hdi2_high)
+            + _bar_row(best_name, best_color, best_eb, best_hdi_low, best_hdi_high, "diamond")
+            + lg_row
+            + '</div>'
+        )
+        st.markdown(bar_html, unsafe_allow_html=True)
+        _caption = "Projected production per plate appearance with uncertainty ranges." if _ebpa_is_proj else "Estimated true production per plate appearance with uncertainty ranges."
+        st.caption(_caption)
 
 
 # =============================================================================
@@ -716,8 +856,18 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
 # =============================================================================
 
 st.divider()
+_bb_banner_cols = st.columns([3, 1])
+with _bb_banner_cols[0]:
+    st.markdown(
+        '<span style="font-size:0.85rem; color:#4A5568;">'
+        'The sections below use batted ball data from the selected season.</span>',
+        unsafe_allow_html=True,
+    )
+with _bb_banner_cols[1]:
+    if available_seasons:
+        season = st.selectbox("Batted Ball Season", options=available_seasons, index=0,
+                              key="cmp_bb_season", label_visibility="collapsed")
 st.subheader("Contact Quality Distributions")
-st.caption(f"{season} Season")
 
 col_ev, col_la, col_eb = st.columns(3)
 

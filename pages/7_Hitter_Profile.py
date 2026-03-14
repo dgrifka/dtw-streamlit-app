@@ -771,6 +771,27 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                 ),
             ))
 
+        # True talent reference line (when available from combined projection + evaluation)
+        if (player_ranking is not None
+                and "true_talent_eb_pa" in player_ranking.index
+                and pd.notna(player_ranking.get("true_talent_eb_pa"))):
+            tt_val = player_ranking["true_talent_eb_pa"]
+            fig_timeline.add_hline(
+                y=tt_val,
+                line_dash="dash",
+                line_color="rgba(124, 58, 237, 0.5)",
+                line_width=1.5,
+            )
+            fig_timeline.add_annotation(
+                x=max_s, y=tt_val,
+                text=f"True Talent: {tt_val:.3f}",
+                showarrow=False,
+                xshift=8,
+                yshift=12,
+                font=dict(size=11, color="rgba(124, 58, 237, 0.8)"),
+                xanchor="left",
+            )
+
         # Compute x-axis range including projections
         x_max = max(proj_seasons) if proj_points else max_s
 

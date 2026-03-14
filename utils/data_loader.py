@@ -150,6 +150,18 @@ def load_batted_balls(season: int) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=86400)
+def get_available_projection_seasons() -> list[int]:
+    """Auto-detect which seasons have projection data on S3 (cached 24h)."""
+    current_year = pd.Timestamp.now().year
+    available = []
+    for year in range(current_year + 1, current_year - 3, -1):
+        url = f"{S3_BASE_URL}/player-projections/{year}/latest/hitter_projections.parquet"
+        if _image_exists(url):
+            available.append(year)
+    return available
+
+
 @st.cache_data(ttl=3600)
 def load_player_evaluations(season: int, player_type: str = "hitter") -> pd.DataFrame:
     """Load player evaluation rankings from S3 (1-hour cache).
