@@ -30,7 +30,7 @@ from utils.data_loader import (
     get_available_player_evaluation_seasons,
 )
 from utils.team_mappings import TEAM_COLORS
-from utils.fantasy_helpers import compute_platoon_splits
+from utils.player_analytics import compute_platoon_splits
 from utils.responsive import inject_responsive_css, render_home_link
 
 # Page config

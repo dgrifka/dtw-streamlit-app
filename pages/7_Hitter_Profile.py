@@ -400,7 +400,7 @@ with hero_bayesian:
 # FANTASY CONTEXT
 # =============================================================================
 
-from utils.fantasy_helpers import classify_contact_tier
+from utils.player_analytics import classify_contact_tier
 
 # Compute player luck
 player_bb["_actual_tb"] = player_bb["actual_result"].map(TB_MAP).fillna(0)
