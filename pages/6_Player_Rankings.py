@@ -56,9 +56,10 @@ def _build_forest_plot(plot_df, color, label, metric_short="EB/PA",
                        mean_col="posterior_mean", low_col="hdi_low",
                        high_col="hdi_high", low_50_col="hdi_50_low",
                        high_50_col="hdi_50_high", count_col="n_batted_balls",
-                       count_label="PA"):
+                       count_label="PA", sort_ascending=True,
+                       use_team_colors=False, league_mean=None):
     """Build a Plotly forest plot showing credible intervals."""
-    plot_df = plot_df.sort_values(mean_col, ascending=True).copy()
+    plot_df = plot_df.sort_values(mean_col, ascending=sort_ascending).copy()
 
     # Disambiguate duplicate player names by appending team (or age if same team)
     dup_names = plot_df["player"].duplicated(keep=False)
@@ -75,30 +76,42 @@ def _build_forest_plot(plot_df, color, label, metric_short="EB/PA",
                     plot_df.loc[still_dup, "player"].str.rstrip(")")
                     + ", age " + plot_df.loc[still_dup, age_col].astype(int).astype(str) + ")"
                 )
+
+    # Build per-player colors from team when requested
+    if use_team_colors and "team" in plot_df.columns:
+        _player_colors = [
+            TEAM_COLORS.get(row["team"], ('#888888', '#888888'))[0]
+            for _, row in plot_df.iterrows()
+        ]
+    else:
+        _player_colors = None
+
     fig = go.Figure()
 
     has_50_hdi = low_50_col in plot_df.columns and high_50_col in plot_df.columns
 
     # 89% HDI thin lines
-    for _, row in plot_df.iterrows():
+    for i, (_, row) in enumerate(plot_df.iterrows()):
+        _line_color = _player_colors[i] if _player_colors else color
         fig.add_trace(go.Scatter(
             x=[row[low_col], row[high_col]],
             y=[row["player"], row["player"]],
             mode="lines",
-            line=dict(color=color, width=1.5),
+            line=dict(color=_line_color, width=1.5),
             showlegend=False,
             hoverinfo="skip",
         ))
 
     # 50% HDI thick lines (if available)
     if has_50_hdi and plot_df[low_50_col].notna().any():
-        for _, row in plot_df.iterrows():
+        for i, (_, row) in enumerate(plot_df.iterrows()):
             if pd.notna(row.get(low_50_col)) and pd.notna(row.get(high_50_col)):
+                _line_color = _player_colors[i] if _player_colors else color
                 fig.add_trace(go.Scatter(
                     x=[row[low_50_col], row[high_50_col]],
                     y=[row["player"], row["player"]],
                     mode="lines",
-                    line=dict(color=color, width=5),
+                    line=dict(color=_line_color, width=5),
                     showlegend=False,
                     hoverinfo="skip",
                 ))
@@ -108,11 +121,12 @@ def _build_forest_plot(plot_df, color, label, metric_short="EB/PA",
     _hover_team = "team" in plot_df.columns
     if _hover_team:
         _hover_cols = _hover_cols + ["team"]
+    _dot_colors = _player_colors if _player_colors else color
     fig.add_trace(go.Scatter(
         x=plot_df[mean_col],
         y=plot_df["player"],
         mode="markers",
-        marker=dict(color=color, size=8),
+        marker=dict(color=_dot_colors, size=8),
         name=label,
         customdata=plot_df[_hover_cols].values,
         hovertemplate=(
@@ -123,6 +137,15 @@ def _build_forest_plot(plot_df, color, label, metric_short="EB/PA",
         ),
     ))
 
+    # Compute x-axis range from HDI bounds with padding
+    x_min = plot_df[low_col].min()
+    x_max = plot_df[high_col].max()
+    x_pad = (x_max - x_min) * 0.05
+    _xaxis_cfg = dict(
+        range=[x_min - x_pad, x_max + x_pad],
+        tickfont=dict(size=11),
+    )
+
     fig.update_layout(
         template="plotly_white",
         xaxis_title=f"Est. Bases / {metric_short.split('/')[-1]}",
@@ -130,7 +153,17 @@ def _build_forest_plot(plot_df, color, label, metric_short="EB/PA",
         margin=dict(l=140, r=20, t=10, b=40),
         showlegend=False,
         yaxis=dict(tickfont=dict(size=11)),
+        xaxis=_xaxis_cfg,
     )
+
+    # League mean reference line
+    if league_mean is not None:
+        fig.add_vline(
+            x=league_mean, line_dash="dot", line_color="#666666", line_width=1.5,
+            annotation_text="Lg avg", annotation_position="top right",
+            annotation_font_size=10, annotation_font_color="#666666",
+        )
+
     return fig
 
 
@@ -417,10 +450,45 @@ data to trust it.
             ]
 
         has_true_talent = "true_talent_eb_pa" in filtered.columns and filtered["true_talent_eb_pa"].notna().any()
-        sort_col = "true_talent_eb_pa" if has_true_talent else "posterior_mean"
+        has_k_rate = "k_rate_posterior" in filtered.columns and filtered["k_rate_posterior"].notna().any()
+        has_bb_rate = "bb_rate_posterior" in filtered.columns and filtered["bb_rate_posterior"].notna().any()
+        has_hr_rate = "hr_rate_posterior" in filtered.columns and filtered["hr_rate_posterior"].notna().any()
+
+        # Sort options
+        sort_options = ["EB/PA" if is_pa_mode else "EB/BB"]
+        if has_k_rate:
+            sort_options.append("K% (low is better)" if not is_pitcher else "K% (high is better)")
+        if has_bb_rate:
+            sort_options.append("BB%")
+        if has_hr_rate:
+            sort_options.append("HR%")
+
+        if len(sort_options) > 1:
+            sort_by = st.radio("Sort by", sort_options, horizontal=True, key="eval_sort")
+        else:
+            sort_by = sort_options[0]
+
+        if sort_by.startswith("K%"):
+            sort_col = "k_rate_posterior"
+            # For hitters, low K% is good (ascending); for pitchers, high K% is good (descending)
+            sort_asc = not is_pitcher
+        elif sort_by == "BB%":
+            sort_col = "bb_rate_posterior"
+            # For hitters, high BB% is good (descending); for pitchers, low BB% is good (ascending)
+            sort_asc = is_pitcher
+        elif sort_by == "HR%":
+            sort_col = "hr_rate_posterior"
+            # For hitters, high HR% is good (descending); for pitchers, low HR% is good (ascending)
+            sort_asc = is_pitcher
+        elif has_true_talent:
+            sort_col = "true_talent_eb_pa"
+            sort_asc = is_pitcher
+        else:
+            sort_col = "posterior_mean"
+            sort_asc = is_pitcher
 
         filtered = filtered.sort_values(
-            sort_col, ascending=is_pitcher
+            sort_col, ascending=sort_asc
         ).reset_index(drop=True)
 
         # Metrics row
@@ -437,10 +505,19 @@ data to trust it.
 
         # Drop chart-only columns before display
         drop_cols = ["hdi_50_low", "hdi_50_high", "true_talent_hdi_low",
-                     "true_talent_hdi_high", "history_weight"]
+                     "true_talent_hdi_high", "history_weight",
+                     "k_rate_hdi_low", "k_rate_hdi_high",
+                     "bb_rate_hdi_low", "bb_rate_hdi_high",
+                     "hr_rate_hdi_low", "hr_rate_hdi_high"]
         for col in drop_cols:
             if col in display.columns:
                 display = display.drop(columns=[col])
+
+        # Convert rate stats to percentages for display
+        for rc in ["k_rate_raw", "k_rate_posterior", "bb_rate_raw", "bb_rate_posterior",
+                    "hr_rate_raw", "hr_rate_posterior"]:
+            if rc in display.columns:
+                display[rc] = display[rc] * 100
 
         display.index = range(1, len(display) + 1)
         display.index.name = "Rank"
@@ -461,6 +538,15 @@ data to trust it.
             rename_map["true_talent_eb_pa"] = "True Talent EB/PA"
             rename_map["deviation"] = "Deviation"
             rename_map["preseason_eb_pa"] = "Preseason Proj."
+        if has_k_rate:
+            rename_map["k_rate_posterior"] = "K%"
+            rename_map["k_rate_raw"] = "K% (Raw)"
+        if has_bb_rate:
+            rename_map["bb_rate_posterior"] = "BB%"
+            rename_map["bb_rate_raw"] = "BB% (Raw)"
+        if has_hr_rate:
+            rename_map["hr_rate_posterior"] = "HR%"
+            rename_map["hr_rate_raw"] = "HR% (Raw)"
         display = display.rename(columns=rename_map)
 
         _profile_page = "Pitcher_Profile" if is_pitcher else "Hitter_Profile"
@@ -471,25 +557,55 @@ data to trust it.
         if has_true_talent:
             table_cols = [
                 "Player", "Team", "Pos", "True Talent EB/PA", "Est. Bases (Season)",
-                "Preseason Proj.", "Deviation", "Range Low", "Range High",
+                "Preseason Proj.", "Deviation",
+                "K%", "BB%", "HR%",
                 n_col_name, "Profile",
             ]
         else:
             table_cols = [
                 "Player", "Team", "Pos", "Est. Bases (Season)", "Est. Bases (Raw)",
-                "Range Low", "Range High", "Adjustment", n_col_name, "Profile",
+                "K%", "BB%", "HR%",
+                "Adjustment", n_col_name, "Profile",
             ]
         table_cols = [c for c in table_cols if c in display.columns]
 
         COLUMN_CONFIG = {
-            "True Talent EB/PA": st.column_config.NumberColumn(format="%.4f"),
-            "Est. Bases (Season)": st.column_config.NumberColumn(format="%.4f"),
-            "Est. Bases (Raw)": st.column_config.NumberColumn(format="%.4f"),
-            "Preseason Proj.": st.column_config.NumberColumn(format="%.4f"),
-            "Deviation": st.column_config.NumberColumn(format="%+.4f"),
-            "Range Low": st.column_config.NumberColumn(format="%.4f"),
-            "Range High": st.column_config.NumberColumn(format="%.4f"),
-            "Adjustment": st.column_config.NumberColumn(format="%+.4f"),
+            "True Talent EB/PA": st.column_config.NumberColumn(
+                format="%.4f",
+                help="Combined estimate from preseason projection + in-season performance, weighted by confidence in each",
+            ),
+            "Est. Bases (Season)": st.column_config.NumberColumn(
+                format="%.4f",
+                help="Bayesian estimate of true production this season — adjusted for sample size",
+            ),
+            "Est. Bases (Raw)": st.column_config.NumberColumn(
+                format="%.4f",
+                help="Unadjusted observed rate — what the raw numbers say before Bayesian shrinkage",
+            ),
+            "Preseason Proj.": st.column_config.NumberColumn(
+                format="%.4f",
+                help="Preseason projection based on multi-year historical performance and aging curve",
+            ),
+            "Deviation": st.column_config.NumberColumn(
+                format="%+.4f",
+                help="Raw rate minus true talent — positive means overperforming (likely to regress), negative means underperforming (likely to bounce back)",
+            ),
+            "Adjustment": st.column_config.NumberColumn(
+                format="%+.4f",
+                help="How much the Bayesian model adjusted the raw rate — larger adjustments indicate more shrinkage (smaller samples)",
+            ),
+            "K%": st.column_config.NumberColumn(
+                format="%.1f%%",
+                help="Bayesian strikeout rate — lower is better for hitters, higher is better for pitchers. Adjusted for sample size.",
+            ),
+            "BB%": st.column_config.NumberColumn(
+                format="%.1f%%",
+                help="Bayesian walk rate — higher is better for hitters (more free bases), lower is better for pitchers. Adjusted for sample size.",
+            ),
+            "HR%": st.column_config.NumberColumn(
+                format="%.1f%%",
+                help="Bayesian home run rate — percentage of plate appearances resulting in a home run. Adjusted for sample size.",
+            ),
             n_col_name: st.column_config.NumberColumn(format="%d"),
             "Pos": st.column_config.TextColumn(width="small"),
             "Profile": st.column_config.LinkColumn(display_text="View"),
@@ -931,23 +1047,178 @@ the Season Rankings tab combines projection priors with current performance for 
 
         proj_table_cols = [
             "Player", "Team", "Pos", "Age", "Projected EB/PA",
-            "Range Low", "Range High", "Recent EB/PA", "Aging Effect",
+            "Recent EB/PA",
             "Seasons", "P(Active)", "Profile",
         ]
         proj_table_cols = [c for c in proj_table_cols if c in proj_display.columns]
 
         PROJ_COL_CONFIG = {
-            "Projected EB/PA": st.column_config.NumberColumn(format="%.4f"),
-            "Range Low": st.column_config.NumberColumn(format="%.4f"),
-            "Range High": st.column_config.NumberColumn(format="%.4f"),
-            "Recent EB/PA": st.column_config.NumberColumn(format="%.4f"),
-            "Aging Effect": st.column_config.NumberColumn(format="%+.4f"),
+            "Projected EB/PA": st.column_config.NumberColumn(
+                format="%.4f",
+                help="Bayesian projection of estimated bases per plate appearance for the upcoming season",
+            ),
+            "Recent EB/PA": st.column_config.NumberColumn(
+                format="%.4f",
+                help="Most recent season's Bayesian EB/PA estimate (the model's starting point before aging adjustment)",
+            ),
             "Age": st.column_config.NumberColumn(format="%.1f"),
-            "Seasons": st.column_config.NumberColumn(format="%d"),
-            "P(Active)": st.column_config.NumberColumn(format="%.0f%%"),
+            "Seasons": st.column_config.NumberColumn(
+                format="%d",
+                help="Number of prior seasons of data used to build this player's projection",
+            ),
+            "P(Active)": st.column_config.NumberColumn(
+                format="%.0f%%",
+                help="Model-estimated probability the player will be active next season, based on age, performance, and historical patterns of player attrition",
+            ),
             "Pos": st.column_config.TextColumn(width="small"),
             "Profile": st.column_config.LinkColumn(display_text="View"),
         }
+
+        # Projection rankings chart
+        st.subheader("Projection rankings")
+
+        # Check if rate stat evaluation data is available to offer metric tabs.
+        # For projection-only seasons (e.g. 2026), pull rate data from the most
+        # recent evaluation season that has it.
+        _eval_for_rates = pd.DataFrame()
+        if has_eval_data:
+            _eval_for_rates = load_player_evaluations_pa(season, "hitter")
+        if (_eval_for_rates.empty or "k_rate_posterior" not in _eval_for_rates.columns):
+            for _fallback_s in eval_seasons[:3]:
+                _fb = load_player_evaluations_pa(_fallback_s, "hitter")
+                if not _fb.empty and "k_rate_posterior" in _fb.columns:
+                    _eval_for_rates = _fb
+                    break
+        _has_rate_data = (not _eval_for_rates.empty
+                          and "k_rate_posterior" in _eval_for_rates.columns
+                          and _eval_for_rates["k_rate_posterior"].notna().any())
+
+        # Metric selector
+        _proj_metric_options = ["EB/PA"]
+        if _has_rate_data:
+            _proj_metric_options += ["K% (low is better)", "BB%", "HR%"]
+        _proj_metric = st.radio(
+            "Metric", _proj_metric_options,
+            horizontal=True, key="proj_forest_metric",
+            help="EB/PA shows projected overall production. Rate stats show current-season Bayesian estimates for the projected players.",
+        )
+
+        # Sort order selector (for EB/PA, default is best-first)
+        _proj_sort_options = ["Best first", "Worst first"]
+        _proj_sort = st.radio(
+            "Sort", _proj_sort_options,
+            horizontal=True, key="proj_forest_sort",
+        )
+        _user_wants_asc = (_proj_sort == "Worst first")
+
+        top_20_proj = proj_filtered.copy()
+        if not top_20_proj.empty:
+            if _proj_metric == "EB/PA":
+                # Sort projections
+                _eb_asc = _user_wants_asc
+                top_20_proj = top_20_proj.sort_values(
+                    "projected_eb_pa", ascending=_eb_asc
+                ).head(20)
+
+                _eb_league_mean = proj_filtered["projected_eb_pa"].mean()
+                fig_proj = _build_forest_plot(
+                    top_20_proj, "#7c3aed", "Projected EB/PA",
+                    metric_short="EB/PA",
+                    mean_col="projected_eb_pa",
+                    low_col="projected_hdi_low",
+                    high_col="projected_hdi_high",
+                    low_50_col="projected_hdi_50_low",
+                    high_50_col="projected_hdi_50_high",
+                    count_col="n_seasons",
+                    count_label="Seasons",
+                    sort_ascending=not _eb_asc,
+                    use_team_colors=True,
+                    league_mean=_eb_league_mean,
+                )
+                st.plotly_chart(fig_proj, use_container_width=True, config=PLOTLY_CONFIG, theme=None)
+
+                has_50 = ("projected_hdi_50_low" in top_20_proj.columns
+                          and top_20_proj["projected_hdi_50_low"].notna().any())
+                caption = "Thin lines = possible range, dots = projected EB/PA"
+                if has_50:
+                    caption = "Thin lines = possible range, thick lines = likely range, dots = projected EB/PA"
+                st.caption(caption)
+            else:
+                # Show K%, BB%, or HR% for the projected hitters
+                _rate_map = {
+                    "K% (low is better)": ("k_rate", "#dc2626", "K%"),
+                    "BB%": ("bb_rate", "#16a34a", "BB%"),
+                    "HR%": ("hr_rate", "#7c3aed", "HR%"),
+                }
+                _rate_prefix, _rate_color, _rate_label = _rate_map[_proj_metric]
+
+                # Merge rate data onto projected players
+                _rate_cols = ["player_id", f"{_rate_prefix}_posterior",
+                              f"{_rate_prefix}_hdi_low", f"{_rate_prefix}_hdi_high"]
+                _rate_slim = _eval_for_rates[[c for c in _rate_cols if c in _eval_for_rates.columns]].copy()
+
+                # Merge by player_id first, fall back to player name
+                _proj_with_rates = pd.DataFrame()
+                if "player_id" in top_20_proj.columns and "player_id" in _rate_slim.columns:
+                    _proj_with_rates = top_20_proj.merge(_rate_slim, on="player_id", how="left")
+                if _proj_with_rates.empty or f"{_rate_prefix}_posterior" not in _proj_with_rates.columns or _proj_with_rates[f"{_rate_prefix}_posterior"].isna().all():
+                    _rate_by_name = _eval_for_rates.drop_duplicates(subset=["player"])[
+                        ["player"] + [c for c in _rate_cols if c in _eval_for_rates.columns and c != "player_id"]
+                    ]
+                    _proj_with_rates = top_20_proj.merge(_rate_by_name, on="player", how="left")
+
+                _valid_rates = _proj_with_rates[_proj_with_rates[f"{_rate_prefix}_posterior"].notna()]
+                if not _valid_rates.empty:
+                    _plot_data = _valid_rates.copy()
+                    for c in [f"{_rate_prefix}_posterior", f"{_rate_prefix}_hdi_low", f"{_rate_prefix}_hdi_high"]:
+                        if c in _plot_data.columns:
+                            _plot_data[c] = _plot_data[c] * 100
+                    # Clamp negative HDI values (impossible for rate stats)
+                    _hdi_low_col = f"{_rate_prefix}_hdi_low"
+                    if _hdi_low_col in _plot_data.columns:
+                        _plot_data[_hdi_low_col] = _plot_data[_hdi_low_col].clip(lower=0)
+
+                    # K%: low is good for hitters, so "best first" = ascending
+                    # BB%/HR%: high is good for hitters, so "best first" = descending
+                    if _rate_prefix == "k_rate":
+                        _sort_asc = not _user_wants_asc  # best first = ascending (low K%)
+                    else:
+                        _sort_asc = _user_wants_asc  # best first = descending (high BB%/HR%)
+
+                    _plot_data = _plot_data.sort_values(
+                        f"{_rate_prefix}_posterior", ascending=_sort_asc
+                    ).head(20)
+
+                    _rate_league_mean = _eval_for_rates[f"{_rate_prefix}_posterior"].mean() * 100
+                    fig_rate = _build_forest_plot(
+                        _plot_data, _rate_color, f"{_rate_label} (Projected Hitters)",
+                        metric_short=_rate_label,
+                        mean_col=f"{_rate_prefix}_posterior",
+                        low_col=f"{_rate_prefix}_hdi_low",
+                        high_col=f"{_rate_prefix}_hdi_high",
+                        count_col="n_seasons",
+                        count_label="Seasons",
+                        sort_ascending=not _sort_asc,
+                        use_team_colors=True,
+                        league_mean=_rate_league_mean,
+                    )
+                    fig_rate.update_layout(
+                        xaxis_title=_rate_label,
+                        xaxis=dict(ticksuffix="%"),
+                    )
+                    st.plotly_chart(fig_rate, use_container_width=True, config=PLOTLY_CONFIG, theme=None)
+
+                    _direction_note = " Lower K% is better for hitters." if _rate_prefix == "k_rate" else ""
+                    st.caption(
+                        f"Current-season Bayesian {_rate_label} for the top projected hitters.{_direction_note} "
+                        f"Thin lines = 89% credible interval, dots = model estimate."
+                    )
+                else:
+                    st.info(f"No {_rate_label} data available for the projected players yet.")
+
+        # Projection table (below chart)
+        st.divider()
+        st.subheader("Projection table")
 
         st.dataframe(
             proj_display[proj_table_cols],
@@ -963,32 +1234,6 @@ the Season Rankings tab combines projection priors with current performance for 
             "text/csv",
             key="proj_csv",
         )
-
-        # Forest plot of top 20 projections
-        st.divider()
-        st.subheader("Top 20 projected hitters")
-
-        top_20_proj = proj_filtered.head(20).copy()
-        if not top_20_proj.empty:
-            fig_proj = _build_forest_plot(
-                top_20_proj, "#7c3aed", f"Top {len(top_20_proj)} Projected",
-                metric_short="EB/PA",
-                mean_col="projected_eb_pa",
-                low_col="projected_hdi_low",
-                high_col="projected_hdi_high",
-                low_50_col="projected_hdi_50_low",
-                high_50_col="projected_hdi_50_high",
-                count_col="n_seasons",
-                count_label="Seasons",
-            )
-            st.plotly_chart(fig_proj, use_container_width=True, config=PLOTLY_CONFIG, theme=None)
-
-            has_50 = ("projected_hdi_50_low" in top_20_proj.columns
-                      and top_20_proj["projected_hdi_50_low"].notna().any())
-            caption = "Thin lines = possible range, dots = projected EB/PA"
-            if has_50:
-                caption = "Thin lines = possible range, thick lines = likely range, dots = projected EB/PA"
-            st.caption(caption)
 
 
 # =============================================================================
