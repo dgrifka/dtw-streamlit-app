@@ -138,30 +138,36 @@ def _build_forest_plot(plot_df, color, label, metric_short="EB/PA",
     ))
 
     # Compute x-axis range from HDI bounds with padding
+    # Expand range to always include the league mean line if provided
     x_min = plot_df[low_col].min()
     x_max = plot_df[high_col].max()
-    x_pad = (x_max - x_min) * 0.05
+    if league_mean is not None:
+        x_min = min(x_min, league_mean)
+        x_max = max(x_max, league_mean)
+    x_pad = (x_max - x_min) * 0.06
     _xaxis_cfg = dict(
         range=[x_min - x_pad, x_max + x_pad],
-        tickfont=dict(size=11),
+        tickfont=dict(size=12),
+        gridcolor="rgba(0,0,0,0.12)",
+        gridwidth=1,
     )
 
     fig.update_layout(
         template="plotly_white",
         xaxis_title=f"Est. Bases / {metric_short.split('/')[-1]}",
-        height=max(300, len(plot_df) * 28),
-        margin=dict(l=140, r=20, t=10, b=40),
+        height=max(300, len(plot_df) * 30),
+        margin=dict(l=160, r=20, t=25, b=40),
         showlegend=False,
-        yaxis=dict(tickfont=dict(size=11)),
+        yaxis=dict(tickfont=dict(size=13)),
         xaxis=_xaxis_cfg,
     )
 
     # League mean reference line
     if league_mean is not None:
         fig.add_vline(
-            x=league_mean, line_dash="dot", line_color="#666666", line_width=1.5,
+            x=league_mean, line_dash="dot", line_color="#888888", line_width=2,
             annotation_text="Lg avg", annotation_position="top right",
-            annotation_font_size=10, annotation_font_color="#666666",
+            annotation_font_size=13, annotation_font_color="#888888",
         )
 
     return fig
@@ -721,8 +727,10 @@ data to trust it.
                         "but also breakout potential."
                     )
                     if not upside.empty:
+                        _lg_mean_eb = filtered["posterior_mean"].mean()
                         fig_upside = _build_forest_plot(upside, "#2563eb", "High Upside",
-                                                        metric_short=metric_short)
+                                                        metric_short=metric_short,
+                                                        league_mean=_lg_mean_eb)
                         st.plotly_chart(fig_upside, use_container_width=True, config=PLOTLY_CONFIG, theme=None)
 
                         up_display = upside[["player", "team", "posterior_mean",
@@ -754,8 +762,10 @@ data to trust it.
                         "estimate. Narrow ranges mean consistent, predictable production."
                     )
                     if not safe_floor.empty:
+                        _lg_mean_eb = filtered["posterior_mean"].mean()
                         fig_floor = _build_forest_plot(safe_floor, "#16a34a", "Reliable Floor",
-                                                       metric_short=metric_short)
+                                                       metric_short=metric_short,
+                                                       league_mean=_lg_mean_eb)
                         st.plotly_chart(fig_floor, use_container_width=True, config=PLOTLY_CONFIG, theme=None)
 
                         sf_display = safe_floor[["player", "team", "posterior_mean",
@@ -1170,14 +1180,13 @@ the Season Rankings tab combines projection priors with current performance for 
                 _valid_rates = _proj_with_rates[_proj_with_rates[f"{_rate_prefix}_posterior"].notna()]
                 if not _valid_rates.empty:
                     _plot_data = _valid_rates.copy()
-                    for c in [f"{_rate_prefix}_posterior", f"{_rate_prefix}_hdi_low", f"{_rate_prefix}_hdi_high"]:
-                        if c in _plot_data.columns:
-                            _plot_data[c] = _plot_data[c] * 100
-                    # Clamp negative HDI values (impossible for rate stats)
+                    # Clamp negative HDI (safety for pre-logit-transform data)
                     _hdi_low_col = f"{_rate_prefix}_hdi_low"
                     if _hdi_low_col in _plot_data.columns:
                         _plot_data[_hdi_low_col] = _plot_data[_hdi_low_col].clip(lower=0)
-
+                    for c in [f"{_rate_prefix}_posterior", f"{_rate_prefix}_hdi_low", f"{_rate_prefix}_hdi_high"]:
+                        if c in _plot_data.columns:
+                            _plot_data[c] = _plot_data[c] * 100
                     # K%: low is good for hitters, so "best first" = ascending
                     # BB%/HR%: high is good for hitters, so "best first" = descending
                     if _rate_prefix == "k_rate":
