@@ -553,6 +553,17 @@ data to trust it.
         if has_hr_rate:
             rename_map["hr_rate_posterior"] = "HR%"
             rename_map["hr_rate_raw"] = "HR% (Raw)"
+        # Traditional stats (only show if columns exist in parquet)
+        has_trad_stats = False
+        if not is_pitcher and "avg" in display.columns:
+            rename_map["avg"] = "AVG"
+            rename_map["home_runs"] = "HR"
+            rename_map["stolen_bases"] = "SB"
+            has_trad_stats = True
+        elif is_pitcher and "era" in display.columns:
+            rename_map["era"] = "ERA"
+            rename_map["whip"] = "WHIP"
+            has_trad_stats = True
         display = display.rename(columns=rename_map)
 
         _profile_page = "Pitcher_Profile" if is_pitcher else "Hitter_Profile"
@@ -565,14 +576,21 @@ data to trust it.
                 "Player", "Team", "Pos", "True Talent EB/PA", "Est. Bases (Season)",
                 "Preseason Proj.", "Deviation",
                 "K%", "BB%", "HR%",
-                n_col_name, "Profile",
+                n_col_name,
             ]
         else:
             table_cols = [
                 "Player", "Team", "Pos", "Est. Bases (Season)", "Est. Bases (Raw)",
                 "K%", "BB%", "HR%",
-                "Adjustment", n_col_name, "Profile",
+                "Adjustment", n_col_name,
             ]
+        # Insert traditional stats before Profile link
+        if has_trad_stats:
+            if not is_pitcher:
+                table_cols.extend(["AVG", "HR", "SB"])
+            else:
+                table_cols.extend(["ERA", "WHIP"])
+        table_cols.append("Profile")
         table_cols = [c for c in table_cols if c in display.columns]
 
         COLUMN_CONFIG = {
@@ -615,6 +633,11 @@ data to trust it.
             n_col_name: st.column_config.NumberColumn(format="%d"),
             "Pos": st.column_config.TextColumn(width="small"),
             "Profile": st.column_config.LinkColumn(display_text="View"),
+            "AVG": st.column_config.NumberColumn(format="%.3f", help="Batting average (H/AB)"),
+            "HR": st.column_config.NumberColumn(format="%d", help="Home runs"),
+            "SB": st.column_config.NumberColumn(format="%d", help="Stolen bases"),
+            "ERA": st.column_config.NumberColumn(format="%.2f", help="Earned run average"),
+            "WHIP": st.column_config.NumberColumn(format="%.2f", help="Walks + hits per inning pitched"),
         }
 
         st.dataframe(
@@ -631,6 +654,9 @@ data to trust it.
             "text/csv",
             key="eval_csv",
         )
+
+        if has_trad_stats:
+            st.caption("Traditional stats via MLB Stats API. Totals may vary slightly from other sources if Statcast data was unavailable for a game or plate appearance.")
 
         # Regression candidates (when true talent available)
         if has_true_talent and type_key == "hitter" and is_pa_mode:

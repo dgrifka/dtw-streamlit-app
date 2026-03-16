@@ -291,6 +291,30 @@ def load_player_projections(target_season: int, player_type: str = "hitter") -> 
 
 
 @st.cache_data(ttl=3600)
+def load_rate_stat_projections(
+    target_season: int, player_type: str = "hitter", rate_type: str = "k_rate"
+) -> pd.DataFrame:
+    """Load rate stat projections from S3 (1-hour cache).
+
+    Args:
+        target_season: Season being projected (e.g. 2026)
+        player_type: 'hitter' or 'pitcher'
+        rate_type: 'k_rate', 'bb_rate', or 'hr_rate'
+
+    Returns:
+        DataFrame with columns: player_id, player, team,
+        projected_{rate_type}, projected_{rate_type}_hdi_low/high, etc.
+    """
+    s3_type = f"{player_type}_{rate_type}"
+    url = f"{S3_BASE_URL}/player-projections/{target_season}/latest/{s3_type}_projections.parquet"
+    try:
+        df = pd.read_parquet(url)
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=3600)
 def load_all_season_pa_rankings(player_type: str = "hitter") -> dict:
     """Load PA rankings for all available seasons (cached 1h).
 

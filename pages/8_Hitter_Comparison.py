@@ -439,12 +439,24 @@ if len(bb_df) > 1000:
         actual_pct_2 = (player_luck["actual"] < p2["total_actual_tb"]).mean() * 100
         expected_pct_2 = (player_luck["expected"] < p2["total_expected_tb"]).mean() * 100
 
+# Section header helper
+def _section_header(label):
+    return (
+        f'<div style="text-align:center; padding:6px 0 2px; margin-top:4px;">'
+        f'<span style="font-size:11px; font-weight:600; color:#8B8FA3; text-transform:uppercase; letter-spacing:1px;">{label}</span>'
+        f'</div>'
+    )
+
 # Build comparison rows
 h2h_rows = ""
+h2h_rows += _section_header("Season Actuals")
 h2h_rows += render_comparison_metric("Batted Balls", f"{p1['n_bb']:,}", f"{p2['n_bb']:,}", p1['n_bb'], p2['n_bb'], bold_higher=False)
 h2h_rows += render_comparison_metric("Avg EV", f"{p1['avg_ev']:.1f} mph", f"{p2['avg_ev']:.1f} mph", p1['avg_ev'], p2['avg_ev'], ev_pct_1, ev_pct_2)
 h2h_rows += render_comparison_metric("Barrel Rate", f"{p1['barrel_rate']:.1f}%", f"{p2['barrel_rate']:.1f}%", p1['barrel_rate'], p2['barrel_rate'], barrel_pct_1, barrel_pct_2)
 h2h_rows += render_comparison_metric("Avg EB/BB", f"{p1['avg_eb']:.3f}", f"{p2['avg_eb']:.3f}", p1['avg_eb'], p2['avg_eb'], avg_eb_pct_1, avg_eb_pct_2)
+h2h_rows += render_comparison_metric("Net Lucky Bases", f"{luck_1:+.1f}", f"{luck_2:+.1f}", luck_1, luck_2, luck_pct_1, luck_pct_2, bold_higher=False)
+
+h2h_rows += _section_header("Bayesian Estimates")
 
 # EB/PA row — uses the selected season/projection from the dropdown
 if _sel_eb1 is not None and _sel_eb2 is not None:
@@ -456,8 +468,6 @@ if _sel_eb1 is not None and _sel_eb2 is not None:
         _sel_eb1, _sel_eb2, _sel_pct1, _sel_pct2,
     )
 
-h2h_rows += render_comparison_metric("Net Lucky Bases", f"{luck_1:+.1f}", f"{luck_2:+.1f}", luck_1, luck_2, luck_pct_1, luck_pct_2, bold_higher=False)
-
 # True talent row (in-season combined estimate)
 if p1["ranking"] is not None and p2["ranking"] is not None:
     _tt1 = p1["ranking"].get("true_talent_eb_pa") if "true_talent_eb_pa" in p1["ranking"].index else None
@@ -467,6 +477,18 @@ if p1["ranking"] is not None and p2["ranking"] is not None:
             "True Talent EB/PA",
             f"{_tt1:.3f}", f"{_tt2:.3f}", _tt1, _tt2,
         )
+
+# Rate stat comparison rows (K%, BB%, HR% — Bayesian posteriors)
+if p1["ranking"] is not None and p2["ranking"] is not None:
+    _r1, _r2 = p1["ranking"], p2["ranking"]
+    for _rc, _rlabel, _invert in [("k_rate_posterior", "K%", True), ("bb_rate_posterior", "BB%", False), ("hr_rate_posterior", "HR%", False)]:
+        if _rc in _r1.index and _rc in _r2.index and pd.notna(_r1.get(_rc)) and pd.notna(_r2.get(_rc)):
+            _rpct1 = (_r1[_rc] > pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
+            _rpct2 = (_r2[_rc] > pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
+            h2h_rows += render_comparison_metric(
+                _rlabel, f"{_r1[_rc]*100:.1f}%", f"{_r2[_rc]*100:.1f}%",
+                _r1[_rc], _r2[_rc], _rpct1, _rpct2, invert=_invert,
+            )
 
 st.markdown(f'<div style="background:#F7FAFC; border-radius:8px; padding:8px 4px;">{h2h_rows}</div>', unsafe_allow_html=True)
 
