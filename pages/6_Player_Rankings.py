@@ -267,6 +267,26 @@ if has_eval_data:
     else:
         df["position"] = ""
 
+# Compute archetypes for PA mode rankings
+_archetype_map = {}
+if is_pa_mode and has_eval_data:
+    from utils.player_analytics import (
+        compute_hitter_radar_metrics, compute_pitcher_radar_metrics,
+        cluster_player_archetypes,
+    )
+    _bb_for_radar = load_batted_balls(season)
+    if type_key == "hitter":
+        _radar_df = compute_hitter_radar_metrics(df, _bb_for_radar, min_pa=30)
+    else:
+        _radar_df = compute_pitcher_radar_metrics(df, _bb_for_radar, min_pa=30)
+    if not _radar_df.empty:
+        _radar_df = cluster_player_archetypes(_radar_df, player_type=type_key)
+        _archetype_map = dict(zip(
+            _radar_df["player"] + "|" + _radar_df["team"],
+            _radar_df["archetype"],
+        ))
+    df["archetype"] = (df["player"] + "|" + df["team"]).map(_archetype_map).fillna("")
+
 # Merge position + age into projection data
 if has_proj_data and not metadata_df.empty:
     if "position" in metadata_df.columns:
@@ -412,8 +432,12 @@ data to trust it.
         st.divider()
         st.subheader(f"{player_type} rankings table")
 
-        # Filters for the table (search, position, min count)
-        col_search, col_pos, col_min_bb = st.columns([1, 1, 1])
+        # Filters for the table (search, position, archetype, min count)
+        _has_archetypes = "archetype" in df.columns and df["archetype"].str.len().gt(0).any()
+        if _has_archetypes:
+            col_search, col_pos, col_arch, col_min_bb = st.columns([1, 1, 1, 1])
+        else:
+            col_search, col_pos, col_min_bb = st.columns([1, 1, 1])
 
         with col_search:
             search_query = st.text_input(
@@ -429,6 +453,12 @@ data to trust it.
             else:
                 position_options += ["SP", "RP"]
             position_filter = st.selectbox("Position", position_options, key="eval_pos")
+
+        archetype_filter = "All"
+        if _has_archetypes:
+            with col_arch:
+                _arch_vals = sorted(df.loc[df["archetype"].str.len() > 0, "archetype"].unique())
+                archetype_filter = st.selectbox("Archetype", ["All"] + _arch_vals, key="eval_arch")
 
         with col_min_bb:
             default_min = 100 if is_pa_mode else 30
@@ -449,6 +479,8 @@ data to trust it.
             filtered = filtered[
                 filtered["position"].str.contains(position_filter, case=False, na=False)
             ]
+        if archetype_filter != "All":
+            filtered = filtered[filtered["archetype"] == archetype_filter]
         if search_query.strip():
             query_norm = _normalize(search_query.strip())
             filtered = filtered[
@@ -553,6 +585,9 @@ data to trust it.
         if has_hr_rate:
             rename_map["hr_rate_posterior"] = "HR%"
             rename_map["hr_rate_raw"] = "HR% (Raw)"
+        # Archetype column
+        if "archetype" in display.columns and display["archetype"].str.len().gt(0).any():
+            rename_map["archetype"] = "Archetype"
         # Traditional stats (only show if columns exist in parquet)
         has_trad_stats = False
         if not is_pitcher and "avg" in display.columns:
@@ -573,14 +608,14 @@ data to trust it.
 
         if has_true_talent:
             table_cols = [
-                "Player", "Team", "Pos", "True Talent EB/PA", "Est. Bases (Season)",
+                "Player", "Team", "Pos", "Archetype", "True Talent EB/PA", "Est. Bases (Season)",
                 "Preseason Proj.", "Deviation",
                 "K%", "BB%", "HR%",
                 n_col_name,
             ]
         else:
             table_cols = [
-                "Player", "Team", "Pos", "Est. Bases (Season)", "Est. Bases (Raw)",
+                "Player", "Team", "Pos", "Archetype", "Est. Bases (Season)", "Est. Bases (Raw)",
                 "K%", "BB%", "HR%",
                 "Adjustment", n_col_name,
             ]

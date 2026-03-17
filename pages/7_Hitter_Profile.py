@@ -520,16 +520,29 @@ if player_ranking is not None and "avg" in player_ranking.index and pd.notna(pla
 
 
 # =============================================================================
-# FANTASY CONTEXT
+# PLAYER PROFILE (Radar Chart + Archetype + Similar Players)
 # =============================================================================
 
-from utils.player_analytics import classify_contact_tier
+from utils.player_analytics import (
+    compute_hitter_radar_metrics, cluster_player_archetypes,
+    find_similar_players, get_player_radar_percentiles,
+    HITTER_ARCHETYPE_DESC,
+)
+from utils.player_helpers import render_radar_chart, render_archetype_badge, render_similar_players
 
-# Compute player luck
+# Compute radar metrics for all hitters (cached via Streamlit's data flow)
+_radar_df = compute_hitter_radar_metrics(pa_rankings, bb_df, min_pa=30)
+
+if not _radar_df.empty:
+    _radar_df = cluster_player_archetypes(_radar_df, player_type="hitter")
+    _player_pcts = get_player_radar_percentiles(_radar_df, selected_player, player_team_short, "hitter")
+else:
+    _player_pcts = None
+
+# Compute luck/trend stats (preserved from old Fantasy Context)
 player_bb["_actual_tb"] = player_bb["actual_result"].map(TB_MAP).fillna(0)
 _player_luck = player_bb["_actual_tb"].sum() - player_bb["estimated_bases"].sum()
 
-# League luck for percentile
 _league_luck = bb_df.copy()
 _league_luck["_actual_tb"] = _league_luck["actual_result"].map(TB_MAP).fillna(0)
 _league_luck_per_player = _league_luck.groupby("player").apply(
@@ -538,13 +551,11 @@ _league_luck_per_player = _league_luck.groupby("player").apply(
 )
 _luck_pct = (_league_luck_per_player < _player_luck).mean() * 100
 
-# Count unlucky outs (outs where estimated_bases was high)
 _unlucky_outs = player_bb[
     (player_bb["_actual_tb"] == 0) & (player_bb["estimated_bases"] > 0.5)
 ]
 _n_unlucky = len(_unlucky_outs)
 
-# Recent trend (14 days)
 _recent_eb = None
 _recent_vs_season = 0.0
 if "date_parsed" in player_bb.columns and len(player_bb) > 0:
@@ -554,7 +565,6 @@ if "date_parsed" in player_bb.columns and len(player_bb) > 0:
         _recent_eb = _recent["estimated_bases"].mean()
         _recent_vs_season = _recent_eb - avg_eb
 
-# Platoon edge
 _platoon_str = None
 if not metadata_df.empty and "pitcher" in player_bb.columns:
     _thm = metadata_df.set_index("player_name")["throw_hand"].to_dict()
@@ -566,73 +576,94 @@ if not metadata_df.empty and "pitcher" in player_bb.columns:
         if abs(_gap) > 0.03:
             _better = "vs LHP" if _gap > 0 else "vs RHP"
             _platoon_str = f"+{abs(_gap):.3f} EB/BB {_better}"
-    # Clean up temp column
     player_bb.drop(columns=["_pitcher_hand"], inplace=True, errors="ignore")
-
-# Tier classification (K%/BB% already computed above in Plate Discipline section)
-_post_mean_pct = 50.0
-if player_ranking is not None and not pa_rankings.empty:
-    _post_mean_pct = (
-        (pa_rankings["posterior_mean"] < player_ranking["posterior_mean"]).mean() * 100
-    )
-
-_tier = classify_contact_tier(
-    _post_mean_pct, barrel_rate, _k_rate, _bb_rate,
-    {"barrel_rate_median": 7.0, "k_rate_median": 20.0},
-)
 
 # Display
 st.divider()
-st.subheader("Fantasy Context")
+st.subheader("Player Profile")
 
-_fc1, _fc2, _fc3 = st.columns(3)
+if _player_pcts is not None:
+    _col_radar, _col_info = st.columns([3, 2])
 
-with _fc1:
-    st.markdown(
-        f'<div style="font-weight:600; margin-bottom:4px;">Player Tier</div>'
-        f'<div style="color:#4A5568; font-size:0.9rem;"><b>{_tier}</b></div>'
-        f'<div style="color:#718096; font-size:0.8rem; margin-top:4px;">'
-        f'{_ordinal(int(_post_mean_pct))} percentile EB/PA</div>',
-        unsafe_allow_html=True,
-    )
+    with _col_radar:
+        _radar_fig = render_radar_chart(_player_pcts, primary_color)
+        st.plotly_chart(_radar_fig, use_container_width=True, config=PLOTLY_CONFIG)
+        if n_bb < 50:
+            st.caption(f"Based on {n_bb} batted balls — profile may shift as more data accumulates.")
 
-with _fc2:
-    _luck_str = f"{_player_luck:+.1f} net lucky bases"
-    _luck_pct_str = f"{_luck_pct:.0f}th pct"
-    _unlucky_str = f"{_n_unlucky} unlucky outs (EB > 0.5)"
-    st.markdown(
-        f'<div style="font-weight:600; margin-bottom:4px;">Contact Quality vs Results</div>'
-        f'<div style="color:#4A5568; font-size:0.9rem;">{_luck_str} ({_luck_pct_str})</div>'
-        f'<div style="color:#718096; font-size:0.85rem;">{_unlucky_str}</div>',
-        unsafe_allow_html=True,
-    )
+    with _col_info:
+        # Archetype badge
+        _player_match = _radar_df[
+            (_radar_df["player"] == selected_player) & (_radar_df["team"] == player_team_short)
+        ]
+        if _player_match.empty:
+            _player_match = _radar_df[_radar_df["player"] == selected_player]
+        _archetype = _player_match.iloc[0]["archetype"] if not _player_match.empty else "Unknown"
+        _arch_desc = HITTER_ARCHETYPE_DESC.get(_archetype, "")
 
-with _fc3:
-    _trend_parts = []
+        st.markdown(render_archetype_badge(_archetype, _arch_desc, primary_color), unsafe_allow_html=True)
+
+        # Similar players
+        st.markdown('<div style="font-weight:600; margin-top:16px; margin-bottom:6px; font-size:0.85rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">Similar Players</div>', unsafe_allow_html=True)
+        _similar = find_similar_players(_radar_df, selected_player, player_team_short, "hitter", n=5)
+        st.markdown(render_similar_players(_similar), unsafe_allow_html=True)
+
+        # Quick stats (luck, trends, platoon)
+        st.markdown('<div style="font-weight:600; margin-top:16px; margin-bottom:6px; font-size:0.85rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">Quick Stats</div>', unsafe_allow_html=True)
+
+        _luck_str = f"{_player_luck:+.1f} net lucky bases ({_luck_pct:.0f}th pct)"
+        _quick_parts = [f"Luck: {_luck_str}", f"{_n_unlucky} unlucky outs (EB > 0.5)"]
+        if _recent_eb is not None:
+            _arrow_sym = "+" if _recent_vs_season > 0.005 else ("" if _recent_vs_season < -0.005 else "")
+            _quick_parts.append(f"Last 14d: {_recent_eb:.3f} EB/BB ({_arrow_sym}{_recent_vs_season:.3f} vs season)")
+        if _platoon_str:
+            _quick_parts.append(f"Platoon: {_platoon_str}")
+
+        st.markdown(
+            "".join(f'<div style="color:#4A5568; font-size:0.88rem; padding:1px 0;">{p}</div>' for p in _quick_parts),
+            unsafe_allow_html=True,
+        )
+
+    with st.expander("How does this work?"):
+        st.markdown(
+            "**Radar Chart:** Shows how this player compares to every hitter with 30+ plate appearances this season. "
+            "Each spoke is a different skill, measured as a percentile (0 to 100). A score of 80 means the player is better "
+            "than 80% of hitters in that skill. All axes are oriented so that bigger = better.\n\n"
+            "**Archetype:** Players are grouped by their radar shape using a clustering algorithm (K-Means). "
+            "Players in the same archetype tend to have similar strengths and weaknesses.\n\n"
+            "**Current Hitter Archetypes:**\n"
+            "- **Elite All-Around**: Top-tier production across all skill dimensions. These are the most complete hitters in the league.\n"
+            "- **Power Hitter**: Combines power with plate discipline to consistently drive the ball.\n"
+            "- **Power Slugger**: Drives the ball hard with elite power and hard-hit rate, but doesn't draw many walks. Produces through raw hitting ability.\n"
+            "- **Contact-Speed**: Puts the ball in play consistently and uses above-average speed to create value. A well-rounded offensive contributor.\n"
+            "- **Power-Speed**: Combines speed and emerging power but strikes out frequently. High-ceiling profile with boom-or-bust at-bats.\n"
+            "- **Speed Threat**: Gets on base through contact and creates havoc on the basepaths. Limited power but hard to keep off base.\n"
+            "- **Patient Hitter**: Works counts and earns walks with solid contact ability. Lacks power and speed but contributes through plate discipline.\n"
+            "- **Below Average**: Below-average production across most skill dimensions this season.\n\n"
+            "**Similar Players:** The 5 hitters whose overall skill profile most closely matches this player's, "
+            "based on the Euclidean distance between their radar shapes in 6-dimensional percentile space.\n\n"
+            "**Data Note:** The radar uses the best available estimate of each player's true skill level. "
+            "When preseason projections are available, they are combined with in-season performance using "
+            "inverse-variance weighting for a more stable \"true talent\" estimate. Otherwise, the Bayesian "
+            "posterior from the current season is used, which already shrinks small samples toward the league mean."
+        )
+
+else:
+    # Fallback: no radar data available (missing rate stat columns, etc.)
+    _quick_parts = []
+    _luck_str = f"{_player_luck:+.1f} net lucky bases ({_luck_pct:.0f}th pct)"
+    _quick_parts.append(f"Luck: {_luck_str}")
+    _quick_parts.append(f"{_n_unlucky} unlucky outs (EB > 0.5)")
     if _recent_eb is not None:
-        _arrow = "up" if _recent_vs_season > 0.005 else ("down" if _recent_vs_season < -0.005 else "flat")
-        _arrow_sym = {"up": "+", "down": "", "flat": ""}[_arrow]
-        _trend_parts.append(
-            f"Last 14d: {_recent_eb:.3f} EB/BB ({_arrow_sym}{_recent_vs_season:.3f} vs season)"
-        )
+        _arrow_sym = "+" if _recent_vs_season > 0.005 else ""
+        _quick_parts.append(f"Last 14d: {_recent_eb:.3f} EB/BB ({_arrow_sym}{_recent_vs_season:.3f} vs season)")
     if _platoon_str:
-        _trend_parts.append(f"Platoon: {_platoon_str}")
+        _quick_parts.append(f"Platoon: {_platoon_str}")
 
-    if _trend_parts:
-        st.markdown(
-            f'<div style="font-weight:600; margin-bottom:4px;">Trends & Splits</div>'
-            + "".join(
-                f'<div style="color:#4A5568; font-size:0.9rem;">{p}</div>'
-                for p in _trend_parts
-            ),
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            '<div style="font-weight:600; margin-bottom:4px;">Trends & Splits</div>'
-            '<div style="color:#718096; font-size:0.9rem;">Not enough data for trends</div>',
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        "".join(f'<div style="color:#4A5568; font-size:0.9rem; padding:2px 0;">{p}</div>' for p in _quick_parts),
+        unsafe_allow_html=True,
+    )
 
 # Clean up temp columns
 player_bb.drop(columns=["_actual_tb"], inplace=True, errors="ignore")

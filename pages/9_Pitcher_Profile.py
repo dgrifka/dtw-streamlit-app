@@ -926,6 +926,76 @@ if pitcher_ranking is not None and "era" in pitcher_ranking.index and pd.notna(p
 
 
 # =============================================================================
+# PLAYER PROFILE (Radar Chart + Archetype + Similar Players)
+# =============================================================================
+
+from utils.player_analytics import (
+    compute_pitcher_radar_metrics, cluster_player_archetypes,
+    find_similar_players, get_player_radar_percentiles,
+    PITCHER_ARCHETYPE_DESC,
+)
+from utils.player_helpers import render_radar_chart, render_archetype_badge, render_similar_players
+
+_radar_df = compute_pitcher_radar_metrics(pa_rankings, bb_df, min_pa=30)
+
+if not _radar_df.empty:
+    _radar_df = cluster_player_archetypes(_radar_df, player_type="pitcher")
+    _player_pcts = get_player_radar_percentiles(_radar_df, selected_pitcher, pitcher_team_short, "pitcher")
+else:
+    _player_pcts = None
+
+if _player_pcts is not None:
+    st.divider()
+    st.subheader("Player Profile")
+
+    _col_radar, _col_info = st.columns([3, 2])
+
+    with _col_radar:
+        _radar_fig = render_radar_chart(_player_pcts, primary_color)
+        st.plotly_chart(_radar_fig, use_container_width=True, config=PLOTLY_CONFIG)
+        if n_bb < 50:
+            st.caption(f"Based on {n_bb} batted balls faced — profile may shift as more data accumulates.")
+
+    with _col_info:
+        _player_match = _radar_df[
+            (_radar_df["player"] == selected_pitcher) & (_radar_df["team"] == pitcher_team_short)
+        ]
+        if _player_match.empty:
+            _player_match = _radar_df[_radar_df["player"] == selected_pitcher]
+        _archetype = _player_match.iloc[0]["archetype"] if not _player_match.empty else "Unknown"
+        _arch_desc = PITCHER_ARCHETYPE_DESC.get(_archetype, "")
+
+        st.markdown(render_archetype_badge(_archetype, _arch_desc, primary_color), unsafe_allow_html=True)
+
+        st.markdown('<div style="font-weight:600; margin-top:16px; margin-bottom:6px; font-size:0.85rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">Similar Pitchers</div>', unsafe_allow_html=True)
+        _similar = find_similar_players(_radar_df, selected_pitcher, pitcher_team_short, "pitcher", n=5)
+        st.markdown(render_similar_players(_similar), unsafe_allow_html=True)
+
+    with st.expander("How does this work?"):
+        st.markdown(
+            "**Radar Chart:** Shows how this pitcher compares to every pitcher with 30+ batters faced this season. "
+            "Each spoke is a different skill, measured as a percentile (0 to 100). All axes are oriented so that bigger = better "
+            "(e.g., \"Command\" = low walk rate, \"HR Prevention\" = low HR rate).\n\n"
+            "**Archetype:** Pitchers are grouped by their radar shape using a clustering algorithm (K-Means). "
+            "Pitchers in the same archetype tend to have similar strengths and weaknesses.\n\n"
+            "**Current Pitcher Archetypes:**\n"
+            "- **Elite Command**: Exceptional command and run prevention with well-rounded skills. Consistently locates pitches and limits damage.\n"
+            "- **Strikeout Artist**: Misses bats at an elite rate with strong overall run prevention. Overpowers hitters with swing-and-miss stuff.\n"
+            "- **Ground Ball Machine**: Keeps the ball on the ground and limits home runs effectively. Relies on inducing weak ground-ball contact.\n"
+            "- **Pitch-to-Contact**: Good command and induces weak contact, but doesn't miss many bats. Relies on location and movement over velocity.\n"
+            "- **Finesse Pitcher**: Decent command and gets ground balls, but lacks swing-and-miss ability. Relies on guile and location over pure stuff.\n"
+            "- **Volatile**: Has some swing-and-miss ability but walks too many batters. Results are inconsistent due to poor command.\n"
+            "- **Below Average**: Below-average production across most skill dimensions this season.\n\n"
+            "**Similar Pitchers:** The 5 pitchers whose overall skill profile most closely matches this pitcher's, "
+            "based on the Euclidean distance between their radar shapes in 6-dimensional percentile space.\n\n"
+            "**Data Note:** The radar uses the best available estimate of each pitcher's true skill level. "
+            "When preseason projections are available, they are combined with in-season performance using "
+            "inverse-variance weighting for a more stable \"true talent\" estimate. Otherwise, the Bayesian "
+            "posterior from the current season is used, which already shrinks small samples toward the league mean."
+        )
+
+
+# =============================================================================
 # CONTACT QUALITY ALLOWED
 # =============================================================================
 

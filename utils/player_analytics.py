@@ -6,8 +6,371 @@ Pure computation — no Streamlit calls. Reuses existing data loaded by data_loa
 
 import numpy as np
 import pandas as pd
+from sklearn.cluster import KMeans
 
 from .player_helpers import is_barrel_vectorized, TB_MAP
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Radar chart axes
+# ─────────────────────────────────────────────────────────────────────────────
+
+HITTER_RADAR_AXES = [
+    ("Contact Quality", "eb_pa"),
+    ("Power", "power"),
+    ("Plate Discipline", "discipline"),
+    ("Contact Rate", "contact_rate"),
+    ("Hard Hit", "hard_hit_rate"),
+    ("Speed", "speed"),
+]
+
+PITCHER_RADAR_AXES = [
+    ("Run Prevention", "run_prevention"),
+    ("Strikeout Ability", "k_ability"),
+    ("Command", "command"),
+    ("HR Prevention", "hr_prevention"),
+    ("Weak Contact", "weak_contact"),
+    ("Ground Balls", "gb_rate"),
+]
+
+# K values determined by EDA (silhouette analysis on 2025 data)
+HITTER_K = 7
+PITCHER_K = 6
+
+
+def compute_hitter_radar_metrics(pa_rankings, bb_df, min_pa=30):
+    """
+    Build the 6-axis radar metric DataFrame for all hitters.
+
+    Returns DataFrame indexed by player with raw metric values + percentile columns.
+    """
+    df = pa_rankings.copy()
+    df = df[df["n_batted_balls"] >= min_pa].copy()
+    if df.empty:
+        return pd.DataFrame()
+
+    # Contact Quality: prefer true_talent, fallback posterior_mean
+    if "true_talent_eb_pa" in df.columns:
+        df["eb_pa"] = df["true_talent_eb_pa"].fillna(df["posterior_mean"])
+    else:
+        df["eb_pa"] = df["posterior_mean"]
+
+    # Power: HR rate
+    if "true_talent_hr_rate" in df.columns:
+        df["power"] = df["true_talent_hr_rate"].fillna(df["hr_rate_posterior"])
+    else:
+        df["power"] = df.get("hr_rate_posterior", pd.Series(dtype=float))
+
+    # Plate Discipline: BB rate
+    if "true_talent_bb_rate" in df.columns:
+        df["discipline"] = df["true_talent_bb_rate"].fillna(df["bb_rate_posterior"])
+    else:
+        df["discipline"] = df.get("bb_rate_posterior", pd.Series(dtype=float))
+
+    # Contact Rate: 1 - K%
+    if "true_talent_k_rate" in df.columns:
+        df["contact_rate"] = 1 - df["true_talent_k_rate"].fillna(df["k_rate_posterior"])
+    else:
+        k_rate = df.get("k_rate_posterior", pd.Series(dtype=float))
+        df["contact_rate"] = 1 - k_rate if not k_rate.empty else pd.Series(dtype=float)
+
+    # Hard Hit rate: EV >= 95 mph from batted balls
+    if not bb_df.empty:
+        bb_df_temp = bb_df.copy()
+        bb_df_temp["_is_hard_hit"] = bb_df_temp["launch_speed"] >= 95
+        hhr = bb_df_temp.groupby("player")["_is_hard_hit"].mean()
+        df["hard_hit_rate"] = df["player"].map(hhr)
+    else:
+        df["hard_hit_rate"] = np.nan
+    df["hard_hit_rate"] = df["hard_hit_rate"].fillna(df["hard_hit_rate"].median())
+
+    # Speed: SB per PA
+    if "stolen_bases" in df.columns:
+        df["speed"] = df["stolen_bases"].fillna(0) / df["n_batted_balls"]
+    else:
+        df["speed"] = 0.0
+
+    # Drop rows missing required metrics
+    metric_cols = [col for _, col in HITTER_RADAR_AXES]
+    df = df.dropna(subset=metric_cols)
+    if df.empty:
+        return pd.DataFrame()
+
+    # Compute percentiles
+    for _, col in HITTER_RADAR_AXES:
+        df[f"{col}_pct"] = df[col].rank(pct=True) * 100
+
+    return df
+
+
+def compute_pitcher_radar_metrics(pa_rankings, bb_df, min_pa=30):
+    """
+    Build the 6-axis radar metric DataFrame for all pitchers.
+
+    Returns DataFrame indexed by player with raw metric values + percentile columns.
+    """
+    df = pa_rankings.copy()
+    df = df[df["n_batted_balls"] >= min_pa].copy()
+    if df.empty:
+        return pd.DataFrame()
+
+    # Run Prevention: EB/PA allowed (lower = better, will invert at percentile stage)
+    if "true_talent_eb_pa" in df.columns:
+        df["run_prevention"] = df["true_talent_eb_pa"].fillna(df["posterior_mean"])
+    else:
+        df["run_prevention"] = df["posterior_mean"]
+
+    # Strikeout Ability: K rate
+    if "true_talent_k_rate" in df.columns:
+        df["k_ability"] = df["true_talent_k_rate"].fillna(df["k_rate_posterior"])
+    else:
+        df["k_ability"] = df.get("k_rate_posterior", pd.Series(dtype=float))
+
+    # Command: 1 - BB rate
+    if "true_talent_bb_rate" in df.columns:
+        df["command"] = 1 - df["true_talent_bb_rate"].fillna(df["bb_rate_posterior"])
+    else:
+        bb_rate = df.get("bb_rate_posterior", pd.Series(dtype=float))
+        df["command"] = 1 - bb_rate if not bb_rate.empty else pd.Series(dtype=float)
+
+    # HR Prevention: 1 - HR rate
+    if "true_talent_hr_rate" in df.columns:
+        df["hr_prevention"] = 1 - df["true_talent_hr_rate"].fillna(df["hr_rate_posterior"])
+    else:
+        hr_rate = df.get("hr_rate_posterior", pd.Series(dtype=float))
+        df["hr_prevention"] = 1 - hr_rate if not hr_rate.empty else pd.Series(dtype=float)
+
+    # Weak Contact: inverted hard hit rate from batted balls
+    if not bb_df.empty and "pitcher" in bb_df.columns:
+        bb_temp = bb_df.copy()
+        bb_temp["_is_hard_hit"] = bb_temp["launch_speed"] >= 95
+        hhr = bb_temp.groupby("pitcher")["_is_hard_hit"].mean()
+        df["weak_contact"] = 1 - df["player"].map(hhr).fillna(hhr.median())
+    else:
+        df["weak_contact"] = 0.5
+
+    # Ground Ball rate: LA < 10 degrees
+    if not bb_df.empty and "pitcher" in bb_df.columns:
+        bb_temp = bb_df.copy()
+        bb_temp["_is_gb"] = bb_temp["launch_angle"] < 10
+        gbr = bb_temp.groupby("pitcher")["_is_gb"].mean()
+        df["gb_rate"] = df["player"].map(gbr).fillna(gbr.median())
+    else:
+        df["gb_rate"] = 0.5
+
+    metric_cols = [col for _, col in PITCHER_RADAR_AXES]
+    df = df.dropna(subset=metric_cols)
+    if df.empty:
+        return pd.DataFrame()
+
+    # Compute percentiles — run_prevention is inverted (lower EB/PA = higher percentile)
+    df["run_prevention_pct"] = (1 - df["run_prevention"].rank(pct=True)) * 100
+    for _, col in PITCHER_RADAR_AXES:
+        if col != "run_prevention":
+            df[f"{col}_pct"] = df[col].rank(pct=True) * 100
+
+    return df
+
+
+def _get_percentile_matrix(df, axes):
+    """Extract percentile columns as numpy array for clustering."""
+    pct_cols = [f"{col}_pct" for _, col in axes]
+    return df[pct_cols].values
+
+
+def _name_hitter_cluster(centroid):
+    """Assign archetype name based on centroid percentile values."""
+    eb, power, disc, contact, hh, speed = centroid
+    overall = np.mean(centroid)
+
+    if overall >= 62:
+        if contact >= 65 and speed >= 60:
+            return "Elite Contact-Speed"
+        return "Elite All-Around"
+    if power >= 60 and hh >= 60:
+        if disc >= 50:
+            return "Power Hitter"
+        return "Power Slugger"
+    if contact >= 60 and speed >= 60:
+        if eb >= 45:
+            return "Contact-Speed"
+        return "Speed Threat"
+    if speed >= 60:
+        if power >= 40:
+            return "Power-Speed"
+        return "Speed Threat"
+    if disc >= 55 and contact >= 55:
+        return "Patient Hitter"
+    if contact >= 60:
+        return "Contact Hitter"
+    if overall <= 30:
+        return "Below Average"
+    return "Below Average"
+
+
+def _name_pitcher_cluster(centroid):
+    """Assign archetype name based on centroid percentile values."""
+    run_prev, k_ability, command, hr_prev, weak, gb = centroid
+    overall = np.mean(centroid)
+
+    if overall >= 62:
+        if k_ability >= 65:
+            return "Dominant"
+        return "Elite Command"
+    if k_ability >= 65 and run_prev >= 55:
+        return "Strikeout Artist"
+    if gb >= 65 and hr_prev >= 60:
+        return "Ground Ball Machine"
+    if command >= 60 and weak >= 55:
+        return "Pitch-to-Contact"
+    if command >= 55 and gb >= 55:
+        return "Finesse Pitcher"
+    if command >= 55 and run_prev >= 45:
+        return "Command Pitcher"
+    if k_ability >= 45 and overall <= 35:
+        return "Volatile"
+    if overall <= 30:
+        return "Below Average"
+    return "Below Average"
+
+
+# Archetype descriptions keyed by name
+HITTER_ARCHETYPE_DESC = {
+    "Elite All-Around": "Top-tier production across all skill dimensions. These are the most complete hitters in the league.",
+    "Elite Contact-Speed": "Elite production with outstanding contact skills and baserunning speed.",
+    "Power Hitter": "Combines power with plate discipline to consistently drive the ball.",
+    "Power Slugger": "Drives the ball hard with elite power and hard-hit rate, but doesn't draw many walks. Produces through raw hitting ability.",
+    "Contact-Speed": "Puts the ball in play consistently and uses above-average speed to create value. A well-rounded offensive contributor.",
+    "Power-Speed": "Combines speed and emerging power but strikes out frequently. High-ceiling profile with boom-or-bust at-bats.",
+    "Speed Threat": "Gets on base through contact and creates havoc on the basepaths. Limited power but hard to keep off base.",
+    "Patient Hitter": "Works counts and earns walks with solid contact ability. Lacks power and speed but contributes through plate discipline.",
+    "Contact Hitter": "Puts the ball in play and avoids strikeouts, but limited impact tools.",
+    "Below Average": "Below-average production across most skill dimensions this season.",
+}
+
+PITCHER_ARCHETYPE_DESC = {
+    "Dominant": "Elite across the board with overpowering stuff and pinpoint command.",
+    "Elite Command": "Exceptional command and run prevention with well-rounded skills. Consistently locates pitches and limits damage.",
+    "Strikeout Artist": "Misses bats at an elite rate with strong overall run prevention. Overpowers hitters with swing-and-miss stuff.",
+    "Ground Ball Machine": "Keeps the ball on the ground and limits home runs effectively. Relies on inducing weak ground-ball contact.",
+    "Pitch-to-Contact": "Good command and induces weak contact, but doesn't miss many bats. Relies on location and movement over velocity.",
+    "Finesse Pitcher": "Decent command and gets ground balls, but lacks swing-and-miss ability. Relies on guile and location over pure stuff.",
+    "Command Pitcher": "Relies on command and pitch-ability over pure stuff.",
+    "Volatile": "Has some swing-and-miss ability but walks too many batters. Results are inconsistent due to poor command.",
+    "Below Average": "Below-average production across most skill dimensions this season.",
+}
+
+
+def cluster_player_archetypes(df, player_type="hitter"):
+    """
+    Run K-Means clustering on the 6D percentile space and assign archetype names.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Output of compute_hitter/pitcher_radar_metrics (must have *_pct columns).
+    player_type : str
+        "hitter" or "pitcher"
+
+    Returns
+    -------
+    df with added 'archetype' column.
+    """
+    if player_type == "hitter":
+        axes = HITTER_RADAR_AXES
+        k = HITTER_K
+        name_fn = _name_hitter_cluster
+    else:
+        axes = PITCHER_RADAR_AXES
+        k = PITCHER_K
+        name_fn = _name_pitcher_cluster
+
+    X = _get_percentile_matrix(df, axes)
+    if len(X) < k:
+        df["archetype"] = "Unknown"
+        return df
+
+    km = KMeans(n_clusters=k, random_state=42, n_init=10)
+    labels = km.fit_predict(X)
+
+    # Name each cluster from its centroid
+    cluster_names = {}
+    used_names = set()
+    for i, centroid in enumerate(km.cluster_centers_):
+        name = name_fn(centroid)
+        # Avoid duplicate names by appending a suffix
+        if name in used_names:
+            name = f"{name} II"
+        used_names.add(name)
+        cluster_names[i] = name
+
+    df = df.copy()
+    df["archetype"] = pd.Series(labels, index=df.index).map(cluster_names)
+    return df
+
+
+def find_similar_players(df, player_name, player_team, player_type="hitter", n=5):
+    """
+    Find the N most similar players by Euclidean distance in percentile space.
+
+    Returns list of dicts: [{player, team, similarity, archetype}, ...]
+    """
+    axes = HITTER_RADAR_AXES if player_type == "hitter" else PITCHER_RADAR_AXES
+    pct_cols = [f"{col}_pct" for _, col in axes]
+
+    # Find the target player row
+    match = df[(df["player"] == player_name) & (df["team"] == player_team)]
+    if match.empty:
+        match = df[df["player"] == player_name]
+    if match.empty:
+        return []
+
+    target = match.iloc[0][pct_cols].values.astype(float)
+
+    # Compute distances to all other players
+    others = df[~((df["player"] == player_name) & (df["team"] == match.iloc[0]["team"]))].copy()
+    if others.empty:
+        return []
+
+    other_vecs = others[pct_cols].values.astype(float)
+    dists = np.sqrt(((other_vecs - target) ** 2).sum(axis=1))
+
+    # Normalize to 0-100 similarity score (max possible distance = sqrt(6*100^2) ≈ 245)
+    max_dist = np.sqrt(len(pct_cols) * 100**2)
+    similarities = np.clip(100 - (dists / max_dist * 100), 0, 100)
+
+    others = others.copy()
+    others["_dist"] = dists
+    others["_similarity"] = similarities
+    top = others.nsmallest(n, "_dist")
+
+    return [
+        {
+            "player": row["player"],
+            "team": row["team"],
+            "similarity": round(row["_similarity"], 0),
+            "archetype": row.get("archetype", ""),
+        }
+        for _, row in top.iterrows()
+    ]
+
+
+def get_player_radar_percentiles(df, player_name, player_team, player_type="hitter"):
+    """
+    Get radar percentile values for a single player.
+
+    Returns dict {axis_label: percentile_value} or None.
+    """
+    axes = HITTER_RADAR_AXES if player_type == "hitter" else PITCHER_RADAR_AXES
+
+    match = df[(df["player"] == player_name) & (df["team"] == player_team)]
+    if match.empty:
+        match = df[df["player"] == player_name]
+    if match.empty:
+        return None
+
+    row = match.iloc[0]
+    return {label: round(row[f"{col}_pct"], 1) for label, col in axes}
 
 
 def classify_contact_tier(posterior_mean_pct, barrel_rate, k_rate, bb_rate,

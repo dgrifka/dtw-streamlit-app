@@ -197,3 +197,102 @@ def luck_tier_label(percentile):
         return "Lucky"
     else:
         return "Very Lucky"
+
+
+def render_radar_chart(percentiles, primary_color, secondary_color=None):
+    """
+    Create a Plotly Scatterpolar radar chart from percentile dict.
+
+    Parameters
+    ----------
+    percentiles : dict
+        {axis_label: percentile_value (0-100)}
+    primary_color : str
+        Team primary color hex (e.g., '#003087')
+    secondary_color : str, optional
+        Not used currently, reserved for future dual-player overlays.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+    """
+    import plotly.graph_objects as go
+
+    labels = list(percentiles.keys())
+    values = list(percentiles.values())
+    # Close the polygon
+    labels_closed = labels + [labels[0]]
+    values_closed = values + [values[0]]
+
+    # Percentile annotations on each point
+    hover_text = [f"{l}: {_ordinal(int(v))} percentile" for l, v in zip(labels, values)]
+    hover_text.append(hover_text[0])
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatterpolar(
+        r=values_closed,
+        theta=labels_closed,
+        fill="toself",
+        fillcolor=f"rgba({int(primary_color.lstrip('#')[0:2], 16)},{int(primary_color.lstrip('#')[2:4], 16)},{int(primary_color.lstrip('#')[4:6], 16)},0.2)",
+        line=dict(color=primary_color, width=2),
+        marker=dict(size=6, color=primary_color),
+        text=hover_text,
+        hoverinfo="text",
+        customdata=[[_ordinal(int(v))] for v in values_closed],
+    ))
+
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 100],
+                tickvals=[25, 50, 75],
+                ticktext=["25th", "50th", "75th"],
+                tickfont=dict(size=10, color="rgba(150,150,150,0.7)"),
+                gridcolor="rgba(200,200,200,0.3)",
+            ),
+            angularaxis=dict(
+                tickfont=dict(size=12, color="#333"),
+                gridcolor="rgba(200,200,200,0.3)",
+            ),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        showlegend=False,
+        margin=dict(l=50, r=50, t=30, b=30),
+        height=350,
+        template="plotly_white",
+        dragmode=False,
+    )
+
+    return fig
+
+
+def render_archetype_badge(archetype_name, description, primary_color):
+    """Render an HTML archetype badge with team-colored pill."""
+    return (
+        f'<div style="margin-bottom:12px;">'
+        f'<span style="display:inline-block; background:{primary_color}; color:white; '
+        f'padding:4px 14px; border-radius:16px; font-weight:600; font-size:0.95rem; '
+        f'letter-spacing:0.3px;">{archetype_name}</span>'
+        f'</div>'
+        f'<div style="color:#4A5568; font-size:0.9rem; line-height:1.5;">{description}</div>'
+    )
+
+
+def render_similar_players(similar_list):
+    """Render a compact list of similar players with similarity scores."""
+    if not similar_list:
+        return '<div style="color:#718096; font-size:0.9rem;">Not enough data for comparison</div>'
+
+    items = []
+    for i, p in enumerate(similar_list, 1):
+        sim_pct = int(p["similarity"])
+        items.append(
+            f'<div style="padding:3px 0; font-size:0.9rem;">'
+            f'<span style="color:#718096; font-weight:600;">{i}.</span> '
+            f'{p["player"]} <span style="color:#A0AEC0;">({p["team"]})</span>'
+            f'<span style="float:right; color:#718096; font-size:0.85rem;">{sim_pct}% match</span>'
+            f'</div>'
+        )
+    return "".join(items)
