@@ -17,6 +17,7 @@ if parent_dir not in sys.path:
 
 from utils.data_loader import load_game_summaries, get_game_images, get_deserved_winner
 from utils.team_mappings import get_all_teams, get_short_name, get_team_logo_url, get_team_color
+from utils.player_helpers import safe_html
 from utils.responsive import inject_responsive_css, render_home_link, upset_badge_html
 
 # MLB logo for default state
@@ -265,16 +266,16 @@ def main():
                     home_wp = int(round(row['home_wp'] * 100))
 
                     # Highlight selected team and determine opponent color accent
-                    away_display = away_short
-                    home_display = home_short
+                    away_display = safe_html(away_short)
+                    home_display = safe_html(home_short)
                     border_style = "border: 1px solid #e0e0e0;"
 
                     if selected_team != "All Teams":
                         if row['home'] == selected_team:
-                            home_display = f"<b>{home_short}</b>"
+                            home_display = f"<b>{safe_html(home_short)}</b>"
                             opp_color = get_team_color(row['away'])[0]
                         else:
-                            away_display = f"<b>{away_short}</b>"
+                            away_display = f"<b>{safe_html(away_short)}</b>"
                             opp_color = get_team_color(row['home'])[0]
                         border_style = f"border: 1px solid #e0e0e0; border-left: 4px solid {opp_color};"
 

@@ -7,6 +7,7 @@ import requests
 
 from utils.data_loader import load_game_summaries, get_game_images, get_deserved_winner
 from utils.team_mappings import get_short_name
+from utils.player_helpers import safe_html
 from utils.responsive import inject_responsive_css, upset_badge_html
 
 # Custom CSS
@@ -112,7 +113,7 @@ def render_recent_games(df):
                             padding: 0.75rem; border-radius: 8px; text-align: center;
                             font-size: 0.85rem; margin-bottom: 0.5rem;">
                     <div style="color: #718096; font-size: 0.7rem;">{date_str}</div>
-                    <div style="color: #1E3A5F; font-weight: 600;">{away_short} @ {home_short}{upset_marker}</div>
+                    <div style="color: #1E3A5F; font-weight: 600;">{safe_html(away_short)} @ {safe_html(home_short)}{upset_marker}</div>
                     <div style="color: #1E3A5F; font-weight: 700;">{row['away_score']} - {row['home_score']}</div>
                     <div style="color: #718096; font-size: 0.75rem;">{away_wp}% - {home_wp}%</div>
                 </div>

@@ -15,6 +15,7 @@ if parent_dir not in sys.path:
 
 from utils.data_loader import load_game_summaries, get_game_images, get_deserved_winner
 from utils.team_mappings import get_short_name
+from utils.player_helpers import safe_html
 from utils.responsive import inject_responsive_css, render_home_link, upset_badge_html
 
 # Custom CSS
@@ -115,7 +116,7 @@ def main():
     
     # Game title
     badge = upset_badge_html(winner_info['was_upset'])
-    st.markdown(f"<h2>{row['away']} @ {row['home']}{badge}</h2>", unsafe_allow_html=True)
+    st.markdown(f"<h2>{safe_html(row['away'])} @ {safe_html(row['home'])}{badge}</h2>", unsafe_allow_html=True)
     
     # Score and info row
     col1, col2, col3, col4 = st.columns(4)
@@ -123,16 +124,16 @@ def main():
     with col1:
         st.markdown(f"""
         <div class="game-info-box">
-            <div class="team-name">{away_short}</div>
+            <div class="team-name">{safe_html(away_short)}</div>
             <div class="team-score">{row['away_score']}</div>
             <div style="font-size: 0.85rem; color: #666;">DTW: {away_wp}%</div>
         </div>
         """, unsafe_allow_html=True)
-    
+
     with col2:
         st.markdown(f"""
         <div class="game-info-box">
-            <div class="team-name">{home_short}</div>
+            <div class="team-name">{safe_html(home_short)}</div>
             <div class="team-score">{row['home_score']}</div>
             <div style="font-size: 0.85rem; color: #666;">DTW: {home_wp}%</div>
         </div>
@@ -150,7 +151,7 @@ def main():
     with col4:
         if winner_info['was_upset']:
             result_text = "Upset"
-            result_detail = f"{get_short_name(winner_info['deserved_winner'])} deserved to win"
+            result_detail = f"{safe_html(get_short_name(winner_info['deserved_winner']))} deserved to win"
         else:
             result_text = "Deserved"
             result_detail = "Expected team won"

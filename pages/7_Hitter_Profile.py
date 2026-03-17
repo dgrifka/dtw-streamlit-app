@@ -34,7 +34,7 @@ from utils.player_helpers import (
     normalize_name, build_headshot_url, build_video_url,
     categorize_launch_angle, is_barrel, is_barrel_vectorized,
     _ordinal, _percentile_color,
-    render_percentile_bar, luck_tier_label,
+    render_percentile_bar, luck_tier_label, safe_html,
     TB_MAP, PLOTLY_CONFIG, PLOTLY_CONFIG_STATIC,
 )
 from utils.responsive import inject_responsive_css, render_home_link
@@ -258,8 +258,8 @@ st.markdown(
     f'border-left:4px solid {primary_color};">'
     f'{img_html}'
     f'<div>'
-    f'<div style="font-size:1.5rem; font-weight:700; margin-bottom:2px;">{selected_player}</div>'
-    f'<div style="color:#4A5568; font-size:1rem;"><b>{player_team_short}</b>{pos_str}{age_str}{bats_str}{pa_str}</div>'
+    f'<div style="font-size:1.5rem; font-weight:700; margin-bottom:2px;">{safe_html(selected_player)}</div>'
+    f'<div style="color:#4A5568; font-size:1rem;"><b>{safe_html(player_team_short)}</b>{pos_str}{age_str}{bats_str}{pa_str}</div>'
     f'</div></div>',
     unsafe_allow_html=True,
 )
@@ -340,7 +340,7 @@ with hero_bayesian:
         <div style="font-size:13px; margin:8px 0 2px 0;">
             <!-- Row 1: Player -->
             <div style="display:flex; align-items:center; height:26px; margin-bottom:4px;">
-                <div style="width:70px; text-align:right; padding-right:8px; font-weight:600; color:{primary_color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{selected_player.split(' ')[-1][:10]}</div>
+                <div style="width:70px; text-align:right; padding-right:8px; font-weight:600; color:{primary_color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{safe_html(selected_player.split(' ')[-1][:10])}</div>
                 <div style="flex:1; position:relative; height:16px;">
                     <div style="position:absolute; top:2px; left:{p_left:.1f}%; width:{p_width:.1f}%;
                                 height:12px; background:{primary_color}; opacity:0.7; border-radius:6px;"></div>
@@ -353,7 +353,7 @@ with hero_bayesian:
             </div>
             <!-- Row 2: Best Player -->
             <div style="display:flex; align-items:center; height:26px; margin-bottom:4px;">
-                <div style="width:70px; text-align:right; padding-right:8px; color:{best_color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{best_name}">{best_label}</div>
+                <div style="width:70px; text-align:right; padding-right:8px; color:{best_color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{safe_html(best_name)}">{safe_html(best_label)}</div>
                 <div style="flex:1; position:relative; height:16px;">
                     <div style="position:absolute; top:2px; left:{b_left:.1f}%; width:{b_width:.1f}%;
                                 height:12px; background:{best_color}; opacity:0.5; border-radius:6px;"></div>

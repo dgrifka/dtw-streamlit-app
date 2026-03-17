@@ -2,6 +2,7 @@
 Shared player-related helpers used by Hitter Profile, Pitcher Profile, and Hitter Comparison pages.
 """
 
+import html
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -19,6 +20,11 @@ TB_MAP = {
     "Sac Fly": 0, "Sac Bunt": 0, "Double Play": 0,
     "Force Out": 0, "Field Error": 0,
 }
+
+
+def safe_html(text):
+    """Escape text for safe HTML rendering in unsafe_allow_html=True contexts."""
+    return html.escape(str(text)) if text else ""
 
 
 def normalize_name(name):
@@ -115,7 +121,7 @@ def render_percentile_bar(percentile, label=None, container=None):
                         box-shadow:0 1px 3px rgba(0,0,0,0.15);"></div>
         </div>
         <div style="text-align:center; font-size:13px; color:rgba(150,150,150,0.9);
-                    margin-top:2px;">{label}</div>
+                    margin-top:2px;">{safe_html(label)}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -274,9 +280,9 @@ def render_archetype_badge(archetype_name, description, primary_color):
         f'<div style="margin-bottom:12px;">'
         f'<span style="display:inline-block; background:{primary_color}; color:white; '
         f'padding:4px 14px; border-radius:16px; font-weight:600; font-size:0.95rem; '
-        f'letter-spacing:0.3px;">{archetype_name}</span>'
+        f'letter-spacing:0.3px;">{safe_html(archetype_name)}</span>'
         f'</div>'
-        f'<div style="color:#4A5568; font-size:0.9rem; line-height:1.5;">{description}</div>'
+        f'<div style="color:#4A5568; font-size:0.9rem; line-height:1.5;">{safe_html(description)}</div>'
     )
 
 
@@ -291,7 +297,7 @@ def render_similar_players(similar_list):
         items.append(
             f'<div style="padding:3px 0; font-size:0.9rem;">'
             f'<span style="color:#718096; font-weight:600;">{i}.</span> '
-            f'{p["player"]} <span style="color:#A0AEC0;">({p["team"]})</span>'
+            f'{safe_html(p["player"])} <span style="color:#A0AEC0;">({safe_html(p["team"])})</span>'
             f'<span style="float:right; color:#718096; font-size:0.85rem;">{sim_pct}% match</span>'
             f'</div>'
         )

@@ -30,7 +30,7 @@ from utils.player_helpers import (
     normalize_name, build_headshot_url, categorize_launch_angle,
     is_barrel, is_barrel_vectorized,
     _ordinal, _percentile_color, render_percentile_bar, render_comparison_metric,
-    luck_tier_label,
+    luck_tier_label, safe_html,
     TB_MAP, PLOTLY_CONFIG, PLOTLY_CONFIG_STATIC,
 )
 from utils.responsive import inject_responsive_css, render_home_link
@@ -310,8 +310,8 @@ for col, p, color in [(hero1, p1, p1_color), (hero2, p2, p2_color)]:
             f'border-left:4px solid {color};">'
             f'{img_html}'
             f'<div>'
-            f'<div style="font-size:1.3rem; font-weight:700; margin-bottom:2px;">{p["name"]}</div>'
-            f'<div style="color:#4A5568; font-size:0.95rem;"><b>{p["team"]}</b>{pos_str}{age_str}{bats_str}{pa_str}</div>'
+            f'<div style="font-size:1.3rem; font-weight:700; margin-bottom:2px;">{safe_html(p["name"])}</div>'
+            f'<div style="color:#4A5568; font-size:0.95rem;"><b>{safe_html(p["team"])}</b>{pos_str}{age_str}{bats_str}{pa_str}</div>'
             f'{arch_html}'
             f'</div></div>',
             unsafe_allow_html=True,
@@ -375,7 +375,7 @@ st.markdown("#### Head-to-Head")
 _h2h_header_cols = st.columns([2, 1.5, 2])
 with _h2h_header_cols[0]:
     st.markdown(
-        f'<span style="font-weight:700; color:{p1_color}; font-size:0.95rem;">{p1["name"]}</span>',
+        f'<span style="font-weight:700; color:{p1_color}; font-size:0.95rem;">{safe_html(p1["name"])}</span>',
         unsafe_allow_html=True,
     )
 with _h2h_header_cols[1]:
@@ -390,7 +390,7 @@ with _h2h_header_cols[1]:
         )
 with _h2h_header_cols[2]:
     st.markdown(
-        f'<span style="font-weight:700; color:{p2_color}; font-size:0.95rem; float:right;">{p2["name"]}</span>',
+        f'<span style="font-weight:700; color:{p2_color}; font-size:0.95rem; float:right;">{safe_html(p2["name"])}</span>',
         unsafe_allow_html=True,
     )
 
