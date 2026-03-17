@@ -926,7 +926,7 @@ if pitcher_ranking is not None and "era" in pitcher_ranking.index and pd.notna(p
 
 
 # =============================================================================
-# PLAYER PROFILE (Radar Chart + Archetype + Similar Players)
+# PLAYER PROFILE (Radar Chart + Archetype + Similar Players + Quick Stats)
 # =============================================================================
 
 from utils.player_analytics import (
@@ -943,6 +943,61 @@ if not _radar_df.empty:
     _player_pcts = get_player_radar_percentiles(_radar_df, selected_pitcher, pitcher_team_short, "pitcher")
 else:
     _player_pcts = None
+
+# Compute Quick Stats (luck, trend, platoon) — used in both radar and fallback
+# Reuses actual_tb column already computed in the Luck Report section above
+_pitcher_luck = pitcher_bb["estimated_bases"].sum() - pitcher_bb["actual_tb"].sum()
+
+_league_luck_pitchers = bb_df.copy()
+_league_luck_pitchers["_actual_tb"] = _league_luck_pitchers["actual_result"].map(TB_MAP).fillna(0)
+_luck_per_pitcher = _league_luck_pitchers.groupby("pitcher").apply(
+    lambda x: x["estimated_bases"].sum() - x["_actual_tb"].sum(),
+    include_groups=False,
+)
+_luck_pct = (_luck_per_pitcher < _pitcher_luck).mean() * 100
+
+_lucky_hits_allowed = pitcher_bb[
+    (pitcher_bb["actual_tb"] > 0) & (pitcher_bb["estimated_bases"] < 0.5)
+]
+_n_lucky_hits = len(_lucky_hits_allowed)
+
+_recent_eb_p = None
+_recent_vs_season_p = 0.0
+if "date_parsed" in pitcher_bb.columns and len(pitcher_bb) > 0:
+    _max_date_p = pitcher_bb["date_parsed"].max()
+    _recent_p = pitcher_bb[pitcher_bb["date_parsed"] > _max_date_p - pd.Timedelta(days=14)]
+    if len(_recent_p) > 5:
+        _recent_eb_p = _recent_p["estimated_bases"].mean()
+        _recent_vs_season_p = _recent_eb_p - avg_eb
+
+_platoon_str_p = None
+if not metadata_df.empty and "player" in pitcher_bb.columns:
+    _bsm = metadata_df.set_index("player_name")["bat_side"].to_dict()
+    pitcher_bb["_bat_side"] = pitcher_bb["player"].map(_bsm)
+    _vs_l = pitcher_bb[pitcher_bb["_bat_side"] == "L"]
+    _vs_r = pitcher_bb[pitcher_bb["_bat_side"] == "R"]
+    if len(_vs_l) >= 10 and len(_vs_r) >= 10:
+        _gap_p = _vs_l["estimated_bases"].mean() - _vs_r["estimated_bases"].mean()
+        if abs(_gap_p) > 0.03:
+            _weak_side = "vs LHH" if _gap_p > 0 else "vs RHH"
+            _platoon_str_p = f"+{abs(_gap_p):.3f} EB/BB {_weak_side}"
+    pitcher_bb.drop(columns=["_bat_side"], inplace=True, errors="ignore")
+
+def _render_pitcher_quick_stats():
+    """Render pitcher Quick Stats HTML block."""
+    st.markdown('<div style="font-weight:600; margin-top:16px; margin-bottom:6px; font-size:0.85rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">Quick Stats</div>', unsafe_allow_html=True)
+    _luck_str = f"{_pitcher_luck:+.1f} net lucky bases ({_luck_pct:.0f}th pct)"
+    _quick_parts = [f"Luck: {_luck_str}", f"{_n_lucky_hits} lucky hits allowed (EB < 0.5)"]
+    if _recent_eb_p is not None:
+        _arrow = "+" if _recent_vs_season_p > 0.005 else ("" if _recent_vs_season_p < -0.005 else "")
+        _trend_note = "worse" if _recent_vs_season_p > 0.005 else ("better" if _recent_vs_season_p < -0.005 else "same")
+        _quick_parts.append(f"Last 14d: {_recent_eb_p:.3f} EB/BB ({_arrow}{_recent_vs_season_p:.3f} vs season — {_trend_note})")
+    if _platoon_str_p:
+        _quick_parts.append(f"Weakness: {_platoon_str_p}")
+    st.markdown(
+        "".join(f'<div style="color:#4A5568; font-size:0.88rem; padding:1px 0;">{p}</div>' for p in _quick_parts),
+        unsafe_allow_html=True,
+    )
 
 if _player_pcts is not None:
     st.divider()
@@ -971,6 +1026,8 @@ if _player_pcts is not None:
         _similar = find_similar_players(_radar_df, selected_pitcher, pitcher_team_short, "pitcher", n=5)
         st.markdown(render_similar_players(_similar), unsafe_allow_html=True)
 
+        _render_pitcher_quick_stats()
+
     with st.expander("How does this work?"):
         st.markdown(
             "**Radar Chart:** Shows how this pitcher compares to every pitcher with 30+ batters faced this season. "
@@ -988,11 +1045,22 @@ if _player_pcts is not None:
             "- **Below Average**: Below-average production across most skill dimensions this season.\n\n"
             "**Similar Pitchers:** The 5 pitchers whose overall skill profile most closely matches this pitcher's, "
             "based on the Euclidean distance between their radar shapes in 6-dimensional percentile space.\n\n"
+            "**Quick Stats:** Luck = expected TB minus actual TB allowed (positive = pitcher got lucky). "
+            "Lucky hits allowed = batted balls that became hits despite low expected bases (EB < 0.5). "
+            "14-day trend shows recent EB/BB vs season average (higher = allowing harder contact). "
+            "Platoon weakness shows which handedness the pitcher struggles against more.\n\n"
             "**Data Note:** The radar uses the best available estimate of each pitcher's true skill level. "
             "When preseason projections are available, they are combined with in-season performance using "
             "inverse-variance weighting for a more stable \"true talent\" estimate. Otherwise, the Bayesian "
             "posterior from the current season is used, which already shrinks small samples toward the league mean."
         )
+
+else:
+    # Fallback: no radar data — still show Quick Stats
+    st.divider()
+    st.subheader("Player Profile")
+    _render_pitcher_quick_stats()
+
 
 
 # =============================================================================

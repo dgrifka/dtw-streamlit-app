@@ -76,6 +76,16 @@ pa_rankings = load_player_evaluations_pa(season, "hitter")
 # Multi-season PA rankings for historical timeline
 all_season_pa_rankings = load_all_season_pa_rankings("hitter")
 
+# Compute archetypes for hero badge display
+_cmp_archetype_map = {}
+if not pa_rankings.empty:
+    from utils.player_analytics import compute_hitter_radar_metrics, cluster_player_archetypes
+    _cmp_radar_df = compute_hitter_radar_metrics(pa_rankings, bb_df, min_pa=30)
+    if not _cmp_radar_df.empty:
+        _cmp_radar_df = cluster_player_archetypes(_cmp_radar_df, player_type="hitter")
+        for _, row in _cmp_radar_df[["player", "team", "archetype"]].iterrows():
+            _cmp_archetype_map[f"{row['player']}|{row['team']}"] = row["archetype"]
+
 st.title("Hitter Comparison")
 
 # =============================================================================
@@ -205,9 +215,12 @@ def resolve_player_data(display_label):
     pbb["is_barrel"] = is_barrel_vectorized(pbb["launch_speed"], pbb["launch_angle"])
     pbb["bb_type"] = pbb["launch_angle"].apply(categorize_launch_angle)
 
+    # Archetype lookup
+    archetype = _cmp_archetype_map.get(f"{name}|{team_short}")
+
     return {
         "name": name, "team": team_short, "bb": pbb, "meta": meta,
-        "player_id": pid, "ranking": ranking,
+        "player_id": pid, "ranking": ranking, "archetype": archetype,
         "primary_color": primary, "secondary_color": secondary,
         "avg_ev": pbb["launch_speed"].mean(),
         "avg_eb": pbb["estimated_bases"].mean(),
@@ -249,6 +262,7 @@ for col, p, color in [(hero1, p1, p1_color), (hero2, p2, p2_color)]:
         # Build info strings
         pos_str = ""
         age_str = ""
+        bats_str = ""
         if p["meta"] is not None:
             pos = p["meta"].get("position", "")
             if pos:
@@ -261,9 +275,24 @@ for col, p, color in [(hero1, p1, p1_color), (hero2, p2, p2_color)]:
                     age_str = f" | Age {age}"
                 except Exception:
                     pass
+            bs = p["meta"].get("bat_side", "")
+            if bs:
+                bats_label = {"L": "Bats L", "R": "Bats R", "S": "Switch"}.get(bs, f"Bats {bs}")
+                bats_str = f" | {bats_label}"
 
         # PA string
         pa_str = f" | {p['n_pa']:,} PA" if p.get("n_pa") else ""
+
+        # Archetype pill HTML
+        arch_html = ""
+        if p.get("archetype"):
+            arch_html = (
+                f'<div style="margin-top:4px;">'
+                f'<span style="display:inline-block; background:{color}; color:white; '
+                f'padding:2px 10px; border-radius:12px; font-weight:600; font-size:0.8rem; '
+                f'letter-spacing:0.3px;">{p["archetype"]}</span>'
+                f'</div>'
+            )
 
         # Headshot URL
         img_url = ""
@@ -287,7 +316,8 @@ for col, p, color in [(hero1, p1, p1_color), (hero2, p2, p2_color)]:
             f'{img_html}'
             f'<div>'
             f'<div style="font-size:1.3rem; font-weight:700; margin-bottom:2px;">{p["name"]}</div>'
-            f'<div style="color:#4A5568; font-size:0.95rem;"><b>{p["team"]}</b>{pos_str}{age_str}{pa_str}</div>'
+            f'<div style="color:#4A5568; font-size:0.95rem;"><b>{p["team"]}</b>{pos_str}{age_str}{bats_str}{pa_str}</div>'
+            f'{arch_html}'
             f'</div></div>',
             unsafe_allow_html=True,
         )

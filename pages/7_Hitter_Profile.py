@@ -231,6 +231,7 @@ barrel_rate = player_bb["is_barrel"].mean() * 100
 # Hero identity card — stays cohesive on mobile
 pos_str = ""
 age_str = ""
+bats_str = ""
 if player_meta is not None:
     pos = player_meta.get("position", "")
     if pos:
@@ -243,6 +244,10 @@ if player_meta is not None:
             age_str = f" | Age {age}"
         except Exception:
             pass
+    bs = player_meta.get("bat_side", "")
+    if bs:
+        bats_label = {"L": "Bats L", "R": "Bats R", "S": "Switch"}.get(bs, f"Bats {bs}")
+        bats_str = f" | {bats_label}"
 
 # PA count from rankings
 n_pa = int(player_ranking["n_batted_balls"]) if player_ranking is not None and "n_batted_balls" in player_ranking.index else None
@@ -264,7 +269,7 @@ st.markdown(
     f'{img_html}'
     f'<div>'
     f'<div style="font-size:1.5rem; font-weight:700; margin-bottom:2px;">{selected_player}</div>'
-    f'<div style="color:#4A5568; font-size:1rem;"><b>{player_team_short}</b>{pos_str}{age_str}{pa_str}</div>'
+    f'<div style="color:#4A5568; font-size:1rem;"><b>{player_team_short}</b>{pos_str}{age_str}{bats_str}{pa_str}</div>'
     f'</div></div>',
     unsafe_allow_html=True,
 )

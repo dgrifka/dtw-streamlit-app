@@ -298,6 +298,12 @@ if has_proj_data and not metadata_df.empty:
     else:
         proj_df["position"] = ""
 
+# Merge archetypes into projection data (reuse _archetype_map from PA mode eval)
+if has_proj_data and _archetype_map:
+    proj_df["archetype"] = (proj_df["player"] + "|" + proj_df["team"]).map(_archetype_map).fillna("")
+elif has_proj_data:
+    proj_df["archetype"] = ""
+
 
 # =============================================================================
 # TAB LAYOUT — show projections tab when available
@@ -1032,7 +1038,11 @@ the Season Rankings tab combines projection priors with current performance for 
 """)
 
         # Filters
-        col_psearch, col_ppos, col_pteam, col_pmin = st.columns([1.5, 1, 1, 1])
+        _proj_has_archetypes = "archetype" in proj_df.columns and proj_df["archetype"].str.len().gt(0).any()
+        if _proj_has_archetypes:
+            col_psearch, col_ppos, col_parch, col_pteam, col_pmin = st.columns([1.5, 1, 1, 1, 1])
+        else:
+            col_psearch, col_ppos, col_pteam, col_pmin = st.columns([1.5, 1, 1, 1])
 
         with col_psearch:
             proj_search = st.text_input(
@@ -1046,6 +1056,12 @@ the Season Rankings tab combines projection priors with current performance for 
             if "position" in proj_df.columns:
                 proj_pos_options += ["C", "1B", "2B", "SS", "3B", "OF", "DH"]
             proj_pos_filter = st.selectbox("Position", proj_pos_options, key="proj_pos")
+
+        proj_arch_filter = "All"
+        if _proj_has_archetypes:
+            with col_parch:
+                _proj_arch_vals = sorted(proj_df.loc[proj_df["archetype"].str.len() > 0, "archetype"].unique())
+                proj_arch_filter = st.selectbox("Archetype", ["All"] + _proj_arch_vals, key="proj_arch")
 
         with col_pteam:
             proj_team = selected_team  # reuse top-level team filter
@@ -1071,6 +1087,8 @@ the Season Rankings tab combines projection priors with current performance for 
             proj_filtered = proj_filtered[
                 proj_filtered["position"].str.contains(proj_pos_filter, case=False, na=False)
             ]
+        if proj_arch_filter != "All" and "archetype" in proj_filtered.columns:
+            proj_filtered = proj_filtered[proj_filtered["archetype"] == proj_arch_filter]
         if proj_search.strip():
             pq = _normalize(proj_search.strip())
             proj_filtered = proj_filtered[
@@ -1097,6 +1115,7 @@ the Season Rankings tab combines projection priors with current performance for 
             "player": "Player",
             "team": "Team",
             "position": "Pos",
+            "archetype": "Archetype",
             "age_at_projection": "Age",
             "projected_eb_pa": "Projected EB/PA",
             "projected_hdi_low": "Range Low",
@@ -1117,7 +1136,7 @@ the Season Rankings tab combines projection priors with current performance for 
         )
 
         proj_table_cols = [
-            "Player", "Team", "Pos", "Age", "Projected EB/PA",
+            "Player", "Team", "Pos", "Archetype", "Age", "Projected EB/PA",
             "Recent EB/PA",
             "Seasons", "P(Active)", "Profile",
         ]
