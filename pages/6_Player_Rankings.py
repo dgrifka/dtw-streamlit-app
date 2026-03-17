@@ -31,10 +31,12 @@ from utils.data_loader import (
     get_available_player_evaluation_seasons,
     get_available_projection_seasons,
 )
-from utils.team_mappings import TEAM_COLORS
+from utils.team_mappings import TEAM_COLORS, get_team_logo_url
 from utils.player_analytics import compute_platoon_splits
 from utils.player_helpers import PLOTLY_CONFIG
 from utils.responsive import inject_responsive_css, render_home_link
+
+MLB_LOGO_URL = "https://a.espncdn.com/i/teamlogos/leagues/500/mlb.png"
 
 inject_responsive_css()
 
@@ -405,6 +407,18 @@ data to trust it.
 """)
 
         # SECTION 2: S3 MATPLOTLIB CHART + DOWNLOAD
+        # Logo badge floated over chart top-right (no extra whitespace)
+        _logo_url = get_team_logo_url(selected_team) if selected_team != "All Teams" else MLB_LOGO_URL
+        _logo_label = selected_team if selected_team != "All Teams" else "MLB"
+        st.markdown(
+            f'<div style="position:relative;height:0;overflow:visible;z-index:1;">'
+            f'<img src="{_logo_url}" alt="{_logo_label}" '
+            f'style="position:absolute;right:8px;top:0;height:64px;width:64px;object-fit:contain;" '
+            f'onerror="this.style.display=\'none\'">'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
         chart_name = f"top_{type_key}s_pa" if is_pa_mode else f"top_{type_key}s"
 
         if selected_team != "All Teams":
@@ -1183,22 +1197,43 @@ the Season Rankings tab combines projection priors with current performance for 
                           and "k_rate_posterior" in _eval_for_rates.columns
                           and _eval_for_rates["k_rate_posterior"].notna().any())
 
-        # Metric selector
-        _proj_metric_options = ["EB/PA"]
-        if _has_rate_data:
-            _proj_metric_options += ["K% (low is better)", "BB%", "HR%"]
-        _proj_metric = st.radio(
-            "Metric", _proj_metric_options,
-            horizontal=True, key="proj_forest_metric",
-            help="EB/PA shows projected overall production. Rate stats show current-season Bayesian estimates for the projected players.",
-        )
+        # Metric selector + Sort + Logo badge in one row
+        _proj_logo_url = get_team_logo_url(proj_team) if proj_team != "All Teams" else MLB_LOGO_URL
+        _proj_logo_label = proj_team if proj_team != "All Teams" else "MLB"
+        _col_metric, _col_div, _col_sort, _col_logo = st.columns([3, 0.1, 2, 1])
 
-        # Sort order selector (for EB/PA, default is best-first)
-        _proj_sort_options = ["Best first", "Worst first"]
-        _proj_sort = st.radio(
-            "Sort", _proj_sort_options,
-            horizontal=True, key="proj_forest_sort",
-        )
+        with _col_metric:
+            _proj_metric_options = ["EB/PA"]
+            if _has_rate_data:
+                _proj_metric_options += ["K% (low is better)", "BB%", "HR%"]
+            _proj_metric = st.radio(
+                "Metric", _proj_metric_options,
+                horizontal=True, key="proj_forest_metric",
+                help="EB/PA shows projected overall production. Rate stats show current-season Bayesian estimates for the projected players.",
+            )
+
+        with _col_div:
+            st.markdown(
+                '<div style="border-left:1px solid #ccc;height:60px;margin-top:8px;"></div>',
+                unsafe_allow_html=True,
+            )
+
+        with _col_sort:
+            _proj_sort_options = ["Best first", "Worst first"]
+            _proj_sort = st.radio(
+                "Sort", _proj_sort_options,
+                horizontal=True, key="proj_forest_sort",
+            )
+
+        with _col_logo:
+            st.markdown(
+                f'<div style="text-align:right;padding-top:12px;">'
+                f'<img src="{_proj_logo_url}" alt="{_proj_logo_label}" '
+                f'style="height:64px;width:64px;object-fit:contain;" '
+                f'onerror="this.style.display=\'none\'">'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
         _user_wants_asc = (_proj_sort == "Worst first")
 
         top_20_proj = proj_filtered.copy()
