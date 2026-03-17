@@ -23,6 +23,7 @@ from utils.data_loader import (
     load_all_season_pa_rankings, compute_league_percentiles,
     load_player_evaluations_pa, load_player_metadata, load_pa_counts,
     load_player_projections, resolve_player_id,
+    build_player_display_list,
 )
 from utils.team_mappings import get_team_color, get_team_logo_url
 from utils.player_helpers import (
@@ -92,23 +93,14 @@ st.title("Hitter Comparison")
 # PLAYER SELECTION
 # =============================================================================
 
-# Build player list
-player_teams = (
-    bb_df.groupby(["player", "team"]).size()
-    .reset_index(name="count")
-    .drop(columns="count")
+# Build deduplicated player list (merges traded players, keeps same-name-different-person separate)
+display_list, display_to_name, display_to_team, multi_id_names = build_player_display_list(
+    bb_df, metadata_df, name_col="player", team_col="team"
 )
-player_teams["display"] = player_teams.apply(
-    lambda r: f"{r['player']} ({r['team']})", axis=1
-)
-display_to_name = dict(zip(player_teams["display"], player_teams["player"]))
-display_to_team = dict(zip(player_teams["display"], player_teams["team"]))
-display_list = sorted(player_teams["display"].unique())
 
 # Eligible players (50+ BBs) for random selection
-eligible_names = bb_df.groupby(["player", "team"]).size()
-eligible_names = eligible_names[eligible_names >= 50].index.tolist()
-eligible_displays = [f"{n} ({t})" for n, t in eligible_names]
+eligible_displays = [d for d in display_list
+                     if bb_df[bb_df["player"] == display_to_name[d]].shape[0] >= 50]
 if not eligible_displays:
     eligible_displays = display_list
 
@@ -173,7 +165,10 @@ def resolve_player_data(display_label):
     """Resolve all data for a selected player display label."""
     name = display_to_name.get(display_label, display_label)
     team = display_to_team.get(display_label)
-    pbb = bb_df[(bb_df["player"] == name) & (bb_df["team"] == team)].copy()
+    # Show full season for traded players; filter by team only for same-name collisions
+    pbb = bb_df[bb_df["player"] == name].copy()
+    if name in multi_id_names:
+        pbb = pbb[pbb["team"] == team]
     if pbb.empty:
         return None
     pbb = pbb.sort_values("date_parsed")

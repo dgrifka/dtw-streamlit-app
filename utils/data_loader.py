@@ -233,6 +233,67 @@ def load_player_metadata(season: int) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def build_player_display_list(
+    bb_df: pd.DataFrame,
+    metadata_df: pd.DataFrame,
+    name_col: str = "player",
+    team_col: str = "team",
+) -> tuple[list[str], dict[str, str], dict[str, str], set[str]]:
+    """Build deduplicated player display list, merging traded players.
+
+    For each player name:
+    - 1 player_id in metadata → trade; merge to most recent team, one dropdown entry
+    - Multiple player_ids → different people with same name; keep separate by team
+    - Not in metadata → fall back to keeping separate by team
+
+    Args:
+        bb_df: Batted ball DataFrame
+        metadata_df: Player metadata DataFrame (may be empty)
+        name_col: Column name for player name (e.g. "player" or "pitcher")
+        team_col: Column name for team (e.g. "team" or "opponent")
+
+    Returns:
+        (display_list, display_to_name, display_to_team, multi_id_names)
+    """
+    # Get most recent team per player name from batted ball data
+    player_recent = (
+        bb_df.sort_values("date_parsed")
+        .groupby(name_col)[team_col].last()
+        .reset_index()
+        .rename(columns={name_col: "player", team_col: "recent_team"})
+    )
+
+    # Detect same-name collisions via metadata player_id
+    multi_id_names: set[str] = set()
+    if not metadata_df.empty and "player_id" in metadata_df.columns:
+        name_to_ids = metadata_df.groupby("player_name")["player_id"].nunique()
+        multi_id_names = set(name_to_ids[name_to_ids > 1].index)
+
+    # For multi-id names, keep separate entries by team
+    if multi_id_names:
+        collision_entries = (
+            bb_df[bb_df[name_col].isin(multi_id_names)]
+            .groupby([name_col, team_col]).size()
+            .reset_index(name="count").drop(columns="count")
+            .rename(columns={name_col: "player", team_col: "recent_team"})
+        )
+    else:
+        collision_entries = pd.DataFrame(columns=["player", "recent_team"])
+
+    # Merge: non-collision players get most recent team; collision players keep per-team entries
+    normal_players = player_recent[~player_recent["player"].isin(multi_id_names)]
+    player_list = pd.concat([normal_players, collision_entries], ignore_index=True)
+    player_list["display"] = player_list.apply(
+        lambda r: f"{r['player']} ({r['recent_team']})", axis=1
+    )
+
+    display_to_name = dict(zip(player_list["display"], player_list["player"]))
+    display_to_team = dict(zip(player_list["display"], player_list["recent_team"]))
+    display_list_sorted = sorted(player_list["display"].unique())
+
+    return display_list_sorted, display_to_name, display_to_team, multi_id_names
+
+
 def resolve_player_id(player_name: str, metadata_df: pd.DataFrame, pa_rankings: pd.DataFrame) -> int | None:
     """Resolve a player_id from metadata or PA rankings parquet.
 

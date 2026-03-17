@@ -24,6 +24,7 @@ from utils.data_loader import (
     load_all_season_pa_rankings, compute_league_percentiles,
     load_player_evaluations_pa, load_player_metadata, load_pa_counts,
     load_player_projections, load_rate_stat_projections, resolve_player_id,
+    build_player_display_list,
 )
 from utils.team_mappings import (
     get_team_color, get_team_logo_url, get_short_name,
@@ -96,20 +97,10 @@ st.title("Hitter Profile")
 # Check if we arrived via query param (cross-page linking)
 query_player = st.query_params.get("player", "")
 
-# Build unique player list — group by (player, team) to keep same-name players separate
-player_teams = (
-    bb_df.groupby(["player", "team"]).size()
-    .reset_index(name="count")
-    .drop(columns="count")
+# Build deduplicated player list (merges traded players, keeps same-name-different-person separate)
+display_list, display_to_name, display_to_team, multi_id_names = build_player_display_list(
+    bb_df, metadata_df, name_col="player", team_col="team"
 )
-
-# Always show "Name (TEAM)" for every player
-player_teams["display"] = player_teams.apply(
-    lambda r: f"{r['player']} ({r['team']})", axis=1
-)
-display_to_name = dict(zip(player_teams["display"], player_teams["player"]))
-display_to_team = dict(zip(player_teams["display"], player_teams["team"]))
-display_list = sorted(player_teams["display"].unique())
 
 # Resolve default selection (from query param or random)
 default_index = 0
@@ -123,9 +114,8 @@ elif query_player:
         default_index = fuzzy[0]
 else:
     # No query param — pick a random player with 50+ batted balls
-    eligible_names = bb_df.groupby(["player", "team"]).size()
-    eligible_names = eligible_names[eligible_names >= 50].index.tolist()
-    eligible_displays = [f"{n} ({t})" for n, t in eligible_names]
+    eligible_displays = [d for d in display_list
+                         if bb_df[bb_df["player"] == display_to_name[d]].shape[0] >= 50]
     if not eligible_displays:
         eligible_displays = display_list
     random_pick = random.choice(eligible_displays)
@@ -143,10 +133,8 @@ with search_col:
     )
 with shuffle_col:
     if st.button("Shuffle", width="stretch"):
-        # Eligible: players with 50+ BBs, mapped to display labels
-        eligible_names = bb_df.groupby(["player", "team"]).size()
-        eligible_names = eligible_names[eligible_names >= 50].index.tolist()
-        eligible_displays = [f"{n} ({t})" for n, t in eligible_names]
+        eligible_displays = [d for d in display_list
+                             if bb_df[bb_df["player"] == display_to_name[d]].shape[0] >= 50]
         if not eligible_displays:
             eligible_displays = display_list
         st.query_params["player"] = random.choice(eligible_displays)
@@ -155,8 +143,10 @@ with shuffle_col:
 selected_player = display_to_name.get(selected_display, selected_display)
 selected_team_hint = display_to_team.get(selected_display)
 
-# Filter batted ball data to this player + team
-player_bb = bb_df[(bb_df["player"] == selected_player) & (bb_df["team"] == selected_team_hint)].copy()
+# Filter batted ball data — show full season for traded players, filter by team for same-name collisions
+player_bb = bb_df[bb_df["player"] == selected_player].copy()
+if selected_player in multi_id_names:
+    player_bb = player_bb[player_bb["team"] == selected_team_hint]
 if player_bb.empty:
     st.warning(f"No batted ball data found for {selected_player}.")
     st.stop()
