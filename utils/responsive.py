@@ -106,6 +106,22 @@ def inject_responsive_css(extra_css: str = ""):
     if extra_css:
         st.markdown(f"<style>{extra_css}</style>", unsafe_allow_html=True)
 
+    # Clean up any sticky player bar left over from a previous page.
+    # The bar is injected into window.parent.document by Profile/Comparison pages
+    # and survives Streamlit page navigation because the iframe hosting its
+    # cleanup observer is destroyed on navigation.  Each page that needs a bar
+    # will re-create it immediately after this runs.
+    import streamlit.components.v1 as _components
+    _components.html("""
+<script>
+(function() {
+    var doc = window.parent.document;
+    var bar = doc.getElementById('sticky-player-bar');
+    if (bar) bar.remove();
+})();
+</script>
+""", height=0)
+
 
 def render_page_logo(logo_path: str, width: int = 85):
     """Render the page logo as an HTML img that centers on mobile via CSS.

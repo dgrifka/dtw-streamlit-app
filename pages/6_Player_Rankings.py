@@ -1054,15 +1054,18 @@ the Season Rankings tab combines projection priors with current performance for 
         # Filters
         _proj_has_archetypes = "archetype" in proj_df.columns and proj_df["archetype"].str.len().gt(0).any()
         if _proj_has_archetypes:
-            col_psearch, col_ppos, col_parch, col_pteam, col_pmin = st.columns([1.5, 1, 1, 1, 1])
+            col_psearch, col_ppos, col_parch, col_pteam, col_pmin = st.columns([2, 1, 1, 1, 1])
         else:
-            col_psearch, col_ppos, col_pteam, col_pmin = st.columns([1.5, 1, 1, 1])
+            col_psearch, col_ppos, col_pteam, col_pmin = st.columns([2, 1, 1, 1])
 
         with col_psearch:
-            proj_search = st.text_input(
-                "Search player",
-                placeholder="e.g. Ohtani, Juan, Suarez",
-                key="proj_search",
+            _proj_player_options = sorted(proj_df["player"].unique())
+            proj_search_selections = st.multiselect(
+                "Search players",
+                options=_proj_player_options,
+                default=[],
+                placeholder="Type to search players...",
+                key="proj_multi_search",
             )
 
         with col_ppos:
@@ -1103,11 +1106,8 @@ the Season Rankings tab combines projection priors with current performance for 
             ]
         if proj_arch_filter != "All" and "archetype" in proj_filtered.columns:
             proj_filtered = proj_filtered[proj_filtered["archetype"] == proj_arch_filter]
-        if proj_search.strip():
-            pq = _normalize(proj_search.strip())
-            proj_filtered = proj_filtered[
-                proj_filtered["player"].apply(lambda n: pq in _normalize(n))
-            ]
+        if proj_search_selections:
+            proj_filtered = proj_filtered[proj_filtered["player"].isin(proj_search_selections)]
 
         proj_filtered = proj_filtered.sort_values(
             "projected_eb_pa", ascending=False

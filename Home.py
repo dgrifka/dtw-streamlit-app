@@ -46,6 +46,7 @@ nav = st.navigation(
             st.Page("pages/7_Hitter_Profile.py", title="Hitter Profile"),
             st.Page("pages/8_Hitter_Comparison.py", title="Hitter Comparison"),
             st.Page("pages/9_Pitcher_Profile.py", title="Pitcher Profile"),
+            st.Page("pages/11_Pitcher_Comparison.py", title="Pitcher Comparison"),
             st.Page("pages/10_About.py", title="About"),
         ],
     },

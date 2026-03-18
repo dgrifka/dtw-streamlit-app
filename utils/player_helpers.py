@@ -275,6 +275,97 @@ def render_radar_chart(percentiles, primary_color, secondary_color=None):
     return fig
 
 
+def render_comparison_radar_chart(pcts_1, pcts_2, name_1, name_2, color_1, color_2):
+    """
+    Create a Plotly Scatterpolar radar chart with two overlaid player traces.
+
+    Parameters
+    ----------
+    pcts_1, pcts_2 : dict
+        {axis_label: percentile_value (0-100)} for each player.
+    name_1, name_2 : str
+        Player names for legend and hover.
+    color_1, color_2 : str
+        Hex color for each player (e.g., '#003087').
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+    """
+    import plotly.graph_objects as go
+
+    labels = list(pcts_1.keys())
+    vals_1 = list(pcts_1.values())
+    vals_2 = list(pcts_2.values())
+
+    # Close the polygons
+    labels_closed = labels + [labels[0]]
+    vals_1_closed = vals_1 + [vals_1[0]]
+    vals_2_closed = vals_2 + [vals_2[0]]
+
+    hover_1 = [f"{name_1} — {l}: {_ordinal(int(v))} percentile" for l, v in zip(labels, vals_1)]
+    hover_1.append(hover_1[0])
+    hover_2 = [f"{name_2} — {l}: {_ordinal(int(v))} percentile" for l, v in zip(labels, vals_2)]
+    hover_2.append(hover_2[0])
+
+    def _hex_to_rgb(h):
+        h = h.lstrip("#")
+        return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+    r1, g1, b1 = _hex_to_rgb(color_1)
+    r2, g2, b2 = _hex_to_rgb(color_2)
+
+    fig = go.Figure()
+
+    # Player 1 — stronger fill
+    fig.add_trace(go.Scatterpolar(
+        r=vals_1_closed, theta=labels_closed,
+        fill="toself",
+        fillcolor=f"rgba({r1},{g1},{b1},0.25)",
+        line=dict(color=color_1, width=2.5),
+        marker=dict(size=7, color=color_1),
+        text=hover_1, hoverinfo="text",
+        name=name_1,
+    ))
+
+    # Player 2 — lighter fill
+    fig.add_trace(go.Scatterpolar(
+        r=vals_2_closed, theta=labels_closed,
+        fill="toself",
+        fillcolor=f"rgba({r2},{g2},{b2},0.15)",
+        line=dict(color=color_2, width=2),
+        marker=dict(size=7, color=color_2),
+        text=hover_2, hoverinfo="text",
+        name=name_2,
+    ))
+
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 100],
+                tickvals=[25, 50, 75],
+                ticktext=["25th", "50th", "75th"],
+                tickfont=dict(size=10, color="rgba(150,150,150,0.7)"),
+                gridcolor="rgba(200,200,200,0.3)",
+            ),
+            angularaxis=dict(
+                tickfont=dict(size=12, color="#333"),
+                gridcolor="rgba(200,200,200,0.3)",
+            ),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5, font=dict(size=13)),
+        margin=dict(l=50, r=50, t=50, b=30),
+        height=400,
+        template="plotly_white",
+        dragmode=False,
+    )
+
+    return fig
+
+
 def render_archetype_badge(archetype_name, description, primary_color):
     """Render an HTML archetype badge with team-colored pill."""
     return (
@@ -418,6 +509,143 @@ def render_sticky_player_bar(player_name, team_short, primary_color, headshot_ur
     }}
 
     // Sentinel may not be in parent DOM yet — poll briefly
+    let attempts = 0;
+    const poll = setInterval(() => {{
+        if (doc.getElementById('hero-section-sentinel') || attempts > 20) {{
+            clearInterval(poll);
+            setupObserver();
+        }}
+        attempts++;
+    }}, 100);
+}})();
+</script>
+""", height=0)
+
+
+def render_sticky_comparison_bar(
+    name_1, team_1, color_1, headshot_url_1,
+    name_2, team_2, color_2, headshot_url_2,
+):
+    """Inject a fixed bar showing both players that appears when the hero scrolls away.
+
+    Same IntersectionObserver mechanism as ``render_sticky_player_bar`` but
+    displays two players side-by-side with their respective team colors.
+    """
+    safe_n1 = safe_html(name_1)
+    safe_t1 = safe_html(team_1)
+    safe_c1 = safe_html(color_1)
+    safe_n2 = safe_html(name_2)
+    safe_t2 = safe_html(team_2)
+    safe_c2 = safe_html(color_2)
+    safe_img1 = html.escape(headshot_url_1, quote=True) if headshot_url_1 else ""
+    safe_img2 = html.escape(headshot_url_2, quote=True) if headshot_url_2 else ""
+
+    def _img(url):
+        if not url:
+            return ""
+        return (
+            f'<img src="{url}" '
+            f'style="width:32px;height:32px;object-fit:contain;border-radius:50%;flex-shrink:0;" '
+            f'onerror="this.style.display=\'none\'">'
+        )
+
+    img1 = _img(safe_img1)
+    img2 = _img(safe_img2)
+
+    components.html(f"""
+<script>
+(function() {{
+    const doc = window.parent.document;
+    const BAR_ID = 'sticky-player-bar';
+
+    const old = doc.getElementById(BAR_ID);
+    if (old) old.remove();
+
+    const bar = doc.createElement('div');
+    bar.id = BAR_ID;
+    bar.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:center;gap:6px;max-width:780px;margin:0 auto;padding:0 12px;width:100%;">
+            <div style="display:flex;align-items:center;gap:8px;flex:1;justify-content:flex-end;min-width:0;">
+                <div style="text-align:right;min-width:0;">
+                    <div style="font-weight:700;font-size:0.85rem;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{safe_n1}</div>
+                    <div style="font-size:0.72rem;color:#4A5568;white-space:nowrap;">{safe_t1}</div>
+                </div>
+                {img1}
+            </div>
+            <div style="font-weight:700;color:#8B8FA3;font-size:0.8rem;padding:0 6px;flex-shrink:0;">vs</div>
+            <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
+                {img2}
+                <div style="min-width:0;">
+                    <div style="font-weight:700;font-size:0.85rem;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{safe_n2}</div>
+                    <div style="font-size:0.72rem;color:#4A5568;white-space:nowrap;">{safe_t2}</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const stHeader = doc.querySelector('[data-testid="stHeader"]');
+    const headerH = stHeader ? stHeader.offsetHeight : 0;
+
+    Object.assign(bar.style, {{
+        position: 'fixed',
+        top: headerH + 'px',
+        left: '0',
+        right: '0',
+        height: '52px',
+        display: 'flex',
+        alignItems: 'center',
+        background: 'rgba(255,255,255,0.97)',
+        borderBottom: '1px solid #e2e8f0',
+        borderImage: 'linear-gradient(to right, {safe_c1}, {safe_c2}) 1',
+        borderImageSlice: '0 0 0 1',
+        borderLeft: '4px solid',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        zIndex: '999',
+        transform: 'translateY(-100%)',
+        transition: 'transform 0.25s ease',
+        backdropFilter: 'blur(8px)',
+    }});
+
+    const style = doc.createElement('style');
+    style.textContent = `
+        @media (max-width: 480px) {{
+            #sticky-player-bar {{
+                height: 44px !important;
+            }}
+            #sticky-player-bar img {{
+                width: 24px !important;
+                height: 24px !important;
+            }}
+        }}
+    `;
+    doc.head.appendChild(style);
+    doc.body.appendChild(bar);
+
+    function setupObserver() {{
+        const sentinel = doc.getElementById('hero-section-sentinel');
+        if (!sentinel) return;
+
+        const observer = new IntersectionObserver((entries) => {{
+            entries.forEach(e => {{
+                bar.style.transform = e.isIntersecting ? 'translateY(-100%)' : 'translateY(0)';
+            }});
+        }}, {{ threshold: 0, rootMargin: '-' + headerH + 'px 0px 0px 0px' }});
+        observer.observe(sentinel);
+
+        const cleanup = new MutationObserver(() => {{
+            if (!doc.getElementById('hero-section-sentinel')) {{
+                bar.style.transform = 'translateY(-100%)';
+                setTimeout(() => {{
+                    const b = doc.getElementById(BAR_ID);
+                    if (b) b.remove();
+                    style.remove();
+                }}, 300);
+                cleanup.disconnect();
+            }}
+        }});
+        cleanup.observe(doc.body, {{ childList: true, subtree: true }});
+    }}
+
     let attempts = 0;
     const poll = setInterval(() => {{
         if (doc.getElementById('hero-section-sentinel') || attempts > 20) {{

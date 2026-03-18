@@ -1,7 +1,7 @@
 """
-Hitter Comparison Page
+Pitcher Comparison Page
 
-Side-by-side comparison of two hitters: contact quality, distributions,
+Side-by-side comparison of two pitchers: contact quality allowed, distributions,
 spray charts, luck reports, and Bayesian rankings.
 """
 
@@ -35,8 +35,8 @@ from utils.player_helpers import (
     TB_MAP, PLOTLY_CONFIG, PLOTLY_CONFIG_STATIC,
 )
 from utils.player_analytics import (
-    compute_hitter_radar_metrics, cluster_player_archetypes,
-    get_player_radar_percentiles, HITTER_ARCHETYPE_DESC,
+    compute_pitcher_radar_metrics, cluster_player_archetypes,
+    get_player_radar_percentiles, PITCHER_ARCHETYPE_DESC,
 )
 from utils.responsive import inject_responsive_css, render_home_link
 
@@ -64,47 +64,51 @@ components.html("""
 # DATA LOADING
 # =============================================================================
 
-# Season for batted ball data — selector widget is placed lower on the page
-# (before contact quality sections). Use session_state to read value early.
 available_seasons = get_available_batted_ball_seasons()
 _default_bb_season = available_seasons[0] if available_seasons else pd.Timestamp.now().year
-season = st.session_state.get("cmp_bb_season", _default_bb_season)
+season = st.session_state.get("pcmp_bb_season", _default_bb_season)
 
 bb_df = load_batted_balls(season)
 if bb_df.empty:
-    st.title("Hitter Comparison")
+    st.title("Pitcher Comparison")
     st.info(f"No batted ball data available for {season}.")
     st.stop()
 
+if "pitcher" not in bb_df.columns:
+    st.title("Pitcher Comparison")
+    st.warning("Pitcher data not available in batted ball dataset.")
+    st.stop()
+
 metadata_df = load_player_metadata(season)
-pa_rankings = load_player_evaluations_pa(season, "hitter")
+pa_rankings = load_player_evaluations_pa(season, "pitcher")
 
 # Multi-season PA rankings for historical timeline
-all_season_pa_rankings = load_all_season_pa_rankings("hitter")
+all_season_pa_rankings = load_all_season_pa_rankings("pitcher")
 
 # Compute archetypes for hero badge display
 _cmp_archetype_map = {}
+_cmp_radar_df = pd.DataFrame()
 if not pa_rankings.empty:
-    _cmp_radar_df = compute_hitter_radar_metrics(pa_rankings, bb_df, min_pa=30)
+    _cmp_radar_df = compute_pitcher_radar_metrics(pa_rankings, bb_df, min_pa=30)
     if not _cmp_radar_df.empty:
-        _cmp_radar_df = cluster_player_archetypes(_cmp_radar_df, player_type="hitter")
+        _cmp_radar_df = cluster_player_archetypes(_cmp_radar_df, player_type="pitcher")
         for _, row in _cmp_radar_df[["player", "team", "archetype"]].iterrows():
             _cmp_archetype_map[f"{row['player']}|{row['team']}"] = row["archetype"]
 
-st.title("Hitter Comparison")
+st.title("Pitcher Comparison")
 
 # =============================================================================
 # PLAYER SELECTION
 # =============================================================================
 
-# Build deduplicated player list (merges traded players, keeps same-name-different-person separate)
+# Build deduplicated pitcher list (pitcher column, opponent = pitcher's team)
 display_list, display_to_name, display_to_team, multi_id_names = build_player_display_list(
-    bb_df, metadata_df, name_col="player", team_col="team"
+    bb_df, metadata_df, name_col="pitcher", team_col="opponent"
 )
 
-# Eligible players (50+ BBs) for random selection
+# Eligible pitchers (50+ BBs faced) for random selection
 eligible_displays = [d for d in display_list
-                     if bb_df[bb_df["player"] == display_to_name[d]].shape[0] >= 50]
+                     if bb_df[bb_df["pitcher"] == display_to_name[d]].shape[0] >= 50]
 if not eligible_displays:
     eligible_displays = display_list
 
@@ -122,7 +126,6 @@ def _resolve_index(query_val, exclude_display=None):
         fuzzy = [i for i, d in enumerate(display_list) if qn in normalize_name(d)]
         if fuzzy:
             return fuzzy[0]
-    # Random pick, try to avoid the excluded player
     pool = [d for d in eligible_displays if d != exclude_display] or eligible_displays
     pick = random.choice(pool)
     if pick in display_list:
@@ -138,14 +141,14 @@ default_idx2 = _resolve_index(qp2, exclude_display=default_pick1)
 sel1, swap_col, sel2, shuffle_col = st.columns([3, 0.5, 3, 1], vertical_alignment="bottom")
 
 with sel1:
-    selected_p1 = st.selectbox("Player 1", options=display_list, index=default_idx1, key="cmp_p1")
+    selected_p1 = st.selectbox("Pitcher 1", options=display_list, index=default_idx1, key="pcmp_p1")
 with swap_col:
     if st.button("Swap", width="stretch"):
-        st.query_params["p1"] = st.session_state.get("cmp_p2", display_list[default_idx2])
-        st.query_params["p2"] = st.session_state.get("cmp_p1", display_list[default_idx1])
+        st.query_params["p1"] = st.session_state.get("pcmp_p2", display_list[default_idx2])
+        st.query_params["p2"] = st.session_state.get("pcmp_p1", display_list[default_idx1])
         st.rerun()
 with sel2:
-    selected_p2 = st.selectbox("Player 2", options=display_list, index=default_idx2, key="cmp_p2")
+    selected_p2 = st.selectbox("Pitcher 2", options=display_list, index=default_idx2, key="pcmp_p2")
 with shuffle_col:
     if st.button("Shuffle Both", width="stretch"):
         picks = random.sample(eligible_displays, min(2, len(eligible_displays)))
@@ -158,7 +161,7 @@ st.query_params["p1"] = selected_p1
 st.query_params["p2"] = selected_p2
 
 if selected_p1 == selected_p2:
-    st.warning("Same player selected for both sides. Select different players to see a comparison.")
+    st.warning("Same pitcher selected for both sides. Select different pitchers to see a comparison.")
 
 
 # =============================================================================
@@ -166,17 +169,17 @@ if selected_p1 == selected_p2:
 # =============================================================================
 
 def resolve_player_data(display_label):
-    """Resolve all data for a selected player display label."""
+    """Resolve all data for a selected pitcher display label."""
     name = display_to_name.get(display_label, display_label)
     team = display_to_team.get(display_label)
-    # Show full season for traded players; filter by team only for same-name collisions
-    pbb = bb_df[bb_df["player"] == name].copy()
+    # Pitcher batted balls: pitcher column, opponent = pitcher's team
+    pbb = bb_df[bb_df["pitcher"] == name].copy()
     if name in multi_id_names:
-        pbb = pbb[pbb["team"] == team]
+        pbb = pbb[pbb["opponent"] == team]
     if pbb.empty:
         return None
     pbb = pbb.sort_values("date_parsed")
-    team_short = pbb["team"].iloc[-1]
+    team_short = pbb["opponent"].iloc[-1]
 
     # Metadata
     meta = None
@@ -235,14 +238,13 @@ p1 = resolve_player_data(selected_p1)
 p2 = resolve_player_data(selected_p2)
 
 if p1 is None or p2 is None:
-    st.warning("Could not load data for one or both players.")
+    st.warning("Could not load data for one or both pitchers.")
     st.stop()
 
-# Handle same-team color collision: use secondary color for player 2
+# Handle same-team color collision: use secondary color for pitcher 2
 p2_color = p2["primary_color"]
 if p1["team"] == p2["team"]:
     p2_color = p2["secondary_color"]
-    # If secondary is too dark/close to primary, use a fallback
     if p2_color == p2["primary_color"]:
         p2_color = "#E67E22"
 p1_color = p1["primary_color"]
@@ -259,15 +261,13 @@ st.markdown('<div id="hero-section-sentinel"></div>', unsafe_allow_html=True)
 
 hero1, hero2 = st.columns(2)
 
-# Track headshot URLs for the sticky bar
 _hero_headshots = {}
 
 for col, p, color in [(hero1, p1, p1_color), (hero2, p2, p2_color)]:
     with col:
-        # Build info strings
         pos_str = ""
         age_str = ""
-        bats_str = ""
+        throws_str = ""
         if p["meta"] is not None:
             pos = p["meta"].get("position", "")
             if pos:
@@ -280,15 +280,13 @@ for col, p, color in [(hero1, p1, p1_color), (hero2, p2, p2_color)]:
                     age_str = f" | Age {age}"
                 except Exception:
                     pass
-            bs = p["meta"].get("bat_side", "")
-            if bs:
-                bats_label = {"L": "Bats L", "R": "Bats R", "S": "Switch"}.get(bs, f"Bats {bs}")
-                bats_str = f" | {bats_label}"
+            th = p["meta"].get("throw_hand", "")
+            if th:
+                throws_label = {"L": "Throws L", "R": "Throws R"}.get(th, f"Throws {th}")
+                throws_str = f" | {throws_label}"
 
-        # PA string
-        pa_str = f" | {p['n_pa']:,} PA" if p.get("n_pa") else ""
+        pa_str = f" | {p['n_pa']:,} BF" if p.get("n_pa") else ""
 
-        # Archetype pill HTML
         arch_html = ""
         if p.get("archetype"):
             arch_html = (
@@ -299,7 +297,6 @@ for col, p, color in [(hero1, p1, p1_color), (hero2, p2, p2_color)]:
                 f'</div>'
             )
 
-        # Headshot URL
         img_url = ""
         if p["player_id"]:
             img_url = build_headshot_url(p["player_id"])
@@ -322,7 +319,7 @@ for col, p, color in [(hero1, p1, p1_color), (hero2, p2, p2_color)]:
             f'{img_html}'
             f'<div>'
             f'<div style="font-size:1.3rem; font-weight:700; margin-bottom:2px;">{safe_html(p["name"])}</div>'
-            f'<div style="color:#4A5568; font-size:0.95rem;"><b>{safe_html(p["team"])}</b>{pos_str}{age_str}{bats_str}{pa_str}</div>'
+            f'<div style="color:#4A5568; font-size:0.95rem;"><b>{safe_html(p["team"])}</b>{pos_str}{age_str}{throws_str}{pa_str}</div>'
             f'{arch_html}'
             f'</div></div>',
             unsafe_allow_html=True,
@@ -341,8 +338,8 @@ render_sticky_comparison_bar(
 # =============================================================================
 
 if not _cmp_radar_df.empty:
-    _radar_pcts_1 = get_player_radar_percentiles(_cmp_radar_df, p1["name"], p1["team"], "hitter")
-    _radar_pcts_2 = get_player_radar_percentiles(_cmp_radar_df, p2["name"], p2["team"], "hitter")
+    _radar_pcts_1 = get_player_radar_percentiles(_cmp_radar_df, p1["name"], p1["team"], "pitcher")
+    _radar_pcts_2 = get_player_radar_percentiles(_cmp_radar_df, p2["name"], p2["team"], "pitcher")
 
     if _radar_pcts_1 and _radar_pcts_2:
         st.divider()
@@ -368,25 +365,24 @@ if not _cmp_radar_df.empty:
     if _radar_pcts_1 or _radar_pcts_2:
         with st.expander("How does this work?"):
             archetype_lines = "\n".join(
-                f"- **{name}**: {desc}" for name, desc in HITTER_ARCHETYPE_DESC.items()
-                if name != "Elite Contact-Speed"  # not always present
+                f"- **{name}**: {desc}" for name, desc in PITCHER_ARCHETYPE_DESC.items()
             )
             st.markdown(
-                "**Radar Chart:** Shows how each player compares to every hitter with 30+ plate appearances "
-                "this season. Each spoke is a different skill, measured as a percentile (0 to 100). A score of "
-                "80 means the player is better than 80% of hitters in that skill. All axes are oriented so that "
-                "bigger = better.\n\n"
+                "**Radar Chart:** Shows how each pitcher compares to every pitcher with 30+ batters faced "
+                "this season. Each spoke is a different skill, measured as a percentile (0 to 100). All axes "
+                "are oriented so that bigger = better (e.g., \"Command\" = low walk rate, \"HR Prevention\" = "
+                "low HR rate).\n\n"
                 "**The 6 Axes:**\n"
-                "- **Contact Quality** — Bayesian estimated bases per plate appearance (EB/PA)\n"
-                "- **Power** — Home run rate on batted balls\n"
-                "- **Plate Discipline** — Walk rate (BB%)\n"
-                "- **Contact Rate** — 1 minus strikeout rate (higher = fewer K's)\n"
-                "- **Hard Hit** — % of batted balls 95+ mph exit velocity\n"
-                "- **Speed** — Infield hit rate + triple rate\n\n"
-                "**Archetypes:** Players are grouped by their radar shape using a clustering algorithm (K-Means). "
-                "Players in the same archetype tend to have similar strengths and weaknesses.\n\n"
+                "- **Run Prevention** — Bayesian EB/PA allowed (inverted: lower allowed = higher percentile)\n"
+                "- **Strikeout Ability** — Strikeout rate (K%)\n"
+                "- **Command** — 1 minus walk rate (higher = fewer walks)\n"
+                "- **HR Prevention** — 1 minus HR rate (higher = fewer HR allowed)\n"
+                "- **Weak Contact** — 1 minus hard-hit rate (higher = softer contact induced)\n"
+                "- **Ground Balls** — Ground ball rate (launch angle < 10 degrees)\n\n"
+                "**Archetypes:** Pitchers are grouped by their radar shape using a clustering algorithm (K-Means). "
+                "Pitchers in the same archetype tend to have similar strengths and weaknesses.\n\n"
                 f"{archetype_lines}\n\n"
-                "**Data Note:** The radar uses the best available estimate of each player's true skill level. "
+                "**Data Note:** The radar uses the best available estimate of each pitcher's true skill level. "
                 "When preseason projections are available, they are combined with in-season performance using "
                 "inverse-variance weighting for a more stable \"true talent\" estimate. Otherwise, the Bayesian "
                 "posterior from the current season is used, which already shrinks small samples toward the league mean."
@@ -417,13 +413,12 @@ def _lookup_eval_row(pa_df, pdata):
         match = pa_df[pa_df["player"] == pdata["name"]]
     return match.iloc[0] if not match.empty else None
 
-# Build list of seasons/projections where BOTH players have data
-# Projections first (more stable, especially early in season), then actuals
+# Build list of seasons/projections where BOTH pitchers have data
 _ebpa_options = []
 
-# Projection years (default — avoids small-sample noise early in season)
+# Projection years
 for _proj_yr in range(season, season + 4):
-    _pjdf = load_player_projections(_proj_yr, "hitter")
+    _pjdf = load_player_projections(_proj_yr, "pitcher")
     if _pjdf.empty:
         continue
     if _lookup_proj_row(_pjdf, p1) is not None and _lookup_proj_row(_pjdf, p2) is not None:
@@ -447,7 +442,6 @@ for _s in sorted(all_season_pa_rankings.keys(), reverse=True):
 
 st.markdown("#### Head-to-Head")
 
-# Season/projection selector — shared between Head-to-Head EB/PA row and bar chart
 _h2h_header_cols = st.columns([2, 1.5, 2])
 with _h2h_header_cols[0]:
     st.markdown(
@@ -457,7 +451,7 @@ with _h2h_header_cols[0]:
 with _h2h_header_cols[1]:
     if len(_ebpa_options) > 1:
         _ebpa_choice = st.selectbox("Compare", options=_ebpa_options, index=0,
-                                     key="cmp_ebpa_view", label_visibility="collapsed")
+                                     key="pcmp_ebpa_view", label_visibility="collapsed")
     else:
         _ebpa_choice = _ebpa_options[0] if _ebpa_options else f"{season} Actual"
         st.markdown(
@@ -476,17 +470,18 @@ _ebpa_is_proj = "Projected" in _ebpa_choice
 # Resolve EB/PA data for the selected view
 _sel_eb1 = _sel_eb2 = None
 _sel_pct1 = _sel_pct2 = None
-_sel_ref_rankings = None  # evaluation DataFrame for bar chart
+_sel_ref_rankings = None
 
 if _ebpa_is_proj:
-    _sel_pjdf = load_player_projections(_ebpa_year, "hitter")
+    _sel_pjdf = load_player_projections(_ebpa_year, "pitcher")
     _sel_pr1 = _lookup_proj_row(_sel_pjdf, p1)
     _sel_pr2 = _lookup_proj_row(_sel_pjdf, p2)
     if _sel_pr1 is not None and _sel_pr2 is not None:
         _sel_eb1 = _sel_pr1["projected_eb_pa"]
         _sel_eb2 = _sel_pr2["projected_eb_pa"]
-        _sel_pct1 = (_sel_pjdf["projected_eb_pa"] < _sel_eb1).mean() * 100
-        _sel_pct2 = (_sel_pjdf["projected_eb_pa"] < _sel_eb2).mean() * 100
+        # For pitchers, lower EB/PA = better, so invert percentile direction
+        _sel_pct1 = (_sel_pjdf["projected_eb_pa"] > _sel_eb1).mean() * 100
+        _sel_pct2 = (_sel_pjdf["projected_eb_pa"] > _sel_eb2).mean() * 100
 else:
     if _ebpa_year == season and p1["ranking"] is not None and p2["ranking"] is not None:
         _sel_ref_rankings = pa_rankings
@@ -500,45 +495,49 @@ else:
             _sel_eb1 = _er1["posterior_mean"]
             _sel_eb2 = _er2["posterior_mean"]
     if _sel_eb1 is not None and _sel_ref_rankings is not None:
-        _sel_pct1 = (_sel_ref_rankings["posterior_mean"] < _sel_eb1).mean() * 100
-        _sel_pct2 = (_sel_ref_rankings["posterior_mean"] < _sel_eb2).mean() * 100
+        # Invert for pitchers: lower EB/PA allowed = better
+        _sel_pct1 = (_sel_ref_rankings["posterior_mean"] > _sel_eb1).mean() * 100
+        _sel_pct2 = (_sel_ref_rankings["posterior_mean"] > _sel_eb2).mean() * 100
 
-# Compute percentiles for EV, barrel rate, avg EB (always current season)
-league_pcts = compute_league_percentiles(season, "player")
+# Compute percentiles for EV, barrel rate, avg EB (pitcher = inverted)
+league_pcts = compute_league_percentiles(season, "pitcher")
 if league_pcts:
-    ev_pct_1 = (league_pcts["ev_by_player"] < p1["avg_ev"]).mean() * 100
-    ev_pct_2 = (league_pcts["ev_by_player"] < p2["avg_ev"]).mean() * 100
-    barrel_pct_1 = (league_pcts["barrel_rates"] < p1["barrel_rate"]).mean() * 100
-    barrel_pct_2 = (league_pcts["barrel_rates"] < p2["barrel_rate"]).mean() * 100
-    avg_eb_pct_1 = (league_pcts["avg_eb_by_player"] < p1["avg_eb"]).mean() * 100
-    avg_eb_pct_2 = (league_pcts["avg_eb_by_player"] < p2["avg_eb"]).mean() * 100
+    # For pitchers: lower values = better, invert percentiles
+    ev_pct_1 = (league_pcts["ev_by_player"] > p1["avg_ev"]).mean() * 100
+    ev_pct_2 = (league_pcts["ev_by_player"] > p2["avg_ev"]).mean() * 100
+    barrel_pct_1 = (league_pcts["barrel_rates"] > p1["barrel_rate"]).mean() * 100
+    barrel_pct_2 = (league_pcts["barrel_rates"] > p2["barrel_rate"]).mean() * 100
+    avg_eb_pct_1 = (league_pcts["avg_eb_by_player"] > p1["avg_eb"]).mean() * 100
+    avg_eb_pct_2 = (league_pcts["avg_eb_by_player"] > p2["avg_eb"]).mean() * 100
 else:
     ev_pct_1 = ev_pct_2 = barrel_pct_1 = barrel_pct_2 = avg_eb_pct_1 = avg_eb_pct_2 = 50
 
-luck_1 = p1["total_actual_tb"] - p1["total_expected_tb"]
-luck_2 = p2["total_actual_tb"] - p2["total_expected_tb"]
+# Luck for pitchers: positive = pitcher got lucky (expected > actual)
+luck_1 = p1["total_expected_tb"] - p1["total_actual_tb"]
+luck_2 = p2["total_expected_tb"] - p2["total_actual_tb"]
 
-# Luck percentiles (computed early for Head-to-Head)
+# Luck percentiles
 luck_pct_1 = luck_pct_2 = None
 actual_pct_1 = actual_pct_2 = None
 expected_pct_1 = expected_pct_2 = None
-if len(bb_df) > 1000:
+if len(bb_df) > 1000 and "pitcher" in bb_df.columns:
     all_luck = bb_df.copy()
     all_luck["actual_tb"] = all_luck["actual_result"].map(TB_MAP).fillna(0)
-    player_luck = all_luck.groupby("player").agg(
+    pitcher_luck = all_luck.groupby("pitcher").agg(
         actual=("actual_tb", "sum"), expected=("estimated_bases", "sum"),
         n=("estimated_bases", "count"),
     )
-    player_luck = player_luck[player_luck["n"] >= 30]
-    player_luck["luck"] = player_luck["actual"] - player_luck["expected"]
-    if p1["name"] in player_luck.index:
-        luck_pct_1 = (player_luck["luck"] < luck_1).mean() * 100
-        actual_pct_1 = (player_luck["actual"] < p1["total_actual_tb"]).mean() * 100
-        expected_pct_1 = (player_luck["expected"] < p1["total_expected_tb"]).mean() * 100
-    if p2["name"] in player_luck.index:
-        luck_pct_2 = (player_luck["luck"] < luck_2).mean() * 100
-        actual_pct_2 = (player_luck["actual"] < p2["total_actual_tb"]).mean() * 100
-        expected_pct_2 = (player_luck["expected"] < p2["total_expected_tb"]).mean() * 100
+    pitcher_luck = pitcher_luck[pitcher_luck["n"] >= 30]
+    pitcher_luck["luck"] = pitcher_luck["expected"] - pitcher_luck["actual"]
+    if p1["name"] in pitcher_luck.index:
+        luck_pct_1 = (pitcher_luck["luck"] < luck_1).mean() * 100
+        # For pitchers: lower actual TB allowed = better
+        actual_pct_1 = (pitcher_luck["actual"] > p1["total_actual_tb"]).mean() * 100
+        expected_pct_1 = (pitcher_luck["expected"] > p1["total_expected_tb"]).mean() * 100
+    if p2["name"] in pitcher_luck.index:
+        luck_pct_2 = (pitcher_luck["luck"] < luck_2).mean() * 100
+        actual_pct_2 = (pitcher_luck["actual"] > p2["total_actual_tb"]).mean() * 100
+        expected_pct_2 = (pitcher_luck["expected"] > p2["total_expected_tb"]).mean() * 100
 
 # Section header helper
 def _section_header(label):
@@ -548,66 +547,107 @@ def _section_header(label):
         f'</div>'
     )
 
-# Build comparison rows
+# Build comparison rows — for pitchers, lower EB/PA = better (invert=True)
 h2h_rows = ""
 h2h_rows += _section_header("Season Actuals")
-h2h_rows += render_comparison_metric("Batted Balls", f"{p1['n_bb']:,}", f"{p2['n_bb']:,}", p1['n_bb'], p2['n_bb'], bold_higher=False)
-h2h_rows += render_comparison_metric("Avg EV", f"{p1['avg_ev']:.1f} mph", f"{p2['avg_ev']:.1f} mph", p1['avg_ev'], p2['avg_ev'], ev_pct_1, ev_pct_2)
-h2h_rows += render_comparison_metric("Barrel Rate", f"{p1['barrel_rate']:.1f}%", f"{p2['barrel_rate']:.1f}%", p1['barrel_rate'], p2['barrel_rate'], barrel_pct_1, barrel_pct_2)
-h2h_rows += render_comparison_metric("Avg EB/BB", f"{p1['avg_eb']:.3f}", f"{p2['avg_eb']:.3f}", p1['avg_eb'], p2['avg_eb'], avg_eb_pct_1, avg_eb_pct_2)
+h2h_rows += render_comparison_metric("Batters Faced", f"{p1['n_bb']:,}", f"{p2['n_bb']:,}", p1['n_bb'], p2['n_bb'], bold_higher=False)
+h2h_rows += render_comparison_metric("Avg EV Allowed", f"{p1['avg_ev']:.1f} mph", f"{p2['avg_ev']:.1f} mph", p1['avg_ev'], p2['avg_ev'], ev_pct_1, ev_pct_2, invert=True)
+h2h_rows += render_comparison_metric("Barrel Rate Allowed", f"{p1['barrel_rate']:.1f}%", f"{p2['barrel_rate']:.1f}%", p1['barrel_rate'], p2['barrel_rate'], barrel_pct_1, barrel_pct_2, invert=True)
+h2h_rows += render_comparison_metric("Avg EB/BB Allowed", f"{p1['avg_eb']:.3f}", f"{p2['avg_eb']:.3f}", p1['avg_eb'], p2['avg_eb'], avg_eb_pct_1, avg_eb_pct_2, invert=True)
 h2h_rows += render_comparison_metric("Net Lucky Bases", f"{luck_1:+.1f}", f"{luck_2:+.1f}", luck_1, luck_2, luck_pct_1, luck_pct_2, bold_higher=False)
 
 h2h_rows += _section_header("Bayesian Estimates")
 
-# EB/PA row — uses the selected season/projection from the dropdown
+# EB/PA row — lower = better for pitchers
 if _sel_eb1 is not None and _sel_eb2 is not None:
-    _ebpa_label = f"EB/PA ({_ebpa_year})" if _ebpa_year != season else "EB/PA"
+    _ebpa_label = f"EB/PA ({_ebpa_year})" if _ebpa_year != season else "EB/PA Allowed"
     if _ebpa_is_proj:
         _ebpa_label = f"Proj. EB/PA ({_ebpa_year})"
     h2h_rows += render_comparison_metric(
         _ebpa_label, f"{_sel_eb1:.3f}", f"{_sel_eb2:.3f}",
-        _sel_eb1, _sel_eb2, _sel_pct1, _sel_pct2,
+        _sel_eb1, _sel_eb2, _sel_pct1, _sel_pct2, invert=True,
     )
 
-# True talent row (in-season combined estimate)
+# True talent row
 if p1["ranking"] is not None and p2["ranking"] is not None:
     _tt1 = p1["ranking"].get("true_talent_eb_pa") if "true_talent_eb_pa" in p1["ranking"].index else None
     _tt2 = p2["ranking"].get("true_talent_eb_pa") if "true_talent_eb_pa" in p2["ranking"].index else None
     if _tt1 is not None and _tt2 is not None and pd.notna(_tt1) and pd.notna(_tt2):
         h2h_rows += render_comparison_metric(
             "True Talent EB/PA",
-            f"{_tt1:.3f}", f"{_tt2:.3f}", _tt1, _tt2,
+            f"{_tt1:.3f}", f"{_tt2:.3f}", _tt1, _tt2, invert=True,
         )
 
-# Rate stat comparison rows (K%, BB%, HR% — Bayesian posteriors)
+# Rate stat comparison rows (K%, BB%, HR%)
 if p1["ranking"] is not None and p2["ranking"] is not None:
     _r1, _r2 = p1["ranking"], p2["ranking"]
-    for _rc, _rlabel, _invert in [("k_rate_posterior", "K%", True), ("bb_rate_posterior", "BB%", False), ("hr_rate_posterior", "HR%", False)]:
+    # For pitchers: K% higher = better, BB% lower = better, HR% lower = better
+    for _rc, _rlabel, _invert in [("k_rate_posterior", "K%", False), ("bb_rate_posterior", "BB%", True), ("hr_rate_posterior", "HR%", True)]:
         if _rc in _r1.index and _rc in _r2.index and pd.notna(_r1.get(_rc)) and pd.notna(_r2.get(_rc)):
-            _rpct1 = (_r1[_rc] > pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
-            _rpct2 = (_r2[_rc] > pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
+            if _rc == "k_rate_posterior":
+                _rpct1 = (_r1[_rc] > pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
+                _rpct2 = (_r2[_rc] > pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
+            else:
+                # BB% and HR%: lower = better for pitchers, invert percentile
+                _rpct1 = (_r1[_rc] < pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
+                _rpct2 = (_r2[_rc] < pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
             h2h_rows += render_comparison_metric(
                 _rlabel, f"{_r1[_rc]*100:.1f}%", f"{_r2[_rc]*100:.1f}%",
                 _r1[_rc], _r2[_rc], _rpct1, _rpct2, invert=_invert,
             )
 
+# Traditional stats section
+h2h_rows += _section_header("Traditional Stats")
+if p1["ranking"] is not None and p2["ranking"] is not None:
+    _r1, _r2 = p1["ranking"], p2["ranking"]
+    trad_stats = [
+        ("ERA", "era", True, ".2f"),
+        ("WHIP", "whip", True, ".2f"),
+        ("IP", "innings_pitched", False, ".1f"),
+        ("W-L", None, False, None),
+        ("K", "strikeouts", False, ".0f"),
+        ("BB", "walks", True, ".0f"),
+        ("HR", "home_runs_allowed", True, ".0f"),
+        ("SV", "saves", False, ".0f"),
+    ]
+    for label, col, invert, fmt in trad_stats:
+        if label == "W-L":
+            w1 = _r1.get("wins") if "wins" in _r1.index else None
+            l1 = _r1.get("losses") if "losses" in _r1.index else None
+            w2 = _r2.get("wins") if "wins" in _r2.index else None
+            l2 = _r2.get("losses") if "losses" in _r2.index else None
+            if w1 is not None and w2 is not None and pd.notna(w1) and pd.notna(w2):
+                h2h_rows += render_comparison_metric(
+                    "W-L", f"{int(w1)}-{int(l1)}", f"{int(w2)}-{int(l2)}",
+                    w1, w2, bold_higher=False,
+                )
+            continue
+        if col and col in _r1.index and col in _r2.index:
+            v1 = _r1.get(col)
+            v2 = _r2.get(col)
+            if pd.notna(v1) and pd.notna(v2):
+                v1_str = format(v1, fmt)
+                v2_str = format(v2, fmt)
+                h2h_rows += render_comparison_metric(
+                    label, v1_str, v2_str, v1, v2, invert=invert,
+                )
+
 st.markdown(f'<div style="background:#F7FAFC; border-radius:8px; padding:8px 4px;">{h2h_rows}</div>', unsafe_allow_html=True)
 
 
 # =============================================================================
-# BAYESIAN EB/PA COMPARISON BAR — uses the same dropdown selection
+# BAYESIAN EB/PA COMPARISON BAR
 # =============================================================================
 
 if _sel_eb1 is not None and _sel_eb2 is not None:
     st.divider()
-    st.subheader("Est. Bases / PA Comparison")
+    st.subheader("Est. Bases / PA Allowed")
     st.caption(_ebpa_choice)
 
-    # Resolve HDI + best + league for bar chart
     _bar_valid = False
 
     if _ebpa_is_proj:
-        _sel_pjdf = load_player_projections(_ebpa_year, "hitter")
+        _sel_pjdf = load_player_projections(_ebpa_year, "pitcher")
         _pr1 = _lookup_proj_row(_sel_pjdf, p1)
         _pr2 = _lookup_proj_row(_sel_pjdf, p2)
         if _pr1 is not None and _pr2 is not None:
@@ -618,7 +658,8 @@ if _sel_eb1 is not None and _sel_eb2 is not None:
             hdi2_low = _pr2["projected_hdi_low"]
             hdi2_high = _pr2["projected_hdi_high"]
 
-            best_idx_p = _sel_pjdf["projected_eb_pa"].idxmax()
+            # For pitchers, "best" = lowest EB/PA
+            best_idx_p = _sel_pjdf["projected_eb_pa"].idxmin()
             best_row_p = _sel_pjdf.loc[best_idx_p]
             best_eb = best_row_p["projected_eb_pa"]
             best_hdi_low = best_row_p["projected_hdi_low"]
@@ -645,7 +686,8 @@ if _sel_eb1 is not None and _sel_eb2 is not None:
                 hdi2_low = _er2["hdi_low"]
                 hdi2_high = _er2["hdi_high"]
 
-                best_idx_e = _bar_ref["posterior_mean"].idxmax()
+                # For pitchers, "best" = lowest
+                best_idx_e = _bar_ref["posterior_mean"].idxmin()
                 best_row_e = _bar_ref.loc[best_idx_e]
                 best_eb = best_row_e["posterior_mean"]
                 best_hdi_low = best_row_e["hdi_low"]
@@ -722,16 +764,15 @@ if _sel_eb1 is not None and _sel_eb2 is not None:
             + '</div>'
         )
         st.markdown(bar_html, unsafe_allow_html=True)
-        _caption = "Projected production per plate appearance with uncertainty ranges." if _ebpa_is_proj else "Estimated true production per plate appearance with uncertainty ranges."
+        _caption = "Projected EB/PA allowed with uncertainty ranges. Lower = better." if _ebpa_is_proj else "Estimated true EB/PA allowed with uncertainty ranges. Lower = better."
         st.caption(_caption)
 
 
 # =============================================================================
-# HISTORICAL EB/PA TIMELINE (moved up to follow current-season EB/PA)
+# HISTORICAL EB/PA TIMELINE
 # =============================================================================
 
 if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["player_id"] is not None):
-    # Collect data for both players
     tl_data = {1: [], 2: []}
     league_avg_data = []
     best_player_data = []
@@ -742,7 +783,8 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
         lg_mean_s = pa_df["posterior_mean"].mean()
         league_avg_data.append({"season": s, "value": lg_mean_s})
 
-        best_idx_s = pa_df["posterior_mean"].idxmax()
+        # For pitchers, "best" = lowest EB/PA
+        best_idx_s = pa_df["posterior_mean"].idxmin()
         best_row_s = pa_df.loc[best_idx_s]
         best_team_s = best_row_s.get("team", "")
         best_color_s, _ = get_team_color(best_team_s) if best_team_s else ("#DAA520", "#DAA520")
@@ -766,12 +808,11 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
 
     if tl_data[1] or tl_data[2]:
         st.divider()
-        st.subheader("Est. Bases / PA")
+        st.subheader("Est. Bases / PA Allowed")
 
         lg_df = pd.DataFrame(league_avg_data)
         best_df = pd.DataFrame(best_player_data)
 
-        # Trim to union of both players' season ranges
         all_player_seasons = [d["season"] for d in tl_data[1]] + [d["season"] for d in tl_data[2]]
         if all_player_seasons:
             min_s, max_s = min(all_player_seasons), max(all_player_seasons)
@@ -780,7 +821,6 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
 
         fig_tl = go.Figure()
 
-        # League average
         fig_tl.add_trace(go.Scatter(
             x=lg_df["season"], y=lg_df["value"],
             mode="markers", name="Lg Avg",
@@ -788,7 +828,6 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
             hovertemplate="Season: %{x}<br>Lg Avg: %{y:.3f}<extra></extra>",
         ))
 
-        # Best player — gold diamonds per season
         if not best_df.empty:
             first_best = best_df["season"].iloc[0]
             for _, brow in best_df.iterrows():
@@ -802,20 +841,17 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                     legendgroup="best",
                     showlegend=bool(brow["season"] == first_best),
                 ))
-            fig_tl.data[-len(best_df)].name = "Best Hitter"
+            fig_tl.data[-len(best_df)].name = "Best Pitcher"
 
-        # Player lines with HDI
         for pnum, pdata, color in [(1, p1, p1_color), (2, p2, p2_color)]:
             if not tl_data[pnum]:
                 continue
             tl_df = pd.DataFrame(tl_data[pnum])
 
-            # Parse hex color for rgba fill
             c = color.lstrip("#")
             r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
 
             if len(tl_df) == 1:
-                # Single point: use error bars for HDI
                 row = tl_df.iloc[0]
                 fig_tl.add_trace(go.Scatter(
                     x=tl_df["season"], y=tl_df["value"],
@@ -831,7 +867,6 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                     hovertemplate="Season: %{x}<br>EB/PA: %{y:.3f}<extra></extra>",
                 ))
             else:
-                # Multiple points: fill band + line
                 fig_tl.add_trace(go.Scatter(
                     x=tl_df["season"], y=tl_df["hdi_high"],
                     mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip",
@@ -850,7 +885,6 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                     hovertemplate="Season: %{x}<br>EB/PA: %{y:.3f}<extra></extra>",
                 ))
 
-        # Add last-name annotations at the last data point of each player's line
         for pnum, pdata, color in [(1, p1, p1_color), (2, p2, p2_color)]:
             if tl_data[pnum]:
                 last_pt = tl_data[pnum][-1]
@@ -862,7 +896,7 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                     xanchor="left",
                 )
 
-        # Multi-year projections for both players
+        # Multi-year projections
         x_max = max_s
         proj_data = {}
         for pnum, pdata, color in [(1, p1, p1_color), (2, p2, p2_color)]:
@@ -870,7 +904,7 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                 continue
             points = []
             for proj_season in range(max_s + 1, max_s + 4):
-                proj_df = load_player_projections(proj_season, "hitter")
+                proj_df = load_player_projections(proj_season, "pitcher")
                 if proj_df.empty:
                     continue
                 proj_match = proj_df[proj_df["player_id"] == pdata["player_id"]] if "player_id" in proj_df.columns else pd.DataFrame()
@@ -885,7 +919,6 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
             all_proj_seasons = [p["season"] for pts, _, _ in proj_data.values() for p in pts]
             x_max = max(all_proj_seasons)
 
-            # Shared projection zone
             fig_tl.add_vrect(
                 x0=max_s + 0.5, x1=max(all_proj_seasons) + 0.5,
                 fillcolor="rgba(180,180,220,0.10)", line_width=0,
@@ -907,7 +940,6 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                 p_hdi_hi = [p["projected_hdi_high"] for p in points]
                 p_hdi_lo = [p["projected_hdi_low"] for p in points]
 
-                # HDI ribbon
                 fig_tl.add_trace(go.Scatter(
                     x=p_seasons, y=p_hdi_hi,
                     mode="lines", line=dict(width=0),
@@ -920,7 +952,6 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                     showlegend=False, hoverinfo="skip",
                 ))
 
-                # Dashed connection from last actual to first projection
                 if tl_data[pnum]:
                     last_actual_pt = tl_data[pnum][-1]
                     fig_tl.add_trace(go.Scatter(
@@ -931,7 +962,6 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                         showlegend=False, hoverinfo="skip",
                     ))
 
-                # Projection trajectory line
                 if len(p_seasons) > 1:
                     fig_tl.add_trace(go.Scatter(
                         x=p_seasons, y=p_values,
@@ -940,7 +970,6 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                         showlegend=False, hoverinfo="skip",
                     ))
 
-                # Projection markers (open diamonds)
                 fig_tl.add_trace(go.Scatter(
                     x=p_seasons, y=p_values,
                     mode="markers",
@@ -966,7 +995,7 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
         fig_tl.update_layout(
             xaxis=dict(title="Season", title_font_size=14, tickfont_size=13, dtick=1, tickformat="d",
                        range=[min_s - 0.5, x_max + 0.5]),
-            yaxis=dict(title="Est. Bases per PA", title_font_size=14, tickfont_size=13),
+            yaxis=dict(title="Est. Bases per PA Allowed", title_font_size=14, tickfont_size=13),
             height=400, template="plotly_white",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=13)),
             dragmode=False,
@@ -989,8 +1018,8 @@ with _bb_banner_cols[0]:
 with _bb_banner_cols[1]:
     if available_seasons:
         season = st.selectbox("Batted Ball Season", options=available_seasons, index=0,
-                              key="cmp_bb_season", label_visibility="collapsed")
-st.subheader("Contact Quality Distributions")
+                              key="pcmp_bb_season", label_visibility="collapsed")
+st.subheader("Contact Quality Allowed")
 
 col_ev, col_la, col_eb = st.columns(3)
 
@@ -1058,7 +1087,7 @@ with col_eb:
 
 if "coord_x" in p1["bb"].columns and "coord_x" in p2["bb"].columns:
     st.divider()
-    st.subheader("Spray Charts")
+    st.subheader("Spray Charts Allowed")
     st.caption(f"{season} Season")
 
     spray1, spray2 = st.columns(2)
@@ -1127,7 +1156,6 @@ if "coord_x" in p1["bb"].columns and "coord_x" in p2["bb"].columns:
                 )
                 st.plotly_chart(fig_spray, width="stretch", config=PLOTLY_CONFIG_STATIC)
 
-                # Spray direction breakdown
                 if "spray_direction" in spray_data.columns:
                     dirs = spray_data["spray_direction"].value_counts(normalize=True) * 100
                     parts = [f"{d}: {dirs.get(d, 0):.0f}%" for d in ["Pull", "Center", "Oppo"]]
@@ -1146,7 +1174,6 @@ st.caption(f"{season} Season")
 
 type_order = ["Ground Ball", "Line Drive", "Fly Ball", "Pop Up"]
 
-# League averages
 bb_df_typed = bb_df.copy()
 bb_df_typed["bb_type"] = bb_df_typed["launch_angle"].apply(categorize_launch_angle)
 lg_type = bb_df_typed.groupby("bb_type").agg(lg_avg_eb=("estimated_bases", "mean")).reset_index()
@@ -1170,14 +1197,6 @@ merged["bb_type"] = pd.Categorical(merged["bb_type"], categories=type_order, ord
 merged = merged.sort_values("bb_type").reset_index(drop=True)
 merged = merged.rename(columns={"bb_type": "Type", "lg_avg_eb": "Lg Avg EB"})
 
-ct_col_config = {
-    "P1 Avg EB": st.column_config.NumberColumn(format="%.3f"),
-    "P2 Avg EB": st.column_config.NumberColumn(format="%.3f"),
-    "Lg Avg EB": st.column_config.NumberColumn(format="%.3f"),
-    "P1 %": st.column_config.NumberColumn(format="%.1f%%"),
-    "P2 %": st.column_config.NumberColumn(format="%.1f%%"),
-}
-# Rename P1/P2 to player last names for readability
 p1_last = p1["name"].split()[-1]
 p2_last = p2["name"].split()[-1]
 merged = merged.rename(columns={
@@ -1196,12 +1215,44 @@ st.dataframe(merged, hide_index=True, width="stretch", column_config=ct_col_conf
 
 
 # =============================================================================
+# SPLITS: vs LHH / vs RHH
+# =============================================================================
+
+if "bat_side" in p1["bb"].columns:
+    st.divider()
+    st.subheader("Splits: vs LHH / vs RHH")
+    st.caption(f"{season} Season")
+
+    splits_1, splits_2 = st.columns(2)
+
+    for col, p, color in [(splits_1, p1, p1_color), (splits_2, p2, p2_color)]:
+        with col:
+            st.markdown(f"#### {p['name']}")
+            for side, label in [("L", "vs LHH"), ("R", "vs RHH")]:
+                side_bb = p["bb"][p["bb"]["bat_side"] == side]
+                if side_bb.empty:
+                    st.caption(f"{label}: No data")
+                    continue
+                n = len(side_bb)
+                avg_eb = side_bb["estimated_bases"].mean()
+                avg_ev = side_bb["launch_speed"].mean()
+                barrel_r = side_bb["is_barrel"].mean() * 100
+                st.markdown(
+                    f'<div style="background:#f8f9fa; border-radius:6px; padding:8px 12px; margin-bottom:6px; border-left:3px solid {color};">'
+                    f'<span style="font-weight:600;">{label}</span> · {n} BB · '
+                    f'Avg EB: {avg_eb:.3f} · Avg EV: {avg_ev:.1f} · Barrel: {barrel_r:.1f}%'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+
+# =============================================================================
 # LUCK COMPARISON
 # =============================================================================
 
 st.divider()
 st.subheader("Luck Comparison")
-st.caption(f"{season} Season")
+st.caption(f"{season} Season — Positive = pitcher got lucky (allowed fewer bases than expected)")
 
 lc1, lc2 = st.columns(2)
 for col, p, luck_val, luck_pct, actual_pct, expected_pct, color in [
@@ -1211,7 +1262,7 @@ for col, p, luck_val, luck_pct, actual_pct, expected_pct, color in [
     with col:
         st.markdown(f"#### {p['name']}")
         m1, m2 = st.columns(2)
-        m1.metric("Actual TB", f"{p['total_actual_tb']:.0f}")
+        m1.metric("Actual TB Allowed", f"{p['total_actual_tb']:.0f}")
         render_percentile_bar(actual_pct, container=m1)
         m2.metric("Expected TB", f"{p['total_expected_tb']:.1f}")
         render_percentile_bar(expected_pct, container=m2)
@@ -1224,14 +1275,15 @@ for col, p, luck_val, luck_pct, actual_pct, expected_pct, color in [
 
 # Overlaid cumulative luck chart
 st.markdown("#### Luck Over Time")
-st.caption("Cumulative actual minus expected total bases. Rising = lucky, falling = unlucky.")
+st.caption("Cumulative expected minus actual total bases allowed. Rising = pitcher getting lucky.")
 
 fig_luck = go.Figure()
 
 luck_last_points = []
 for p, color, name in [(p1, p1_color, p1["name"]), (p2, p2_color, p2["name"])]:
     luck_ts = p["bb"].sort_values("date_parsed").copy()
-    luck_ts["cum_luck"] = luck_ts["actual_tb"].cumsum() - luck_ts["estimated_bases"].cumsum()
+    # Pitcher luck: expected - actual (positive = pitcher lucky)
+    luck_ts["cum_luck"] = luck_ts["estimated_bases"].cumsum() - luck_ts["actual_tb"].cumsum()
     luck_ts["bb_num"] = range(1, len(luck_ts) + 1)
     fig_luck.add_trace(go.Scatter(
         x=luck_ts["bb_num"], y=luck_ts["cum_luck"],
@@ -1243,7 +1295,6 @@ for p, color, name in [(p1, p1_color, p1["name"]), (p2, p2_color, p2["name"])]:
 
 fig_luck.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
 
-# Add last-name annotations at end of each line
 for x, y, name, color in luck_last_points:
     last_name = name.split()[-1]
     fig_luck.add_annotation(
@@ -1269,8 +1320,8 @@ p1_display = f"{p1['name']} ({p1['team']})"
 p2_display = f"{p2['name']} ({p2['team']})"
 fc1, fc2 = st.columns(2)
 with fc1:
-    st.markdown(f"[View {p1['name']}'s full profile](Hitter_Profile?player={p1_display.replace(' ', '+')})")
+    st.markdown(f"[View {p1['name']}'s full profile](Pitcher_Profile?player={p1_display.replace(' ', '+')})")
 with fc2:
-    st.markdown(f"[View {p2['name']}'s full profile](Hitter_Profile?player={p2_display.replace(' ', '+')})")
+    st.markdown(f"[View {p2['name']}'s full profile](Pitcher_Profile?player={p2_display.replace(' ', '+')})")
 
 render_home_link()
