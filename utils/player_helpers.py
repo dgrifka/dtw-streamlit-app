@@ -6,6 +6,7 @@ import html
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 import unicodedata
 
 # Plotly interaction config
@@ -302,3 +303,129 @@ def render_similar_players(similar_list):
             f'</div>'
         )
     return "".join(items)
+
+
+def render_sticky_player_bar(player_name, team_short, primary_color, headshot_url="", subtitle=""):
+    """Inject a fixed identity bar that appears when the hero section scrolls out of view.
+
+    Uses IntersectionObserver on ``#hero-section-sentinel`` to toggle visibility.
+    The bar is injected into ``window.parent.document`` via ``components.html()``.
+    """
+    safe_name = safe_html(player_name)
+    safe_team = safe_html(team_short)
+    safe_sub = safe_html(subtitle)
+    safe_color = safe_html(primary_color)
+    safe_img = html.escape(headshot_url, quote=True) if headshot_url else ""
+
+    img_tag = ""
+    if safe_img:
+        img_tag = (
+            f'<img src="{safe_img}" '
+            f'style="width:36px;height:36px;object-fit:contain;border-radius:50%;flex-shrink:0;" '
+            f'onerror="this.style.display=\'none\'">'
+        )
+
+    components.html(f"""
+<script>
+(function() {{
+    const doc = window.parent.document;
+    const BAR_ID = 'sticky-player-bar';
+
+    // Remove any existing bar (handles reruns / player changes)
+    const old = doc.getElementById(BAR_ID);
+    if (old) old.remove();
+
+    // Build bar element
+    const bar = doc.createElement('div');
+    bar.id = BAR_ID;
+    bar.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;max-width:720px;margin:0 auto;padding:0 16px;">
+            {img_tag}
+            <div style="min-width:0;">
+                <div style="font-weight:700;font-size:0.95rem;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                    {safe_name}
+                </div>
+                <div style="font-size:0.8rem;color:#4A5568;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                    {safe_team}{(' | ' + safe_sub) if safe_sub else ''}
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Detect Streamlit header height for positioning
+    const stHeader = doc.querySelector('[data-testid="stHeader"]');
+    const headerH = stHeader ? stHeader.offsetHeight : 0;
+
+    Object.assign(bar.style, {{
+        position: 'fixed',
+        top: headerH + 'px',
+        left: '0',
+        right: '0',
+        height: '52px',
+        display: 'flex',
+        alignItems: 'center',
+        background: 'rgba(255,255,255,0.97)',
+        borderBottom: '1px solid #e2e8f0',
+        borderLeft: '4px solid {safe_color}',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        zIndex: '999',
+        transform: 'translateY(-100%)',
+        transition: 'transform 0.25s ease',
+        backdropFilter: 'blur(8px)',
+    }});
+
+    // Responsive: smaller bar on mobile
+    const style = doc.createElement('style');
+    style.textContent = `
+        @media (max-width: 480px) {{
+            #sticky-player-bar {{
+                height: 44px !important;
+            }}
+            #sticky-player-bar img {{
+                width: 28px !important;
+                height: 28px !important;
+            }}
+        }}
+    `;
+    doc.head.appendChild(style);
+    doc.body.appendChild(bar);
+
+    // Watch the hero sentinel
+    function setupObserver() {{
+        const sentinel = doc.getElementById('hero-section-sentinel');
+        if (!sentinel) return;
+
+        const observer = new IntersectionObserver((entries) => {{
+            entries.forEach(e => {{
+                bar.style.transform = e.isIntersecting ? 'translateY(-100%)' : 'translateY(0)';
+            }});
+        }}, {{ threshold: 0, rootMargin: '-' + headerH + 'px 0px 0px 0px' }});
+        observer.observe(sentinel);
+
+        // Cleanup when sentinel is removed (page navigation)
+        const cleanup = new MutationObserver(() => {{
+            if (!doc.getElementById('hero-section-sentinel')) {{
+                bar.style.transform = 'translateY(-100%)';
+                setTimeout(() => {{
+                    const b = doc.getElementById(BAR_ID);
+                    if (b) b.remove();
+                    style.remove();
+                }}, 300);
+                cleanup.disconnect();
+            }}
+        }});
+        cleanup.observe(doc.body, {{ childList: true, subtree: true }});
+    }}
+
+    // Sentinel may not be in parent DOM yet — poll briefly
+    let attempts = 0;
+    const poll = setInterval(() => {{
+        if (doc.getElementById('hero-section-sentinel') || attempts > 20) {{
+            clearInterval(poll);
+            setupObserver();
+        }}
+        attempts++;
+    }}, 100);
+}})();
+</script>
+""", height=0)

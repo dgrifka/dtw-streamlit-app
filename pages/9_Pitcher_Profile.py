@@ -35,6 +35,7 @@ from utils.player_helpers import (
     categorize_launch_angle, is_barrel, is_barrel_vectorized,
     _ordinal, _percentile_color,
     render_percentile_bar, luck_tier_label, safe_html,
+    render_sticky_player_bar,
     TB_MAP, PLOTLY_CONFIG, PLOTLY_CONFIG_STATIC,
 )
 from utils.responsive import inject_responsive_css, render_home_link
@@ -252,7 +253,7 @@ if img_url:
     )
 
 st.markdown(
-    f'<div style="display:flex; align-items:center; gap:20px; '
+    f'<div id="hero-section-sentinel" style="display:flex; align-items:center; gap:20px; '
     f'background:#f8f9fa; border-radius:10px; padding:16px; '
     f'border-left:4px solid {primary_color};">'
     f'{img_html}'
@@ -261,6 +262,14 @@ st.markdown(
     f'<div style="color:#4A5568; font-size:1rem;"><b>{safe_html(pitcher_team_short)}</b>{pos_str}{throw_str}{age_str}{pa_str}</div>'
     f'</div></div>',
     unsafe_allow_html=True,
+)
+
+render_sticky_player_bar(
+    player_name=selected_pitcher,
+    team_short=pitcher_team_short,
+    primary_color=primary_color,
+    headshot_url=img_url,
+    subtitle=f"{pos_str}{throw_str}{age_str}".lstrip(" |"),
 )
 
 # Key stats — inverted percentiles (lower = better for pitcher)
