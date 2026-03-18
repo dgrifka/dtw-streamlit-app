@@ -22,7 +22,7 @@ from utils.data_loader import (
     load_batted_balls, get_available_batted_ball_seasons,
     load_all_season_pa_rankings, compute_league_percentiles,
     load_player_evaluations_pa, load_player_metadata, load_pa_counts,
-    load_player_projections, resolve_player_id,
+    load_player_projections, load_rate_stat_projections, resolve_player_id,
     build_player_display_list,
 )
 from utils.team_mappings import get_team_color, get_team_logo_url
@@ -730,10 +730,52 @@ if _sel_eb1 is not None and _sel_eb2 is not None:
 # HISTORICAL EB/PA TIMELINE (moved up to follow current-season EB/PA)
 # =============================================================================
 
+def _add_player_annotations(fig, anno_pts):
+    """Add collision-aware last-name annotations to a comparison chart.
+
+    anno_pts: list of dicts with keys: name, x, y, color
+    """
+    if len(anno_pts) == 2:
+        y_vals = [fig.layout.yaxis.range] if fig.layout.yaxis.range else [None]
+        # Estimate y-range from all trace data
+        all_y = []
+        for trace in fig.data:
+            if hasattr(trace, "y") and trace.y is not None:
+                all_y.extend([v for v in trace.y if v is not None])
+        y_range = (max(all_y) - min(all_y)) if all_y else 1
+        threshold = y_range * 0.06
+
+        a, b = anno_pts[0], anno_pts[1]
+        close = abs(a["y"] - b["y"]) < threshold
+        for i, pt in enumerate(anno_pts):
+            yshift = 0
+            if close:
+                yshift = 12 if i == 0 else -12
+            last_name = pt["name"].split()[-1]
+            fig.add_annotation(
+                x=pt["x"], y=pt["y"],
+                text=last_name, showarrow=False,
+                xshift=10, yshift=yshift,
+                font=dict(color=pt["color"], size=11),
+                xanchor="left",
+            )
+    else:
+        for pt in anno_pts:
+            last_name = pt["name"].split()[-1]
+            fig.add_annotation(
+                x=pt["x"], y=pt["y"],
+                text=last_name, showarrow=False,
+                xshift=10, font=dict(color=pt["color"], size=11),
+                xanchor="left",
+            )
+
+
 if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["player_id"] is not None):
     # Collect data for both players
     tl_data = {1: [], 2: []}
+    rate_tl_data = {1: [], 2: []}
     league_avg_data = []
+    rate_league_avg = []
     best_player_data = []
 
     for s in sorted(all_season_pa_rankings.keys()):
@@ -741,6 +783,13 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
 
         lg_mean_s = pa_df["posterior_mean"].mean()
         league_avg_data.append({"season": s, "value": lg_mean_s})
+
+        # Rate stat league averages
+        _rate_lg = {"season": s}
+        for _rc in ["k_rate_posterior", "bb_rate_posterior", "hr_rate_posterior"]:
+            if _rc in pa_df.columns:
+                _rate_lg[_rc] = pa_df[_rc].dropna().mean()
+        rate_league_avg.append(_rate_lg)
 
         best_idx_s = pa_df["posterior_mean"].idxmax()
         best_row_s = pa_df.loc[best_idx_s]
@@ -763,13 +812,24 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                     "season": s, "value": row["posterior_mean"],
                     "hdi_low": row["hdi_low"], "hdi_high": row["hdi_high"],
                 })
+                # Rate stats
+                _rate_row = {"season": s}
+                for _rc in ["k_rate_posterior", "k_rate_hdi_low", "k_rate_hdi_high",
+                             "bb_rate_posterior", "bb_rate_hdi_low", "bb_rate_hdi_high",
+                             "hr_rate_posterior", "hr_rate_hdi_low", "hr_rate_hdi_high"]:
+                    if _rc in row.index and pd.notna(row.get(_rc)):
+                        _rate_row[_rc] = row[_rc]
+                rate_tl_data[pnum].append(_rate_row)
+
+    _has_rate_timeline = any("k_rate_posterior" in t for t in rate_tl_data[1]) or any("k_rate_posterior" in t for t in rate_tl_data[2])
 
     if tl_data[1] or tl_data[2]:
         st.divider()
-        st.subheader("Est. Bases / PA")
+        st.subheader("Season History")
 
         lg_df = pd.DataFrame(league_avg_data)
         best_df = pd.DataFrame(best_player_data)
+        rate_lg_df = pd.DataFrame(rate_league_avg)
 
         # Trim to union of both players' season ranges
         all_player_seasons = [d["season"] for d in tl_data[1]] + [d["season"] for d in tl_data[2]]
@@ -777,93 +837,9 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
             min_s, max_s = min(all_player_seasons), max(all_player_seasons)
             lg_df = lg_df[(lg_df["season"] >= min_s) & (lg_df["season"] <= max_s)]
             best_df = best_df[(best_df["season"] >= min_s) & (best_df["season"] <= max_s)]
+            rate_lg_df = rate_lg_df[(rate_lg_df["season"] >= min_s) & (rate_lg_df["season"] <= max_s)]
 
-        fig_tl = go.Figure()
-
-        # League average
-        fig_tl.add_trace(go.Scatter(
-            x=lg_df["season"], y=lg_df["value"],
-            mode="markers", name="Lg Avg",
-            marker=dict(color="rgba(160,160,160,0.8)", size=11),
-            hovertemplate="Season: %{x}<br>Lg Avg: %{y:.3f}<extra></extra>",
-        ))
-
-        # Best player — gold diamonds per season
-        if not best_df.empty:
-            first_best = best_df["season"].iloc[0]
-            for _, brow in best_df.iterrows():
-                fig_tl.add_trace(go.Scatter(
-                    x=[brow["season"]], y=[brow["value"]],
-                    mode="markers",
-                    name=brow["name"],
-                    marker=dict(color="#DAA520", size=12, symbol="diamond",
-                                line=dict(width=1, color="white")),
-                    hovertemplate=f"Season: %{{x}}<br>{brow['name']}: %{{y:.3f}}<extra></extra>",
-                    legendgroup="best",
-                    showlegend=bool(brow["season"] == first_best),
-                ))
-            fig_tl.data[-len(best_df)].name = "Best Hitter"
-
-        # Player lines with HDI
-        for pnum, pdata, color in [(1, p1, p1_color), (2, p2, p2_color)]:
-            if not tl_data[pnum]:
-                continue
-            tl_df = pd.DataFrame(tl_data[pnum])
-
-            # Parse hex color for rgba fill
-            c = color.lstrip("#")
-            r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
-
-            if len(tl_df) == 1:
-                # Single point: use error bars for HDI
-                row = tl_df.iloc[0]
-                fig_tl.add_trace(go.Scatter(
-                    x=tl_df["season"], y=tl_df["value"],
-                    mode="markers", name=pdata["name"],
-                    marker=dict(color=color, size=12),
-                    error_y=dict(
-                        type="data",
-                        array=[row["hdi_high"] - row["value"]],
-                        arrayminus=[row["value"] - row["hdi_low"]],
-                        color=f"rgba({r},{g},{b},0.5)",
-                        thickness=2, width=6,
-                    ),
-                    hovertemplate="Season: %{x}<br>EB/PA: %{y:.3f}<extra></extra>",
-                ))
-            else:
-                # Multiple points: fill band + line
-                fig_tl.add_trace(go.Scatter(
-                    x=tl_df["season"], y=tl_df["hdi_high"],
-                    mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip",
-                ))
-                fig_tl.add_trace(go.Scatter(
-                    x=tl_df["season"], y=tl_df["hdi_low"],
-                    mode="lines", line=dict(width=0),
-                    fill="tonexty", fillcolor=f"rgba({r},{g},{b},0.15)",
-                    showlegend=False, hoverinfo="skip",
-                ))
-                fig_tl.add_trace(go.Scatter(
-                    x=tl_df["season"], y=tl_df["value"],
-                    mode="lines+markers", name=pdata["name"],
-                    line=dict(color=color, width=2.5),
-                    marker=dict(color=color, size=12),
-                    hovertemplate="Season: %{x}<br>EB/PA: %{y:.3f}<extra></extra>",
-                ))
-
-        # Add last-name annotations at the last data point of each player's line
-        for pnum, pdata, color in [(1, p1, p1_color), (2, p2, p2_color)]:
-            if tl_data[pnum]:
-                last_pt = tl_data[pnum][-1]
-                last_name = pdata["name"].split()[-1]
-                fig_tl.add_annotation(
-                    x=last_pt["season"], y=last_pt["value"],
-                    text=last_name, showarrow=False,
-                    xshift=10, font=dict(color=color, size=11),
-                    xanchor="left",
-                )
-
-        # Multi-year projections for both players
-        x_max = max_s
+        # --- Projections (shared across tabs) ---
         proj_data = {}
         for pnum, pdata, color in [(1, p1, p1_color), (2, p2, p2_color)]:
             if pdata["player_id"] is None:
@@ -881,97 +857,404 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
             if points:
                 proj_data[pnum] = (points, color, pdata)
 
-        if proj_data:
-            all_proj_seasons = [p["season"] for pts, _, _ in proj_data.values() for p in pts]
-            x_max = max(all_proj_seasons)
+        # --- Rate stat comparison chart builder ---
+        def _build_comparison_rate_chart(rate_prefix, y_label, higher_is_better):
+            mean_col = f"{rate_prefix}_posterior"
+            lo_col = f"{rate_prefix}_hdi_low"
+            hi_col = f"{rate_prefix}_hdi_high"
 
-            # Shared projection zone
-            fig_tl.add_vrect(
-                x0=max_s + 0.5, x1=max(all_proj_seasons) + 0.5,
-                fillcolor="rgba(180,180,220,0.10)", line_width=0,
-                layer="below",
-            )
-            fig_tl.add_annotation(
-                x=(max_s + 0.5 + max(all_proj_seasons) + 0.5) / 2,
-                y=1.0, yref="paper", yanchor="bottom",
-                text="Projected", showarrow=False,
-                font=dict(size=13, color="rgba(120,120,160,0.7)"),
-            )
+            # Check if either player has data for this rate stat
+            has_data = False
+            for pnum in [1, 2]:
+                if any(mean_col in t for t in rate_tl_data[pnum]):
+                    has_data = True
+            if not has_data:
+                return None
 
-            for pnum, (points, color, pdata) in proj_data.items():
+            fig = go.Figure()
+
+            # League average markers
+            if not rate_lg_df.empty and mean_col in rate_lg_df.columns:
+                lg_vals = rate_lg_df.dropna(subset=[mean_col])
+                if not lg_vals.empty:
+                    fig.add_trace(go.Scatter(
+                        x=lg_vals["season"], y=lg_vals[mean_col] * 100,
+                        mode="markers", name="Lg Avg",
+                        marker=dict(color="rgba(160,160,160,0.8)", size=11),
+                        hovertemplate="Season: %{x}<br>Lg Avg: %{y:.1f}%<extra></extra>",
+                    ))
+
+            # Player lines with HDI
+            for pnum, pdata, color in [(1, p1, p1_color), (2, p2, p2_color)]:
+                rtl = [t for t in rate_tl_data[pnum] if mean_col in t]
+                if not rtl:
+                    continue
+                vals = pd.DataFrame(rtl)
                 c = color.lstrip("#")
-                pr, pg, pb = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+                r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
 
-                p_seasons = [p["season"] for p in points]
-                p_values = [p["projected_eb_pa"] for p in points]
-                p_hdi_hi = [p["projected_hdi_high"] for p in points]
-                p_hdi_lo = [p["projected_hdi_low"] for p in points]
+                if len(vals) == 1:
+                    row_r = vals.iloc[0]
+                    err_hi = [(row_r[hi_col] - row_r[mean_col]) * 100] if hi_col in row_r.index and pd.notna(row_r.get(hi_col)) else None
+                    err_lo = [(row_r[mean_col] - row_r[lo_col]) * 100] if lo_col in row_r.index and pd.notna(row_r.get(lo_col)) else None
+                    fig.add_trace(go.Scatter(
+                        x=vals["season"], y=vals[mean_col] * 100,
+                        mode="markers", name=pdata["name"],
+                        marker=dict(color=color, size=12),
+                        error_y=dict(
+                            type="data", array=err_hi, arrayminus=err_lo,
+                            color=f"rgba({r},{g},{b},0.5)", thickness=2, width=6,
+                        ) if err_hi else None,
+                        hovertemplate=f"Season: %{{x}}<br>{y_label}: %{{y:.1f}}%<extra></extra>",
+                    ))
+                else:
+                    if hi_col in vals.columns and lo_col in vals.columns:
+                        fig.add_trace(go.Scatter(
+                            x=vals["season"], y=vals[hi_col] * 100,
+                            mode="lines", line=dict(width=0),
+                            showlegend=False, hoverinfo="skip",
+                        ))
+                        fig.add_trace(go.Scatter(
+                            x=vals["season"], y=vals[lo_col] * 100,
+                            mode="lines", line=dict(width=0),
+                            fill="tonexty", fillcolor=f"rgba({r},{g},{b},0.15)",
+                            showlegend=False, hoverinfo="skip",
+                        ))
+                    fig.add_trace(go.Scatter(
+                        x=vals["season"], y=vals[mean_col] * 100,
+                        mode="lines+markers", name=pdata["name"],
+                        line=dict(color=color, width=2.5),
+                        marker=dict(color=color, size=12),
+                        hovertemplate=f"Season: %{{x}}<br>{y_label}: %{{y:.1f}}%<extra></extra>",
+                    ))
 
-                # HDI ribbon
-                fig_tl.add_trace(go.Scatter(
-                    x=p_seasons, y=p_hdi_hi,
-                    mode="lines", line=dict(width=0),
-                    showlegend=False, hoverinfo="skip",
-                ))
-                fig_tl.add_trace(go.Scatter(
-                    x=p_seasons, y=p_hdi_lo,
-                    mode="lines", line=dict(width=0),
-                    fill="tonexty", fillcolor=f"rgba({pr},{pg},{pb},0.10)",
-                    showlegend=False, hoverinfo="skip",
-                ))
+            # Rate stat projections
+            rate_x_max = max_s
+            rate_proj_data = {}
+            proj_col = f"projected_{rate_prefix}"
+            proj_lo_col = f"projected_{rate_prefix}_hdi_low"
+            proj_hi_col = f"projected_{rate_prefix}_hdi_high"
+            for pnum, pdata, color in [(1, p1, p1_color), (2, p2, p2_color)]:
+                if pdata["player_id"] is None:
+                    continue
+                rp_points = []
+                for proj_s in range(max_s + 1, max_s + 4):
+                    rp_df = load_rate_stat_projections(proj_s, "hitter", rate_prefix)
+                    if rp_df.empty or proj_col not in rp_df.columns:
+                        continue
+                    rp_match = rp_df[rp_df["player_id"] == pdata["player_id"]] if "player_id" in rp_df.columns else pd.DataFrame()
+                    if rp_match.empty:
+                        rp_match = rp_df[rp_df["player"] == pdata["name"]]
+                    if not rp_match.empty:
+                        rp_points.append(rp_match.iloc[0].to_dict() | {"season": proj_s})
+                if rp_points:
+                    rate_proj_data[pnum] = (rp_points, color, pdata)
 
-                # Dashed connection from last actual to first projection
-                if tl_data[pnum]:
-                    last_actual_pt = tl_data[pnum][-1]
-                    fig_tl.add_trace(go.Scatter(
-                        x=[last_actual_pt["season"], p_seasons[0]],
-                        y=[last_actual_pt["value"], p_values[0]],
-                        mode="lines",
-                        line=dict(color=f"rgba({pr},{pg},{pb},0.4)", width=1.5, dash="dot"),
+            if rate_proj_data:
+                all_rp_seasons = [p["season"] for pts, _, _ in rate_proj_data.values() for p in pts]
+                rate_x_max = max(all_rp_seasons)
+                fig.add_vrect(
+                    x0=max_s + 0.5, x1=max(all_rp_seasons) + 0.5,
+                    fillcolor="rgba(180,180,220,0.10)", line_width=0, layer="below",
+                )
+                fig.add_annotation(
+                    x=(max_s + 0.5 + max(all_rp_seasons) + 0.5) / 2,
+                    y=1.0, yref="paper", yanchor="bottom",
+                    text="Projected", showarrow=False,
+                    font=dict(size=13, color="rgba(120,120,160,0.7)"),
+                )
+
+                for pnum, (rp_points, color, pdata) in rate_proj_data.items():
+                    c = color.lstrip("#")
+                    pr, pg, pb = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+                    rp_seasons = [p["season"] for p in rp_points]
+                    rp_vals = [p[proj_col] * 100 for p in rp_points]
+                    rp_hi = [p.get(proj_hi_col, p[proj_col]) * 100 for p in rp_points]
+                    rp_lo = [p.get(proj_lo_col, p[proj_col]) * 100 for p in rp_points]
+
+                    fig.add_trace(go.Scatter(
+                        x=rp_seasons, y=rp_hi, mode="lines", line=dict(width=0),
+                        showlegend=False, hoverinfo="skip",
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=rp_seasons, y=rp_lo, mode="lines", line=dict(width=0),
+                        fill="tonexty", fillcolor=f"rgba({pr},{pg},{pb},0.10)",
                         showlegend=False, hoverinfo="skip",
                     ))
 
-                # Projection trajectory line
-                if len(p_seasons) > 1:
+                    rtl = [t for t in rate_tl_data[pnum] if mean_col in t]
+                    if rtl:
+                        last_actual_val = rtl[-1][mean_col] * 100
+                        last_actual_season = rtl[-1]["season"]
+                        fig.add_trace(go.Scatter(
+                            x=[last_actual_season, rp_seasons[0]],
+                            y=[last_actual_val, rp_vals[0]],
+                            mode="lines",
+                            line=dict(color=f"rgba({pr},{pg},{pb},0.4)", width=1.5, dash="dot"),
+                            showlegend=False, hoverinfo="skip",
+                        ))
+
+                    if len(rp_seasons) > 1:
+                        fig.add_trace(go.Scatter(
+                            x=rp_seasons, y=rp_vals, mode="lines",
+                            line=dict(color=f"rgba({pr},{pg},{pb},0.5)", width=2, dash="dash"),
+                            showlegend=False, hoverinfo="skip",
+                        ))
+
+                    fig.add_trace(go.Scatter(
+                        x=rp_seasons, y=rp_vals, mode="markers",
+                        showlegend=False,
+                        marker=dict(color="rgba(255,255,255,0)", size=12, symbol="diamond-open",
+                                    line=dict(width=2.5, color=color)),
+                        customdata=[
+                            [p.get("aging_effect", 0),
+                             p.get(proj_lo_col, p[proj_col]) * 100,
+                             p.get(proj_hi_col, p[proj_col]) * 100]
+                            for p in rp_points
+                        ],
+                        hovertemplate=(
+                            "Projection %{x}<br>"
+                            f"{y_label}: %{{y:.1f}}%<br>"
+                            "89% HDI: [%{customdata[1]:.1f}%, %{customdata[2]:.1f}%]<br>"
+                            "Aging effect: %{customdata[0]:+.4f}<extra></extra>"
+                        ),
+                    ))
+
+            # Player name annotations (at projection endpoint if available, else last actual)
+            anno_pts = []
+            for pnum, pdata, color in [(1, p1, p1_color), (2, p2, p2_color)]:
+                if pnum in rate_proj_data:
+                    rp_points, _, _ = rate_proj_data[pnum]
+                    last_p = rp_points[-1]
+                    anno_pts.append({"name": pdata["name"], "x": last_p["season"],
+                                     "y": last_p[proj_col] * 100, "color": color})
+                else:
+                    rtl = [t for t in rate_tl_data[pnum] if mean_col in t]
+                    if rtl:
+                        last_t = rtl[-1]
+                        anno_pts.append({"name": pdata["name"], "x": last_t["season"],
+                                         "y": last_t[mean_col] * 100, "color": color})
+            _add_player_annotations(fig, anno_pts)
+
+            all_tick_s = list(range(min_s, rate_x_max + 1))
+            direction = "" if higher_is_better else " (lower is better)"
+            fig.update_layout(
+                xaxis=dict(title="Season", title_font_size=14, tickfont_size=13,
+                           tickvals=all_tick_s, ticktext=[str(s) for s in all_tick_s],
+                           range=[min(all_tick_s) - 0.5, max(all_tick_s) + 0.5]),
+                yaxis=dict(title=f"{y_label}{direction}", title_font_size=14,
+                           tickfont_size=13, ticksuffix="%"),
+                height=400, template="plotly_white",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                            xanchor="center", x=0.5, font=dict(size=13)),
+                dragmode=False,
+            )
+            return fig
+
+        # --- Tabs ---
+        if _has_rate_timeline:
+            _tab_labels = ["EB/PA", "K%", "BB%", "HR%"]
+            _timeline_tabs = st.tabs(_tab_labels)
+            _eb_container = _timeline_tabs[0]
+        else:
+            _eb_container = st.container()
+
+        with _eb_container:
+            if _has_rate_timeline:
+                st.caption("Bayesian model estimate with projections")
+
+            fig_tl = go.Figure()
+
+            # League average
+            fig_tl.add_trace(go.Scatter(
+                x=lg_df["season"], y=lg_df["value"],
+                mode="markers", name="Lg Avg",
+                marker=dict(color="rgba(160,160,160,0.8)", size=11),
+                hovertemplate="Season: %{x}<br>Lg Avg: %{y:.3f}<extra></extra>",
+            ))
+
+            # Best player — gold diamonds per season
+            if not best_df.empty:
+                first_best = best_df["season"].iloc[0]
+                for _, brow in best_df.iterrows():
+                    fig_tl.add_trace(go.Scatter(
+                        x=[brow["season"]], y=[brow["value"]],
+                        mode="markers",
+                        name=brow["name"],
+                        marker=dict(color="#DAA520", size=12, symbol="diamond",
+                                    line=dict(width=1, color="white")),
+                        hovertemplate=f"Season: %{{x}}<br>{brow['name']}: %{{y:.3f}}<extra></extra>",
+                        legendgroup="best",
+                        showlegend=bool(brow["season"] == first_best),
+                    ))
+                fig_tl.data[-len(best_df)].name = "Best Hitter"
+
+            # Player lines with HDI
+            for pnum, pdata, color in [(1, p1, p1_color), (2, p2, p2_color)]:
+                if not tl_data[pnum]:
+                    continue
+                tl_df = pd.DataFrame(tl_data[pnum])
+
+                c = color.lstrip("#")
+                r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+
+                if len(tl_df) == 1:
+                    row = tl_df.iloc[0]
+                    fig_tl.add_trace(go.Scatter(
+                        x=tl_df["season"], y=tl_df["value"],
+                        mode="markers", name=pdata["name"],
+                        marker=dict(color=color, size=12),
+                        error_y=dict(
+                            type="data",
+                            array=[row["hdi_high"] - row["value"]],
+                            arrayminus=[row["value"] - row["hdi_low"]],
+                            color=f"rgba({r},{g},{b},0.5)",
+                            thickness=2, width=6,
+                        ),
+                        hovertemplate="Season: %{x}<br>EB/PA: %{y:.3f}<extra></extra>",
+                    ))
+                else:
+                    fig_tl.add_trace(go.Scatter(
+                        x=tl_df["season"], y=tl_df["hdi_high"],
+                        mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip",
+                    ))
+                    fig_tl.add_trace(go.Scatter(
+                        x=tl_df["season"], y=tl_df["hdi_low"],
+                        mode="lines", line=dict(width=0),
+                        fill="tonexty", fillcolor=f"rgba({r},{g},{b},0.15)",
+                        showlegend=False, hoverinfo="skip",
+                    ))
+                    fig_tl.add_trace(go.Scatter(
+                        x=tl_df["season"], y=tl_df["value"],
+                        mode="lines+markers", name=pdata["name"],
+                        line=dict(color=color, width=2.5),
+                        marker=dict(color=color, size=12),
+                        hovertemplate="Season: %{x}<br>EB/PA: %{y:.3f}<extra></extra>",
+                    ))
+
+            # Multi-year projections for both players
+            x_max = max_s
+
+            if proj_data:
+                all_proj_seasons = [p["season"] for pts, _, _ in proj_data.values() for p in pts]
+                x_max = max(all_proj_seasons)
+
+                fig_tl.add_vrect(
+                    x0=max_s + 0.5, x1=max(all_proj_seasons) + 0.5,
+                    fillcolor="rgba(180,180,220,0.10)", line_width=0,
+                    layer="below",
+                )
+                fig_tl.add_annotation(
+                    x=(max_s + 0.5 + max(all_proj_seasons) + 0.5) / 2,
+                    y=1.0, yref="paper", yanchor="bottom",
+                    text="Projected", showarrow=False,
+                    font=dict(size=13, color="rgba(120,120,160,0.7)"),
+                )
+
+                for pnum, (points, color, pdata) in proj_data.items():
+                    c = color.lstrip("#")
+                    pr, pg, pb = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+
+                    p_seasons = [p["season"] for p in points]
+                    p_values = [p["projected_eb_pa"] for p in points]
+                    p_hdi_hi = [p["projected_hdi_high"] for p in points]
+                    p_hdi_lo = [p["projected_hdi_low"] for p in points]
+
+                    fig_tl.add_trace(go.Scatter(
+                        x=p_seasons, y=p_hdi_hi,
+                        mode="lines", line=dict(width=0),
+                        showlegend=False, hoverinfo="skip",
+                    ))
+                    fig_tl.add_trace(go.Scatter(
+                        x=p_seasons, y=p_hdi_lo,
+                        mode="lines", line=dict(width=0),
+                        fill="tonexty", fillcolor=f"rgba({pr},{pg},{pb},0.10)",
+                        showlegend=False, hoverinfo="skip",
+                    ))
+
+                    if tl_data[pnum]:
+                        last_actual_pt = tl_data[pnum][-1]
+                        fig_tl.add_trace(go.Scatter(
+                            x=[last_actual_pt["season"], p_seasons[0]],
+                            y=[last_actual_pt["value"], p_values[0]],
+                            mode="lines",
+                            line=dict(color=f"rgba({pr},{pg},{pb},0.4)", width=1.5, dash="dot"),
+                            showlegend=False, hoverinfo="skip",
+                        ))
+
+                    if len(p_seasons) > 1:
+                        fig_tl.add_trace(go.Scatter(
+                            x=p_seasons, y=p_values,
+                            mode="lines",
+                            line=dict(color=f"rgba({pr},{pg},{pb},0.5)", width=2, dash="dash"),
+                            showlegend=False, hoverinfo="skip",
+                        ))
+
                     fig_tl.add_trace(go.Scatter(
                         x=p_seasons, y=p_values,
-                        mode="lines",
-                        line=dict(color=f"rgba({pr},{pg},{pb},0.5)", width=2, dash="dash"),
-                        showlegend=False, hoverinfo="skip",
+                        mode="markers",
+                        showlegend=False,
+                        marker=dict(
+                            color="rgba(255,255,255,0)", size=12,
+                            symbol="diamond-open",
+                            line=dict(width=2.5, color=color),
+                        ),
+                        customdata=[
+                            [p.get("aging_effect", 0), p["projected_hdi_low"], p["projected_hdi_high"]]
+                            for p in points
+                        ],
+                        hovertemplate=(
+                            "Projection %{x}<br>"
+                            "EB/PA: %{y:.3f}<br>"
+                            "89% HDI: [%{customdata[1]:.3f}, %{customdata[2]:.3f}]<br>"
+                            "Aging effect: %{customdata[0]:+.3f}"
+                            "<extra></extra>"
+                        ),
                     ))
 
-                # Projection markers (open diamonds)
-                fig_tl.add_trace(go.Scatter(
-                    x=p_seasons, y=p_values,
-                    mode="markers",
-                    showlegend=False,
-                    marker=dict(
-                        color="rgba(255,255,255,0)", size=12,
-                        symbol="diamond-open",
-                        line=dict(width=2.5, color=color),
-                    ),
-                    customdata=[
-                        [p.get("aging_effect", 0), p["projected_hdi_low"], p["projected_hdi_high"]]
-                        for p in points
-                    ],
-                    hovertemplate=(
-                        "Projection %{x}<br>"
-                        "EB/PA: %{y:.3f}<br>"
-                        "89% HDI: [%{customdata[1]:.3f}, %{customdata[2]:.3f}]<br>"
-                        "Aging effect: %{customdata[0]:+.3f}"
-                        "<extra></extra>"
-                    ),
-                ))
+            # Player name annotations — prefer projection endpoint, fallback to last actual
+            anno_pts = []
+            for pnum, pdata, color in [(1, p1, p1_color), (2, p2, p2_color)]:
+                if pnum in proj_data:
+                    points, _, _ = proj_data[pnum]
+                    last_p = points[-1]
+                    anno_pts.append({"name": pdata["name"], "x": last_p["season"],
+                                     "y": last_p["projected_eb_pa"], "color": color})
+                elif tl_data[pnum]:
+                    last_pt = tl_data[pnum][-1]
+                    anno_pts.append({"name": pdata["name"], "x": last_pt["season"],
+                                     "y": last_pt["value"], "color": color})
+            _add_player_annotations(fig_tl, anno_pts)
 
-        fig_tl.update_layout(
-            xaxis=dict(title="Season", title_font_size=14, tickfont_size=13, dtick=1, tickformat="d",
-                       range=[min_s - 0.5, x_max + 0.5]),
-            yaxis=dict(title="Est. Bases per PA", title_font_size=14, tickfont_size=13),
-            height=400, template="plotly_white",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=13)),
-            dragmode=False,
-        )
-        st.plotly_chart(fig_tl, width="stretch", config=PLOTLY_CONFIG)
+            fig_tl.update_layout(
+                xaxis=dict(title="Season", title_font_size=14, tickfont_size=13, dtick=1, tickformat="d",
+                           range=[min_s - 0.5, x_max + 0.5]),
+                yaxis=dict(title="Est. Bases per PA", title_font_size=14, tickfont_size=13),
+                height=400, template="plotly_white",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=13)),
+                dragmode=False,
+            )
+            st.plotly_chart(fig_tl, width="stretch", config=PLOTLY_CONFIG)
+
+        # --- Rate stat tabs ---
+        if _has_rate_timeline:
+            with _timeline_tabs[1]:
+                st.caption("Bayesian strikeout rate with 89% credible interval and projections")
+                _fig_k = _build_comparison_rate_chart("k_rate", "K%", higher_is_better=False)
+                if _fig_k:
+                    st.plotly_chart(_fig_k, width="stretch", config=PLOTLY_CONFIG)
+
+            with _timeline_tabs[2]:
+                st.caption("Bayesian walk rate with 89% credible interval and projections")
+                _fig_bb = _build_comparison_rate_chart("bb_rate", "BB%", higher_is_better=True)
+                if _fig_bb:
+                    st.plotly_chart(_fig_bb, width="stretch", config=PLOTLY_CONFIG)
+
+            with _timeline_tabs[3]:
+                st.caption("Bayesian home run rate with 89% credible interval and projections")
+                _fig_hr = _build_comparison_rate_chart("hr_rate", "HR%", higher_is_better=True)
+                if _fig_hr:
+                    st.plotly_chart(_fig_hr, width="stretch", config=PLOTLY_CONFIG)
 
 
 # =============================================================================

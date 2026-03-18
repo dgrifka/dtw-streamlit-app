@@ -246,6 +246,7 @@ HITTER_ARCHETYPE_DESC = {
     "Patient Hitter": "Works counts and earns walks with solid contact ability. Lacks power and speed but contributes through plate discipline.",
     "Contact Hitter": "Puts the ball in play and avoids strikeouts, but limited impact tools.",
     "Below Average": "Below-average production across most skill dimensions this season.",
+    "Unknown": "Not enough data to determine an archetype yet.",
 }
 
 PITCHER_ARCHETYPE_DESC = {
@@ -258,6 +259,7 @@ PITCHER_ARCHETYPE_DESC = {
     "Command Pitcher": "Relies on command and pitch-ability over pure stuff.",
     "Volatile": "Has some swing-and-miss ability but walks too many batters. Results are inconsistent due to poor command.",
     "Below Average": "Below-average production across most skill dimensions this season.",
+    "Unknown": "Not enough data to determine an archetype yet.",
 }
 
 
@@ -287,7 +289,9 @@ def cluster_player_archetypes(df, player_type="hitter"):
 
     X = _get_percentile_matrix(df, axes)
     if len(X) < k:
-        df["archetype"] = "Unknown"
+        # Too few players for clustering — assign archetypes individually
+        df = df.copy()
+        df["archetype"] = [name_fn(row) for row in X]
         return df
 
     km = KMeans(n_clusters=k, random_state=42, n_init=10)

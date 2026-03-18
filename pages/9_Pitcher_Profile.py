@@ -632,6 +632,23 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                             xanchor="center", x=0.5, font=dict(size=13)),
                 dragmode=False,
             )
+            # Direction indicator annotation
+            if higher_is_better:
+                fig.add_annotation(
+                    x=0.01, y=0.98, xref="paper", yref="paper",
+                    text="↑ Higher = Better", showarrow=False,
+                    font=dict(size=12, color="rgba(40, 140, 70, 0.7)"),
+                    xanchor="left", yanchor="top",
+                    bgcolor="rgba(255,255,255,0.7)",
+                )
+            else:
+                fig.add_annotation(
+                    x=0.01, y=0.98, xref="paper", yref="paper",
+                    text="↓ Lower = Better", showarrow=False,
+                    font=dict(size=12, color="rgba(180, 60, 60, 0.7)"),
+                    xanchor="left", yanchor="top",
+                    bgcolor="rgba(255,255,255,0.7)",
+                )
             return fig
 
         # --- Tabs ---
@@ -775,6 +792,13 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                 height=400, template="plotly_white",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=13)),
                 dragmode=False,
+            )
+            fig_timeline.add_annotation(
+                x=0.01, y=0.98, xref="paper", yref="paper",
+                text="↓ Lower = Better", showarrow=False,
+                font=dict(size=12, color="rgba(180, 60, 60, 0.7)"),
+                xanchor="left", yanchor="top",
+                bgcolor="rgba(255,255,255,0.7)",
             )
             st.plotly_chart(fig_timeline, width="stretch", config=PLOTLY_CONFIG)
 
