@@ -402,10 +402,11 @@ from utils.player_analytics import (
     compute_hitter_radar_metrics, cluster_player_archetypes,
     find_similar_players, get_player_radar_percentiles,
     HITTER_ARCHETYPE_DESC, generate_player_highlights,
+    compute_player_grade,
 )
 from utils.player_helpers import (
     render_radar_chart, render_archetype_badge, render_similar_players,
-    render_snapshot_section, render_highlights, render_true_talent_bar,
+    render_snapshot_section, render_highlights,
 )
 
 # Compute radar metrics for all hitters (cached via Streamlit's data flow)
@@ -486,9 +487,10 @@ if _player_pcts is not None and not _radar_df.empty:
     _pr = _pm.iloc[0] if not _pm.empty else None
 
     if _pr is not None:
-        # Composite score = mean of 6 radar percentiles
-        _radar_pct_vals = [_player_pcts[label] for label in _player_pcts]
-        _composite = sum(_radar_pct_vals) / len(_radar_pct_vals)
+        # Grade = EB/PA-driven (90% contact quality + 10% speed)
+        _composite = compute_player_grade(_player_pcts, player_type="hitter")
+        if _composite is None:
+            _composite = sum(_player_pcts.values()) / len(_player_pcts)
 
         # Build 8 metrics: 4 contact/power (group 0) + 4 discipline (group 1)
         _snapshot_metrics = []
@@ -536,7 +538,9 @@ if _player_pcts is not None and not _radar_df.empty:
         if _spd_val is not None:
             _snapshot_metrics.append({"label": "Speed", "pct": _spd_pct, "value": f"{_sb_display} SB", "group": 1})
 
-        render_snapshot_section(_snapshot_metrics, _composite, _archetype, primary_color)
+        _has_projections = "true_talent_eb_pa" in _pr.index and pd.notna(_pr.get("true_talent_eb_pa"))
+        _snap_subtitle = f"Includes {season} projections" if _has_projections else None
+        render_snapshot_section(_snapshot_metrics, _composite, _archetype, primary_color, subtitle=_snap_subtitle)
 
     # Auto-generated highlights
     _deviation = None
@@ -557,37 +561,25 @@ if _player_pcts is not None and not _radar_df.empty:
     )
     render_highlights(_highlights, primary_color)
 
-    # True talent vs observed bar
-    if (player_ranking is not None
-            and "true_talent_eb_pa" in player_ranking.index
-            and pd.notna(player_ranking.get("true_talent_eb_pa"))
-            and _deviation is not None
-            and abs(_deviation) > 0.005):
-        _league_avg_eb_pa = pa_rankings["posterior_mean"].mean()
-        render_true_talent_bar(
-            observed_eb=player_ranking["posterior_mean"],
-            true_talent_eb=player_ranking["true_talent_eb_pa"],
-            league_avg_eb=_league_avg_eb_pa,
-            deviation=_deviation,
-            primary_color=primary_color,
-            is_pitcher=False,
-        )
-
     with st.expander("How does this work?"):
         st.markdown(
-            "**Overall Score (0-100):** The average of 6 skill percentiles from the radar chart below "
-            "(Contact Quality, Power, Plate Discipline, Contact Rate, Hard Hit %, Speed). "
-            "A score of 70 means the player averages in the 70th percentile across all skills.\n\n"
+            "**Overall Score (0-100):** Driven primarily by Estimated Bases per Plate Appearance (EB/PA), "
+            "the Bayesian model's best estimate of how much offensive value a hitter produces per trip to the plate. "
+            "A small speed component (stolen bases per PA) is blended in, since speed creates value that EB/PA doesn't fully capture. "
+            "A score of 80 means the hitter's overall production ranks around the 80th percentile.\n\n"
+            "When preseason projections are available (based on multi-year historical data), "
+            "the score uses a \"true talent\" estimate that blends this season's results with projections "
+            "for a more stable read, especially early in the year.\n\n"
             "**Letter Grades:** A+ (90+), A (80-89), B+ (70-79), B (60-69), C+ (50-59), C (40-49), D (30-39), F (<30).\n\n"
-            "**Percentile Bars:** Each bar shows where this player ranks among all hitters with 30+ plate appearances. "
-            "The filled portion represents the player's percentile (team color), with a thin line at the 50th percentile "
+            "**Percentile Bars:** Each bar shows where this player ranks among all qualified hitters. "
+            "The filled portion represents the player's percentile (team color), with a vertical line at the 50th percentile "
             "(league median). Higher percentile = better for all metrics shown. "
             "K Rate is oriented so that a higher percentile means a *lower* strikeout rate.\n\n"
-            "**Highlights:** Auto-generated callouts based on the player's most notable traits — "
-            "standout skills, luck context, recent trends, and platoon splits.\n\n"
-            "**True Talent Bar:** When preseason projections are available, shows the gap between "
-            "current season performance and the model's best estimate of the player's true ability. "
-            "A green arrow means the player is likely to improve; red means potential regression."
+            "**Radar Chart:** Shows the player's skill profile across 6 dimensions. "
+            "The grade is intentionally decoupled from the radar, so the grade answers \"how good?\" "
+            "while the radar answers \"what kind of hitter?\"\n\n"
+            "**Highlights:** Auto-generated callouts based on the player's most notable traits, "
+            "including standout skills, luck context, recent trends, and platoon splits."
         )
 
 

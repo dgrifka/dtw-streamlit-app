@@ -103,6 +103,51 @@ def compute_hitter_radar_metrics(pa_rankings, bb_df, min_pa=30):
     return df
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Player grade (decoupled from radar chart)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Speed weight for hitter grade: empirically optimized to maximize Spearman
+# correlation with OPS on 2025 data (r=0.843 at 10% vs 0.836 at 0%).
+HITTER_SPEED_WEIGHT = 0.10
+
+
+def compute_player_grade(radar_pcts, player_type="hitter"):
+    """Compute 0-100 player grade from radar percentiles.
+
+    Hitter: (1 - w) * eb_pa_pct + w * speed_pct  (w = HITTER_SPEED_WEIGHT)
+    Pitcher: run_prevention_pct (lower EB/PA allowed = higher grade)
+
+    Parameters
+    ----------
+    radar_pcts : dict
+        {axis_label: percentile_value (0-100)} from get_player_radar_percentiles.
+    player_type : str
+        "hitter" or "pitcher"
+
+    Returns
+    -------
+    float or None
+        0-100 grade, or None if required axes are missing.
+    """
+    if not radar_pcts:
+        return None
+
+    if player_type == "pitcher":
+        val = radar_pcts.get("Run Prevention")
+        return val if val is not None else None
+
+    # Hitter: EB/PA-weighted with speed component
+    eb_pa = radar_pcts.get("Contact Quality")
+    speed = radar_pcts.get("Speed")
+    if eb_pa is None:
+        return None
+    if speed is None:
+        return eb_pa
+    w = HITTER_SPEED_WEIGHT
+    return (1 - w) * eb_pa + w * speed
+
+
 def compute_pitcher_radar_metrics(pa_rankings, bb_df, min_pa=30):
     """
     Build the 6-axis radar metric DataFrame for all pitchers.

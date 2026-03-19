@@ -685,7 +685,7 @@ def _score_letter_grade(score):
         return "F"
 
 
-def render_snapshot_section(metrics, composite_score, archetype_name, primary_color):
+def render_snapshot_section(metrics, composite_score, archetype_name, primary_color, subtitle=None):
     """Render the combined overall score badge + percentile bars as a single HTML block.
 
     Parameters
@@ -699,6 +699,8 @@ def render_snapshot_section(metrics, composite_score, archetype_name, primary_co
         Player archetype label.
     primary_color : str
         Team primary hex color.
+    subtitle : str or None
+        Optional small text shown below the archetype (e.g., "Includes 2026 projections").
     """
     grade = _score_letter_grade(composite_score)
     score_int = int(round(composite_score))
@@ -712,9 +714,8 @@ def render_snapshot_section(metrics, composite_score, archetype_name, primary_co
     prev_group = None
     for m in metrics:
         pct = max(0, min(100, m["pct"]))
-        # Opacity varies by how extreme the percentile is (distance from 50)
-        extremeness = abs(pct - 50) / 50  # 0 to 1
-        fill_opacity = 0.45 + 0.55 * extremeness  # 0.45 to 1.0
+        # Opacity scales with percentile: higher = darker (better)
+        fill_opacity = 0.30 + 0.70 * (pct / 100)  # 0.30 at 0th to 1.0 at 100th
 
         # Separator between groups
         if prev_group is not None and m.get("group", 0) != prev_group:
@@ -728,7 +729,7 @@ def render_snapshot_section(metrics, composite_score, archetype_name, primary_co
             f'<div style="width:90px; text-align:right; font-size:0.82rem; color:#4A5568; font-weight:500; white-space:nowrap;">{safe_html(m["label"])}</div>'
             f'<div style="flex:1; position:relative; height:18px; background:#EDF2F7; border-radius:9px; overflow:hidden;">'
             f'<div style="position:absolute; top:0; left:0; width:{pct:.1f}%; height:100%; background:rgba({r},{g},{b},{fill_opacity:.2f}); border-radius:9px; transition:width 0.3s ease;"></div>'
-            f'<div style="position:absolute; top:0; left:50%; width:1px; height:100%; background:rgba(0,0,0,0.12);"></div>'
+            f'<div style="position:absolute; top:0; left:50%; width:2px; height:100%; background:rgba(0,0,0,0.25); transform:translateX(-1px);"></div>'
             f'</div>'
             f'<div style="width:100px; text-align:right; font-size:0.82rem; white-space:nowrap;">'
             f'<span style="color:#1a1a1a; font-weight:600;">{safe_html(m["value"])}</span>'
@@ -738,6 +739,11 @@ def render_snapshot_section(metrics, composite_score, archetype_name, primary_co
         )
 
     bars_html = "".join(bar_rows)
+    subtitle_html = (
+        f'<div style="margin-top:3px; font-size:0.68rem; color:#A0AEC0; text-align:center; '
+        f'max-width:120px; font-style:italic;">{safe_html(subtitle)}</div>'
+        if subtitle else ""
+    )
 
     html_block = (
         f'<div style="display:flex; gap:20px; align-items:stretch; background:#FAFBFC; border-radius:12px; padding:20px; border:1px solid #EDF2F7; margin-bottom:4px;">'
@@ -747,6 +753,7 @@ def render_snapshot_section(metrics, composite_score, archetype_name, primary_co
         f'</div>'
         f'<div style="margin-top:6px; font-size:1.3rem; font-weight:700; color:{primary_color};">{grade}</div>'
         f'<div style="margin-top:2px; font-size:0.78rem; color:#718096; text-align:center; max-width:110px;">{safe_html(archetype_name)}</div>'
+        f'{subtitle_html}'
         f'</div>'
         f'<div style="flex:1; min-width:0;">{bars_html}</div>'
         f'</div>'
@@ -900,10 +907,8 @@ def render_comparison_bars(metrics, name_1, color_1, name_2, color_2):
                 w1 = "font-weight:700;" if n1 < n2 else ""
                 w2 = "font-weight:700;" if n2 < n1 else ""
 
-        ext1 = abs(pct1 - 50) / 50
-        ext2 = abs(pct2 - 50) / 50
-        op1 = 0.45 + 0.55 * ext1
-        op2 = 0.45 + 0.55 * ext2
+        op1 = 0.30 + 0.70 * (pct1 / 100)
+        op2 = 0.30 + 0.70 * (pct2 / 100)
 
         pct1_label = _ordinal(int(pct1)) if m.get("pct1") is not None else ""
         pct2_label = _ordinal(int(pct2)) if m.get("pct2") is not None else ""
@@ -916,7 +921,7 @@ def render_comparison_bars(metrics, name_1, color_1, name_2, color_2):
             f'<div style="width:60px; text-align:right; font-size:0.78rem; color:{color_1}; font-weight:600; white-space:nowrap;">{safe_html(ln1)}</div>'
             f'<div style="flex:1; position:relative; height:16px; background:#EDF2F7; border-radius:8px; overflow:hidden;">'
             f'<div style="position:absolute; top:0; left:0; width:{pct1:.1f}%; height:100%; background:rgba({r1},{g1},{b1},{op1:.2f}); border-radius:8px;"></div>'
-            f'<div style="position:absolute; top:0; left:50%; width:1px; height:100%; background:rgba(0,0,0,0.1);"></div>'
+            f'<div style="position:absolute; top:0; left:50%; width:2px; height:100%; background:rgba(0,0,0,0.25); transform:translateX(-1px);"></div>'
             f'</div>'
             f'<div style="width:90px; text-align:right; font-size:0.78rem; white-space:nowrap;">'
             f'<span style="{w1} color:#1a1a1a;">{safe_html(m["v1"])}</span>'
@@ -928,7 +933,7 @@ def render_comparison_bars(metrics, name_1, color_1, name_2, color_2):
             f'<div style="width:60px; text-align:right; font-size:0.78rem; color:{color_2}; font-weight:600; white-space:nowrap;">{safe_html(ln2)}</div>'
             f'<div style="flex:1; position:relative; height:16px; background:#EDF2F7; border-radius:8px; overflow:hidden;">'
             f'<div style="position:absolute; top:0; left:0; width:{pct2:.1f}%; height:100%; background:rgba({r2},{g2},{b2},{op2:.2f}); border-radius:8px;"></div>'
-            f'<div style="position:absolute; top:0; left:50%; width:1px; height:100%; background:rgba(0,0,0,0.1);"></div>'
+            f'<div style="position:absolute; top:0; left:50%; width:2px; height:100%; background:rgba(0,0,0,0.25); transform:translateX(-1px);"></div>'
             f'</div>'
             f'<div style="width:90px; text-align:right; font-size:0.78rem; white-space:nowrap;">'
             f'<span style="{w2} color:#1a1a1a;">{safe_html(m["v2"])}</span>'

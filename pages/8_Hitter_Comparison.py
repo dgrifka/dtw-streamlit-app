@@ -37,6 +37,7 @@ from utils.player_helpers import (
 from utils.player_analytics import (
     compute_hitter_radar_metrics, cluster_player_archetypes,
     get_player_radar_percentiles, HITTER_ARCHETYPE_DESC,
+    compute_player_grade,
 )
 from utils.responsive import inject_responsive_css, render_home_link
 
@@ -541,9 +542,13 @@ if not _cmp_radar_df.empty:
     _rp1 = get_player_radar_percentiles(_cmp_radar_df, p1["name"], p1["team"], "hitter")
     _rp2 = get_player_radar_percentiles(_cmp_radar_df, p2["name"], p2["team"], "hitter")
     if _rp1:
-        _score_1 = sum(_rp1.values()) / len(_rp1)
+        _score_1 = compute_player_grade(_rp1, player_type="hitter")
+        if _score_1 is None:
+            _score_1 = sum(_rp1.values()) / len(_rp1)
     if _rp2:
-        _score_2 = sum(_rp2.values()) / len(_rp2)
+        _score_2 = compute_player_grade(_rp2, player_type="hitter")
+        if _score_2 is None:
+            _score_2 = sum(_rp2.values()) / len(_rp2)
 
 if _score_1 is not None and _score_2 is not None:
     render_comparison_grades(

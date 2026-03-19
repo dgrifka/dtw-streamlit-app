@@ -406,10 +406,11 @@ from utils.player_analytics import (
     compute_pitcher_radar_metrics, cluster_player_archetypes,
     find_similar_players, get_player_radar_percentiles,
     PITCHER_ARCHETYPE_DESC, generate_player_highlights,
+    compute_player_grade,
 )
 from utils.player_helpers import (
     render_radar_chart, render_archetype_badge, render_similar_players,
-    render_snapshot_section, render_highlights, render_true_talent_bar,
+    render_snapshot_section, render_highlights,
 )
 
 _radar_df = compute_pitcher_radar_metrics(pa_rankings, bb_df, min_pa=30)
@@ -487,9 +488,10 @@ if _player_pcts is not None and not _radar_df.empty:
     _pr = _pm.iloc[0] if not _pm.empty else None
 
     if _pr is not None:
-        # Composite score = mean of 6 radar percentiles
-        _radar_pct_vals = [_player_pcts[label] for label in _player_pcts]
-        _composite = sum(_radar_pct_vals) / len(_radar_pct_vals)
+        # Grade = run prevention percentile (EB/PA allowed, inverted)
+        _composite = compute_player_grade(_player_pcts, player_type="pitcher")
+        if _composite is None:
+            _composite = sum(_player_pcts.values()) / len(_player_pcts)
 
         # Build 8 metrics for pitcher — all oriented higher=better
         _snapshot_metrics = []
@@ -537,7 +539,9 @@ if _player_pcts is not None and not _radar_df.empty:
         if _gb_val is not None:
             _snapshot_metrics.append({"label": "Ground Balls", "pct": _gb_pct, "value": f"{_gb_val * 100:.1f}%", "group": 1})
 
-        render_snapshot_section(_snapshot_metrics, _composite, _archetype, primary_color)
+        _has_projections = "true_talent_eb_pa" in _pr.index and pd.notna(_pr.get("true_talent_eb_pa"))
+        _snap_subtitle = f"Includes {season} projections" if _has_projections else None
+        render_snapshot_section(_snapshot_metrics, _composite, _archetype, primary_color, subtitle=_snap_subtitle)
 
     # Auto-generated highlights
     _deviation = None
@@ -558,37 +562,24 @@ if _player_pcts is not None and not _radar_df.empty:
     )
     render_highlights(_highlights, primary_color)
 
-    # True talent vs observed bar
-    if (pitcher_ranking is not None
-            and "true_talent_eb_pa" in pitcher_ranking.index
-            and pd.notna(pitcher_ranking.get("true_talent_eb_pa"))
-            and _deviation is not None
-            and abs(_deviation) > 0.005):
-        _league_avg_eb_pa = pa_rankings["posterior_mean"].mean()
-        render_true_talent_bar(
-            observed_eb=pitcher_ranking["posterior_mean"],
-            true_talent_eb=pitcher_ranking["true_talent_eb_pa"],
-            league_avg_eb=_league_avg_eb_pa,
-            deviation=_deviation,
-            primary_color=primary_color,
-            is_pitcher=True,
-        )
-
     with st.expander("How does this work?"):
         st.markdown(
-            "**Overall Score (0-100):** The average of 6 skill percentiles from the radar chart below "
-            "(Run Prevention, Strikeout Ability, Command, HR Prevention, Weak Contact, Ground Balls). "
-            "A score of 70 means the pitcher averages in the 70th percentile across all skills.\n\n"
+            "**Overall Score (0-100):** Based entirely on Run Prevention, the Bayesian model's estimate of "
+            "how many estimated bases per PA a pitcher allows. A pitcher who limits hard contact and walks "
+            "will grade well regardless of their strikeout rate or ground ball tendencies.\n\n"
+            "When preseason projections are available (based on multi-year historical data), "
+            "the score uses a \"true talent\" estimate that blends this season's results with projections "
+            "for a more stable read, especially early in the year.\n\n"
             "**Letter Grades:** A+ (90+), A (80-89), B+ (70-79), B (60-69), C+ (50-59), C (40-49), D (30-39), F (<30).\n\n"
-            "**Percentile Bars:** Each bar shows where this pitcher ranks among all pitchers with 30+ batters faced. "
-            "The filled portion represents the pitcher's percentile (team color), with a thin line at the 50th percentile "
+            "**Percentile Bars:** Each bar shows where this pitcher ranks among all qualified pitchers. "
+            "The filled portion represents the pitcher's percentile (team color), with a vertical line at the 50th percentile "
             "(league median). All metrics are oriented so that higher = better "
             "(e.g., a high \"Command\" percentile means a low walk rate).\n\n"
-            "**Highlights:** Auto-generated callouts based on the pitcher's most notable traits — "
-            "standout skills, luck context, recent trends, and platoon splits.\n\n"
-            "**True Talent Bar:** When preseason projections are available, shows the gap between "
-            "current season performance and the model's best estimate of the pitcher's true ability. "
-            "A green arrow means the pitcher is likely to improve; red means potential regression."
+            "**Radar Chart:** Shows the pitcher's skill profile across 6 dimensions. "
+            "The grade is intentionally decoupled from the radar, so the grade answers \"how good at preventing runs?\" "
+            "while the radar answers \"what kind of pitcher?\"\n\n"
+            "**Highlights:** Auto-generated callouts based on the pitcher's most notable traits, "
+            "including standout skills, luck context, recent trends, and platoon splits."
         )
 
 
