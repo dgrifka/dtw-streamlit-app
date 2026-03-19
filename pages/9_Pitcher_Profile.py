@@ -100,8 +100,10 @@ all_season_pa_rankings = load_all_season_pa_rankings("pitcher")
 
 st.title("Pitcher Profile")
 
-# Check if we arrived via query param (cross-page linking)
+# Check if we arrived via query param (cross-page linking), fall back to session state
 query_player = st.query_params.get("player", "")
+if not query_player:
+    query_player = st.session_state.get("pitcher_profile_last_player", "")
 
 # Build deduplicated pitcher list (merges traded pitchers, keeps same-name-different-person separate)
 display_list, display_to_name, display_to_team, multi_id_names = build_player_display_list(
@@ -145,6 +147,7 @@ with shuffle_col:
         st.query_params["player"] = random.choice(eligible_displays)
         st.rerun()
 
+st.session_state["pitcher_profile_last_player"] = selected_display
 selected_pitcher = display_to_name.get(selected_display, selected_display)
 selected_team_hint = display_to_team.get(selected_display)
 
@@ -391,6 +394,192 @@ with hero_bayesian:
         st.metric("Avg Est. Bases Allowed/BB", f"{avg_eb:.3f}")
         st.caption("Full ranking not available (need player evaluation data)")
 
+# Pre-compute actual_tb (used by Quick Stats and Luck Report)
+pitcher_bb["actual_tb"] = pitcher_bb["actual_result"].map(TB_MAP).fillna(0)
+
+
+# =============================================================================
+# SEASON STATS (traditional pitching stats for context)
+# =============================================================================
+
+if pitcher_ranking is not None and "era" in pitcher_ranking.index and pd.notna(pitcher_ranking.get("era")):
+    st.divider()
+    st.subheader(f"{season} Season Stats")
+
+    _era = pitcher_ranking["era"]
+    _whip = pitcher_ranking["whip"]
+    _ip = pitcher_ranking["innings_pitched"]
+    _ip_str = f"{_ip:.1f}" if isinstance(_ip, float) else str(_ip)
+    _w = int(pitcher_ranking["wins"])
+    _l = int(pitcher_ranking["losses"])
+    _k = int(pitcher_ranking["strikeouts"])
+    _bb_p = int(pitcher_ranking["walks"])
+    _hr_a = int(pitcher_ranking["home_runs_allowed"])
+    _sv = int(pitcher_ranking["saves"])
+
+    _count_items = (
+        f'<div style="text-align:center;"><span style="color:#718096; font-size:0.8rem;">K </span><span style="font-weight:600; font-size:0.95rem;">{_k}</span></div>'
+        f'<div style="text-align:center;"><span style="color:#718096; font-size:0.8rem;">BB </span><span style="font-weight:600; font-size:0.95rem;">{_bb_p}</span></div>'
+        f'<div style="text-align:center;"><span style="color:#718096; font-size:0.8rem;">HR </span><span style="font-weight:600; font-size:0.95rem;">{_hr_a}</span></div>'
+    )
+    if _sv > 0:
+        _count_items += f'<div style="text-align:center;"><span style="color:#718096; font-size:0.8rem;">SV </span><span style="font-weight:600; font-size:0.95rem;">{_sv}</span></div>'
+
+    st.markdown(
+        f'<div style="background:#F7FAFC; border-radius:10px; padding:16px 20px; '
+        f'border-left:4px solid {primary_color};">'
+        # Rate stats row
+        f'<div style="display:flex; justify-content:center; gap:32px; flex-wrap:wrap; margin-bottom:10px;">'
+        f'<div style="text-align:center;"><div style="font-size:0.75rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">ERA</div><div style="font-size:1.6rem; font-weight:700; color:#1a1a1a;">{_era:.2f}</div></div>'
+        f'<div style="text-align:center;"><div style="font-size:0.75rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">WHIP</div><div style="font-size:1.6rem; font-weight:700; color:#1a1a1a;">{_whip:.2f}</div></div>'
+        f'<div style="text-align:center;"><div style="font-size:0.75rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">IP</div><div style="font-size:1.6rem; font-weight:700; color:#1a1a1a;">{_ip_str}</div></div>'
+        f'<div style="text-align:center;"><div style="font-size:0.75rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">W-L</div><div style="font-size:1.6rem; font-weight:700; color:#1a1a1a;">{_w}-{_l}</div></div>'
+        f'</div>'
+        # Counting stats row
+        f'<div style="display:flex; justify-content:center; gap:24px; flex-wrap:wrap; padding-top:8px; border-top:1px solid #E2E8F0;">'
+        f'{_count_items}'
+        f'</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption("Traditional stats via MLB Stats API — actual results, not model estimates. Totals may vary slightly from other sources if Statcast data was unavailable for a game or plate appearance.")
+
+
+# =============================================================================
+# PLAYER PROFILE (Radar Chart + Archetype + Similar Players + Quick Stats)
+# =============================================================================
+
+from utils.player_analytics import (
+    compute_pitcher_radar_metrics, cluster_player_archetypes,
+    find_similar_players, get_player_radar_percentiles,
+    PITCHER_ARCHETYPE_DESC,
+)
+from utils.player_helpers import render_radar_chart, render_archetype_badge, render_similar_players
+
+_radar_df = compute_pitcher_radar_metrics(pa_rankings, bb_df, min_pa=30)
+
+if not _radar_df.empty:
+    _radar_df = cluster_player_archetypes(_radar_df, player_type="pitcher")
+    _player_pcts = get_player_radar_percentiles(_radar_df, selected_pitcher, pitcher_team_short, "pitcher")
+else:
+    _player_pcts = None
+
+# Compute Quick Stats (luck, trend, platoon) — used in both radar and fallback
+_pitcher_luck = pitcher_bb["estimated_bases"].sum() - pitcher_bb["actual_tb"].sum()
+
+_league_luck_pitchers = bb_df.copy()
+_league_luck_pitchers["_actual_tb"] = _league_luck_pitchers["actual_result"].map(TB_MAP).fillna(0)
+_luck_per_pitcher = _league_luck_pitchers.groupby("pitcher").apply(
+    lambda x: x["estimated_bases"].sum() - x["_actual_tb"].sum(),
+    include_groups=False,
+)
+_luck_pct = (_luck_per_pitcher < _pitcher_luck).mean() * 100
+
+_lucky_hits_allowed = pitcher_bb[
+    (pitcher_bb["actual_tb"] > 0) & (pitcher_bb["estimated_bases"] < 0.5)
+]
+_n_lucky_hits = len(_lucky_hits_allowed)
+
+_recent_eb_p = None
+_recent_vs_season_p = 0.0
+if "date_parsed" in pitcher_bb.columns and len(pitcher_bb) > 0:
+    _max_date_p = pitcher_bb["date_parsed"].max()
+    _recent_p = pitcher_bb[pitcher_bb["date_parsed"] > _max_date_p - pd.Timedelta(days=14)]
+    if len(_recent_p) > 5:
+        _recent_eb_p = _recent_p["estimated_bases"].mean()
+        _recent_vs_season_p = _recent_eb_p - avg_eb
+
+_platoon_str_p = None
+if not metadata_df.empty and "player" in pitcher_bb.columns:
+    _bsm = metadata_df.set_index("player_name")["bat_side"].to_dict()
+    pitcher_bb["_bat_side"] = pitcher_bb["player"].map(_bsm)
+    _vs_l = pitcher_bb[pitcher_bb["_bat_side"] == "L"]
+    _vs_r = pitcher_bb[pitcher_bb["_bat_side"] == "R"]
+    if len(_vs_l) >= 10 and len(_vs_r) >= 10:
+        _gap_p = _vs_l["estimated_bases"].mean() - _vs_r["estimated_bases"].mean()
+        if abs(_gap_p) > 0.03:
+            _weak_side = "vs LHH" if _gap_p > 0 else "vs RHH"
+            _platoon_str_p = f"+{abs(_gap_p):.3f} EB/BB {_weak_side}"
+    pitcher_bb.drop(columns=["_bat_side"], inplace=True, errors="ignore")
+
+def _render_pitcher_quick_stats():
+    """Render pitcher Quick Stats HTML block."""
+    st.markdown('<div style="font-weight:600; margin-top:16px; margin-bottom:6px; font-size:0.85rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">Quick Stats</div>', unsafe_allow_html=True)
+    _luck_str = f"{_pitcher_luck:+.1f} net lucky bases ({_luck_pct:.0f}th pct)"
+    _quick_parts = [f"Luck: {_luck_str}", f"{_n_lucky_hits} lucky hits allowed (EB < 0.5)"]
+    if _recent_eb_p is not None:
+        _arrow = "+" if _recent_vs_season_p > 0.005 else ("" if _recent_vs_season_p < -0.005 else "")
+        _trend_note = "worse" if _recent_vs_season_p > 0.005 else ("better" if _recent_vs_season_p < -0.005 else "same")
+        _quick_parts.append(f"Last 14d: {_recent_eb_p:.3f} EB/BB ({_arrow}{_recent_vs_season_p:.3f} vs season — {_trend_note})")
+    if _platoon_str_p:
+        _quick_parts.append(f"Weakness: {_platoon_str_p}")
+    st.markdown(
+        "".join(f'<div style="color:#4A5568; font-size:0.88rem; padding:1px 0;">{p}</div>' for p in _quick_parts),
+        unsafe_allow_html=True,
+    )
+
+if _player_pcts is not None:
+    st.divider()
+    st.subheader("Player Profile")
+
+    _col_radar, _col_info = st.columns([3, 2])
+
+    with _col_radar:
+        _radar_fig = render_radar_chart(_player_pcts, primary_color)
+        st.plotly_chart(_radar_fig, use_container_width=True, config=PLOTLY_CONFIG)
+        if n_bb < 50:
+            st.caption(f"Based on {n_bb} batted balls faced — profile may shift as more data accumulates.")
+
+    with _col_info:
+        _player_match = _radar_df[
+            (_radar_df["player"] == selected_pitcher) & (_radar_df["team"] == pitcher_team_short)
+        ]
+        if _player_match.empty:
+            _player_match = _radar_df[_radar_df["player"] == selected_pitcher]
+        _archetype = _player_match.iloc[0]["archetype"] if not _player_match.empty else "Unknown"
+        _arch_desc = PITCHER_ARCHETYPE_DESC.get(_archetype, "")
+
+        st.markdown(render_archetype_badge(_archetype, _arch_desc, primary_color), unsafe_allow_html=True)
+
+        st.markdown('<div style="font-weight:600; margin-top:16px; margin-bottom:6px; font-size:0.85rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">Similar Pitchers</div>', unsafe_allow_html=True)
+        _similar = find_similar_players(_radar_df, selected_pitcher, pitcher_team_short, "pitcher", n=5)
+        st.markdown(render_similar_players(_similar), unsafe_allow_html=True)
+
+        _render_pitcher_quick_stats()
+
+    with st.expander("How does this work?"):
+        st.markdown(
+            "**Radar Chart:** Shows how this pitcher compares to every pitcher with 30+ batters faced this season. "
+            "Each spoke is a different skill, measured as a percentile (0 to 100). All axes are oriented so that bigger = better "
+            "(e.g., \"Command\" = low walk rate, \"HR Prevention\" = low HR rate).\n\n"
+            "**Archetype:** Pitchers are grouped by their radar shape using a clustering algorithm (K-Means). "
+            "Pitchers in the same archetype tend to have similar strengths and weaknesses.\n\n"
+            "**Current Pitcher Archetypes:**\n"
+            "- **Elite Command**: Exceptional command and run prevention with well-rounded skills. Consistently locates pitches and limits damage.\n"
+            "- **Strikeout Artist**: Misses bats at an elite rate with strong overall run prevention. Overpowers hitters with swing-and-miss stuff.\n"
+            "- **Ground Ball Machine**: Keeps the ball on the ground and limits home runs effectively. Relies on inducing weak ground-ball contact.\n"
+            "- **Pitch-to-Contact**: Good command and induces weak contact, but doesn't miss many bats. Relies on location and movement over velocity.\n"
+            "- **Finesse Pitcher**: Decent command and gets ground balls, but lacks swing-and-miss ability. Relies on guile and location over pure stuff.\n"
+            "- **Volatile**: Has some swing-and-miss ability but walks too many batters. Results are inconsistent due to poor command.\n"
+            "- **Below Average**: Below-average production across most skill dimensions this season.\n\n"
+            "**Similar Pitchers:** The 5 pitchers whose overall skill profile most closely matches this pitcher's, "
+            "based on the Euclidean distance between their radar shapes in 6-dimensional percentile space.\n\n"
+            "**Quick Stats:** Luck = expected TB minus actual TB allowed (positive = pitcher got lucky). "
+            "Lucky hits allowed = batted balls that became hits despite low expected bases (EB < 0.5). "
+            "14-day trend shows recent EB/BB vs season average (higher = allowing harder contact). "
+            "Platoon weakness shows which handedness the pitcher struggles against more.\n\n"
+            "**Data Note:** The radar uses the best available estimate of each pitcher's true skill level. "
+            "When preseason projections are available, they are combined with in-season performance using "
+            "inverse-variance weighting for a more stable \"true talent\" estimate. Otherwise, the Bayesian "
+            "posterior from the current season is used, which already shrinks small samples toward the league mean."
+        )
+
+else:
+    # Fallback: no radar data — still show Quick Stats
+    st.divider()
+    st.subheader("Player Profile")
+    _render_pitcher_quick_stats()
+
 
 # =============================================================================
 # HISTORICAL EST. BASES / PA TIMELINE
@@ -407,13 +596,16 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
         pa_df = all_season_pa_rankings[s]
 
         lg_mean = pa_df["posterior_mean"].mean()
-        league_avg_data.append({"season": s, "value": lg_mean})
+        lg_sd = pa_df["posterior_mean"].std()
+        league_avg_data.append({"season": s, "value": lg_mean, "sd": lg_sd})
 
-        # Rate stat league averages
+        # Rate stat league averages + SD
         _rate_lg = {"season": s}
         for _rc in ["k_rate_posterior", "bb_rate_posterior", "hr_rate_posterior"]:
             if _rc in pa_df.columns:
-                _rate_lg[_rc] = pa_df[_rc].dropna().mean()
+                _vals = pa_df[_rc].dropna()
+                _rate_lg[_rc] = _vals.mean()
+                _rate_lg[f"{_rc}_sd"] = _vals.std()
         rate_league_avg.append(_rate_lg)
 
         # Best pitcher = lowest posterior_mean
@@ -481,14 +673,24 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
             if vals.empty:
                 return None
             fig = go.Figure()
+            sd_col = f"{mean_col}_sd"
             if not rate_lg_df.empty and mean_col in rate_lg_df.columns:
                 lg_vals = rate_lg_df.dropna(subset=[mean_col])
                 if not lg_vals.empty:
+                    _sd_arr = (lg_vals[sd_col] * 100).tolist() if sd_col in lg_vals.columns else [0] * len(lg_vals)
                     fig.add_trace(go.Scatter(
-                        x=lg_vals["season"], y=lg_vals[mean_col] * 100,
+                        x=lg_vals["season"] + 0.15, y=lg_vals[mean_col] * 100,
                         mode="markers", name="Lg Avg",
                         marker=dict(color="rgba(160,160,160,0.8)", size=11),
-                        hovertemplate="Season: %{x}<br>Lg Avg: %{y:.1f}%<extra></extra>",
+                        error_y=dict(
+                            type="data",
+                            array=_sd_arr,
+                            arrayminus=_sd_arr,
+                            color="rgba(160,160,160,0.4)",
+                            thickness=1.5,
+                            width=4,
+                        ),
+                        hovertemplate="Season: %{x:.0f}<br>Lg Avg: %{y:.1f}%<br>±1 SD: %{error_y.array:.1f}%<extra></extra>",
                     ))
             c = primary_color.lstrip("#")
             r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
@@ -502,7 +704,7 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                     marker=dict(color=primary_color, size=12),
                     error_y=dict(
                         type="data", array=err_hi, arrayminus=err_lo,
-                        color=f"rgba({r},{g},{b},0.5)", thickness=2, width=6,
+                        color=f"rgba({r},{g},{b},0.5)", thickness=2, width=8,
                     ) if err_hi else None,
                     hovertemplate=f"Season: %{{x}}<br>{y_label}: %{{y:.1f}}%<extra></extra>",
                 ))
@@ -666,10 +868,18 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
             fig_timeline = go.Figure()
 
             fig_timeline.add_trace(go.Scatter(
-                x=lg_df["season"], y=lg_df["value"],
+                x=lg_df["season"] + 0.15, y=lg_df["value"],
                 mode="markers", name="Lg Avg",
                 marker=dict(color="rgba(160,160,160,0.8)", size=11),
-                hovertemplate="Season: %{x}<br>Lg Avg: %{y:.3f}<extra></extra>",
+                error_y=dict(
+                    type="data",
+                    array=lg_df["sd"].tolist(),
+                    arrayminus=lg_df["sd"].tolist(),
+                    color="rgba(160,160,160,0.4)",
+                    thickness=1.5,
+                    width=4,
+                ),
+                hovertemplate="Season: %{x:.0f}<br>Lg Avg: %{y:.3f}<br>±1 SD: %{error_y.array:.3f}<extra></extra>",
             ))
 
             if not best_df.empty:
@@ -834,8 +1044,7 @@ st.divider()
 st.subheader("Luck Report")
 st.caption(f"{season} Season — from the pitcher's perspective")
 
-pitcher_bb["actual_tb"] = pitcher_bb["actual_result"].map(TB_MAP).fillna(0)
-
+# actual_tb already computed after Hero section
 total_actual_tb = pitcher_bb["actual_tb"].sum()
 total_expected_tb = pitcher_bb["estimated_bases"].sum()
 # Pitcher luck: expected - actual (positive = pitcher got lucky, allowed fewer bases than expected)
@@ -904,188 +1113,81 @@ st.plotly_chart(fig_luck, width="stretch", config=PLOTLY_CONFIG)
 
 
 # =============================================================================
-# SEASON STATS (traditional pitching stats for context)
+# PITCHING COMMAND (K% / BB% / HR%)
 # =============================================================================
 
-if pitcher_ranking is not None and "era" in pitcher_ranking.index and pd.notna(pitcher_ranking.get("era")):
+# K%/BB%/HR% — prefer Bayesian posterior from rankings, fall back to raw pa_counts
+_k_rate_p = 20.0
+_bb_rate_p = 8.0
+_hr_rate_p = 3.0
+_k_rate_bayesian_p = False
+_bb_rate_bayesian_p = False
+_hr_rate_bayesian_p = False
+if pitcher_ranking is not None:
+    if "k_rate_posterior" in pitcher_ranking.index and pd.notna(pitcher_ranking.get("k_rate_posterior")):
+        _k_rate_p = pitcher_ranking["k_rate_posterior"] * 100
+        _k_rate_bayesian_p = True
+    if "bb_rate_posterior" in pitcher_ranking.index and pd.notna(pitcher_ranking.get("bb_rate_posterior")):
+        _bb_rate_p = pitcher_ranking["bb_rate_posterior"] * 100
+        _bb_rate_bayesian_p = True
+    if "hr_rate_posterior" in pitcher_ranking.index and pd.notna(pitcher_ranking.get("hr_rate_posterior")):
+        _hr_rate_p = pitcher_ranking["hr_rate_posterior"] * 100
+        _hr_rate_bayesian_p = True
+
+if _k_rate_bayesian_p or _bb_rate_bayesian_p or _hr_rate_bayesian_p:
     st.divider()
-    st.subheader(f"{season} Season Stats")
-
-    _era = pitcher_ranking["era"]
-    _whip = pitcher_ranking["whip"]
-    _ip = pitcher_ranking["innings_pitched"]
-    _ip_str = f"{_ip:.1f}" if isinstance(_ip, float) else str(_ip)
-    _w = int(pitcher_ranking["wins"])
-    _l = int(pitcher_ranking["losses"])
-    _k = int(pitcher_ranking["strikeouts"])
-    _bb_p = int(pitcher_ranking["walks"])
-    _hr_a = int(pitcher_ranking["home_runs_allowed"])
-    _sv = int(pitcher_ranking["saves"])
-
-    _count_items = (
-        f'<div style="text-align:center;"><span style="color:#718096; font-size:0.8rem;">K </span><span style="font-weight:600; font-size:0.95rem;">{_k}</span></div>'
-        f'<div style="text-align:center;"><span style="color:#718096; font-size:0.8rem;">BB </span><span style="font-weight:600; font-size:0.95rem;">{_bb_p}</span></div>'
-        f'<div style="text-align:center;"><span style="color:#718096; font-size:0.8rem;">HR </span><span style="font-weight:600; font-size:0.95rem;">{_hr_a}</span></div>'
-    )
-    if _sv > 0:
-        _count_items += f'<div style="text-align:center;"><span style="color:#718096; font-size:0.8rem;">SV </span><span style="font-weight:600; font-size:0.95rem;">{_sv}</span></div>'
-
-    st.markdown(
-        f'<div style="background:#F7FAFC; border-radius:10px; padding:16px 20px; '
-        f'border-left:4px solid {primary_color};">'
-        # Rate stats row
-        f'<div style="display:flex; justify-content:center; gap:32px; flex-wrap:wrap; margin-bottom:10px;">'
-        f'<div style="text-align:center;"><div style="font-size:0.75rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">ERA</div><div style="font-size:1.6rem; font-weight:700; color:#1a1a1a;">{_era:.2f}</div></div>'
-        f'<div style="text-align:center;"><div style="font-size:0.75rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">WHIP</div><div style="font-size:1.6rem; font-weight:700; color:#1a1a1a;">{_whip:.2f}</div></div>'
-        f'<div style="text-align:center;"><div style="font-size:0.75rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">IP</div><div style="font-size:1.6rem; font-weight:700; color:#1a1a1a;">{_ip_str}</div></div>'
-        f'<div style="text-align:center;"><div style="font-size:0.75rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">W-L</div><div style="font-size:1.6rem; font-weight:700; color:#1a1a1a;">{_w}-{_l}</div></div>'
-        f'</div>'
-        # Counting stats row
-        f'<div style="display:flex; justify-content:center; gap:24px; flex-wrap:wrap; padding-top:8px; border-top:1px solid #E2E8F0;">'
-        f'{_count_items}'
-        f'</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-    st.caption("Traditional stats via MLB Stats API — actual results, not model estimates. Totals may vary slightly from other sources if Statcast data was unavailable for a game or plate appearance.")
-
-
-# =============================================================================
-# PLAYER PROFILE (Radar Chart + Archetype + Similar Players + Quick Stats)
-# =============================================================================
-
-from utils.player_analytics import (
-    compute_pitcher_radar_metrics, cluster_player_archetypes,
-    find_similar_players, get_player_radar_percentiles,
-    PITCHER_ARCHETYPE_DESC,
-)
-from utils.player_helpers import render_radar_chart, render_archetype_badge, render_similar_players
-
-_radar_df = compute_pitcher_radar_metrics(pa_rankings, bb_df, min_pa=30)
-
-if not _radar_df.empty:
-    _radar_df = cluster_player_archetypes(_radar_df, player_type="pitcher")
-    _player_pcts = get_player_radar_percentiles(_radar_df, selected_pitcher, pitcher_team_short, "pitcher")
-else:
-    _player_pcts = None
-
-# Compute Quick Stats (luck, trend, platoon) — used in both radar and fallback
-# Reuses actual_tb column already computed in the Luck Report section above
-_pitcher_luck = pitcher_bb["estimated_bases"].sum() - pitcher_bb["actual_tb"].sum()
-
-_league_luck_pitchers = bb_df.copy()
-_league_luck_pitchers["_actual_tb"] = _league_luck_pitchers["actual_result"].map(TB_MAP).fillna(0)
-_luck_per_pitcher = _league_luck_pitchers.groupby("pitcher").apply(
-    lambda x: x["estimated_bases"].sum() - x["_actual_tb"].sum(),
-    include_groups=False,
-)
-_luck_pct = (_luck_per_pitcher < _pitcher_luck).mean() * 100
-
-_lucky_hits_allowed = pitcher_bb[
-    (pitcher_bb["actual_tb"] > 0) & (pitcher_bb["estimated_bases"] < 0.5)
-]
-_n_lucky_hits = len(_lucky_hits_allowed)
-
-_recent_eb_p = None
-_recent_vs_season_p = 0.0
-if "date_parsed" in pitcher_bb.columns and len(pitcher_bb) > 0:
-    _max_date_p = pitcher_bb["date_parsed"].max()
-    _recent_p = pitcher_bb[pitcher_bb["date_parsed"] > _max_date_p - pd.Timedelta(days=14)]
-    if len(_recent_p) > 5:
-        _recent_eb_p = _recent_p["estimated_bases"].mean()
-        _recent_vs_season_p = _recent_eb_p - avg_eb
-
-_platoon_str_p = None
-if not metadata_df.empty and "player" in pitcher_bb.columns:
-    _bsm = metadata_df.set_index("player_name")["bat_side"].to_dict()
-    pitcher_bb["_bat_side"] = pitcher_bb["player"].map(_bsm)
-    _vs_l = pitcher_bb[pitcher_bb["_bat_side"] == "L"]
-    _vs_r = pitcher_bb[pitcher_bb["_bat_side"] == "R"]
-    if len(_vs_l) >= 10 and len(_vs_r) >= 10:
-        _gap_p = _vs_l["estimated_bases"].mean() - _vs_r["estimated_bases"].mean()
-        if abs(_gap_p) > 0.03:
-            _weak_side = "vs LHH" if _gap_p > 0 else "vs RHH"
-            _platoon_str_p = f"+{abs(_gap_p):.3f} EB/BB {_weak_side}"
-    pitcher_bb.drop(columns=["_bat_side"], inplace=True, errors="ignore")
-
-def _render_pitcher_quick_stats():
-    """Render pitcher Quick Stats HTML block."""
-    st.markdown('<div style="font-weight:600; margin-top:16px; margin-bottom:6px; font-size:0.85rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">Quick Stats</div>', unsafe_allow_html=True)
-    _luck_str = f"{_pitcher_luck:+.1f} net lucky bases ({_luck_pct:.0f}th pct)"
-    _quick_parts = [f"Luck: {_luck_str}", f"{_n_lucky_hits} lucky hits allowed (EB < 0.5)"]
-    if _recent_eb_p is not None:
-        _arrow = "+" if _recent_vs_season_p > 0.005 else ("" if _recent_vs_season_p < -0.005 else "")
-        _trend_note = "worse" if _recent_vs_season_p > 0.005 else ("better" if _recent_vs_season_p < -0.005 else "same")
-        _quick_parts.append(f"Last 14d: {_recent_eb_p:.3f} EB/BB ({_arrow}{_recent_vs_season_p:.3f} vs season — {_trend_note})")
-    if _platoon_str_p:
-        _quick_parts.append(f"Weakness: {_platoon_str_p}")
-    st.markdown(
-        "".join(f'<div style="color:#4A5568; font-size:0.88rem; padding:1px 0;">{p}</div>' for p in _quick_parts),
-        unsafe_allow_html=True,
+    st.subheader("Pitching Command")
+    st.caption(
+        "For pitchers: higher K% and lower BB%/HR% indicate better command. "
+        "The Bayesian model adjusts for sample size — pitchers with fewer batters faced get "
+        "pulled toward the league average, while large samples stay close to the raw number."
     )
 
-if _player_pcts is not None:
-    st.divider()
-    st.subheader("Player Profile")
-
-    _col_radar, _col_info = st.columns([3, 2])
-
-    with _col_radar:
-        _radar_fig = render_radar_chart(_player_pcts, primary_color)
-        st.plotly_chart(_radar_fig, use_container_width=True, config=PLOTLY_CONFIG)
-        if n_bb < 50:
-            st.caption(f"Based on {n_bb} batted balls faced — profile may shift as more data accumulates.")
-
-    with _col_info:
-        _player_match = _radar_df[
-            (_radar_df["player"] == selected_pitcher) & (_radar_df["team"] == pitcher_team_short)
-        ]
-        if _player_match.empty:
-            _player_match = _radar_df[_radar_df["player"] == selected_pitcher]
-        _archetype = _player_match.iloc[0]["archetype"] if not _player_match.empty else "Unknown"
-        _arch_desc = PITCHER_ARCHETYPE_DESC.get(_archetype, "")
-
-        st.markdown(render_archetype_badge(_archetype, _arch_desc, primary_color), unsafe_allow_html=True)
-
-        st.markdown('<div style="font-weight:600; margin-top:16px; margin-bottom:6px; font-size:0.85rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">Similar Pitchers</div>', unsafe_allow_html=True)
-        _similar = find_similar_players(_radar_df, selected_pitcher, pitcher_team_short, "pitcher", n=5)
-        st.markdown(render_similar_players(_similar), unsafe_allow_html=True)
-
-        _render_pitcher_quick_stats()
-
-    with st.expander("How does this work?"):
-        st.markdown(
-            "**Radar Chart:** Shows how this pitcher compares to every pitcher with 30+ batters faced this season. "
-            "Each spoke is a different skill, measured as a percentile (0 to 100). All axes are oriented so that bigger = better "
-            "(e.g., \"Command\" = low walk rate, \"HR Prevention\" = low HR rate).\n\n"
-            "**Archetype:** Pitchers are grouped by their radar shape using a clustering algorithm (K-Means). "
-            "Pitchers in the same archetype tend to have similar strengths and weaknesses.\n\n"
-            "**Current Pitcher Archetypes:**\n"
-            "- **Elite Command**: Exceptional command and run prevention with well-rounded skills. Consistently locates pitches and limits damage.\n"
-            "- **Strikeout Artist**: Misses bats at an elite rate with strong overall run prevention. Overpowers hitters with swing-and-miss stuff.\n"
-            "- **Ground Ball Machine**: Keeps the ball on the ground and limits home runs effectively. Relies on inducing weak ground-ball contact.\n"
-            "- **Pitch-to-Contact**: Good command and induces weak contact, but doesn't miss many bats. Relies on location and movement over velocity.\n"
-            "- **Finesse Pitcher**: Decent command and gets ground balls, but lacks swing-and-miss ability. Relies on guile and location over pure stuff.\n"
-            "- **Volatile**: Has some swing-and-miss ability but walks too many batters. Results are inconsistent due to poor command.\n"
-            "- **Below Average**: Below-average production across most skill dimensions this season.\n\n"
-            "**Similar Pitchers:** The 5 pitchers whose overall skill profile most closely matches this pitcher's, "
-            "based on the Euclidean distance between their radar shapes in 6-dimensional percentile space.\n\n"
-            "**Quick Stats:** Luck = expected TB minus actual TB allowed (positive = pitcher got lucky). "
-            "Lucky hits allowed = batted balls that became hits despite low expected bases (EB < 0.5). "
-            "14-day trend shows recent EB/BB vs season average (higher = allowing harder contact). "
-            "Platoon weakness shows which handedness the pitcher struggles against more.\n\n"
-            "**Data Note:** The radar uses the best available estimate of each pitcher's true skill level. "
-            "When preseason projections are available, they are combined with in-season performance using "
-            "inverse-variance weighting for a more stable \"true talent\" estimate. Otherwise, the Bayesian "
-            "posterior from the current season is used, which already shrinks small samples toward the league mean."
-        )
-
-else:
-    # Fallback: no radar data — still show Quick Stats
-    st.divider()
-    st.subheader("Player Profile")
-    _render_pitcher_quick_stats()
-
+    _pc1, _pc2, _pc3 = st.columns(3)
+    with _pc1:
+        _k_suffix_p = "" if _k_rate_bayesian_p else " (raw)"
+        st.metric(f"K%{_k_suffix_p}", f"{_k_rate_p:.1f}%",
+                  help="Strikeout rate per batter faced this season. **Higher is better** for pitchers — "
+                  "a high K% means the pitcher misses more bats. "
+                  "The Bayesian model estimates the pitcher's true strikeout rate by adjusting for sample size.")
+        if _k_rate_bayesian_p and not pa_rankings.empty and "k_rate_posterior" in pa_rankings.columns:
+            # K%: higher is better for pitchers
+            _k_pct_p = (pa_rankings["k_rate_posterior"].dropna() < pitcher_ranking["k_rate_posterior"]).mean() * 100
+            render_percentile_bar(_k_pct_p, container=_pc1)
+            if "k_rate_hdi_low" in pitcher_ranking.index:
+                st.caption(
+                    f"89% CI: {pitcher_ranking['k_rate_hdi_low']*100:.1f}% – {pitcher_ranking['k_rate_hdi_high']*100:.1f}%"
+                )
+    with _pc2:
+        _bb_suffix_p = "" if _bb_rate_bayesian_p else " (raw)"
+        st.metric(f"BB%{_bb_suffix_p}", f"{_bb_rate_p:.1f}%",
+                  help="Walk rate per batter faced this season. **Lower is better** for pitchers — "
+                  "fewer walks means better command. "
+                  "The Bayesian model estimates the pitcher's true walk rate by adjusting for sample size.")
+        if _bb_rate_bayesian_p and not pa_rankings.empty and "bb_rate_posterior" in pa_rankings.columns:
+            # BB%: lower is better for pitchers, so invert
+            _bb_pct_p = (pa_rankings["bb_rate_posterior"].dropna() > pitcher_ranking["bb_rate_posterior"]).mean() * 100
+            render_percentile_bar(_bb_pct_p, container=_pc2)
+            st.caption("↓ Lower is better")
+            if "bb_rate_hdi_low" in pitcher_ranking.index:
+                st.caption(
+                    f"89% CI: {pitcher_ranking['bb_rate_hdi_low']*100:.1f}% – {pitcher_ranking['bb_rate_hdi_high']*100:.1f}%"
+                )
+    with _pc3:
+        _hr_suffix_p = "" if _hr_rate_bayesian_p else " (raw)"
+        st.metric(f"HR%{_hr_suffix_p}", f"{_hr_rate_p:.1f}%",
+                  help="Home run rate per batter faced this season. **Lower is better** for pitchers — "
+                  "fewer home runs allowed means better pitch quality. "
+                  "The Bayesian model estimates the pitcher's true HR rate by adjusting for sample size.")
+        if _hr_rate_bayesian_p and not pa_rankings.empty and "hr_rate_posterior" in pa_rankings.columns:
+            # HR%: lower is better for pitchers, so invert
+            _hr_pct_p = (pa_rankings["hr_rate_posterior"].dropna() > pitcher_ranking["hr_rate_posterior"]).mean() * 100
+            render_percentile_bar(_hr_pct_p, container=_pc3)
+            st.caption("↓ Lower is better")
+            if "hr_rate_hdi_low" in pitcher_ranking.index:
+                st.caption(
+                    f"89% CI: {pitcher_ranking['hr_rate_hdi_low']*100:.1f}% – {pitcher_ranking['hr_rate_hdi_high']*100:.1f}%"
+                )
 
 
 # =============================================================================

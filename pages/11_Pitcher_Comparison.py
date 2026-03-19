@@ -112,9 +112,13 @@ eligible_displays = [d for d in display_list
 if not eligible_displays:
     eligible_displays = display_list
 
-# Resolve defaults from query params or random
+# Resolve defaults from query params or session state or random
 qp1 = st.query_params.get("p1", "")
 qp2 = st.query_params.get("p2", "")
+if not qp1:
+    qp1 = st.session_state.get("pitcher_comparison_last_p1", "")
+if not qp2:
+    qp2 = st.session_state.get("pitcher_comparison_last_p2", "")
 
 
 def _resolve_index(query_val, exclude_display=None):
@@ -156,9 +160,11 @@ with shuffle_col:
         st.query_params["p2"] = picks[1] if len(picks) > 1 else picks[0]
         st.rerun()
 
-# Update query params for bookmarking
+# Update query params for bookmarking + cache in session state
 st.query_params["p1"] = selected_p1
 st.query_params["p2"] = selected_p2
+st.session_state["pitcher_comparison_last_p1"] = selected_p1
+st.session_state["pitcher_comparison_last_p2"] = selected_p2
 
 if selected_p1 == selected_p2:
     st.warning("Same pitcher selected for both sides. Select different pitchers to see a comparison.")

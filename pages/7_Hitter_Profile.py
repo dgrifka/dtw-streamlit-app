@@ -95,8 +95,10 @@ all_season_pa_rankings = load_all_season_pa_rankings("hitter")
 
 st.title("Hitter Profile")
 
-# Check if we arrived via query param (cross-page linking)
+# Check if we arrived via query param (cross-page linking), fall back to session state
 query_player = st.query_params.get("player", "")
+if not query_player:
+    query_player = st.session_state.get("hitter_profile_last_player", "")
 
 # Build deduplicated player list (merges traded players, keeps same-name-different-person separate)
 display_list, display_to_name, display_to_team, multi_id_names = build_player_display_list(
@@ -141,6 +143,7 @@ with shuffle_col:
         st.query_params["player"] = random.choice(eligible_displays)
         st.rerun()
 
+st.session_state["hitter_profile_last_player"] = selected_display
 selected_player = display_to_name.get(selected_display, selected_display)
 selected_team_hint = display_to_team.get(selected_display)
 
@@ -392,96 +395,6 @@ with hero_bayesian:
 
 
 # =============================================================================
-# PLATE DISCIPLINE (K% / BB%)
-# =============================================================================
-
-# Compute K% and BB% early (needed by both this section and Fantasy Context)
-# K%/BB%/HR% — prefer Bayesian posterior from rankings, fall back to raw pa_counts
-_k_rate = 20.0
-_bb_rate = 8.0
-_hr_rate = 3.0
-_k_rate_bayesian = False
-_bb_rate_bayesian = False
-_hr_rate_bayesian = False
-if player_ranking is not None:
-    if "k_rate_posterior" in player_ranking.index and pd.notna(player_ranking.get("k_rate_posterior")):
-        _k_rate = player_ranking["k_rate_posterior"] * 100
-        _k_rate_bayesian = True
-    if "bb_rate_posterior" in player_ranking.index and pd.notna(player_ranking.get("bb_rate_posterior")):
-        _bb_rate = player_ranking["bb_rate_posterior"] * 100
-        _bb_rate_bayesian = True
-    if "hr_rate_posterior" in player_ranking.index and pd.notna(player_ranking.get("hr_rate_posterior")):
-        _hr_rate = player_ranking["hr_rate_posterior"] * 100
-        _hr_rate_bayesian = True
-
-# Fall back to raw computation from pa_counts
-if not _k_rate_bayesian or not _bb_rate_bayesian:
-    if not pa_counts_df.empty:
-        _pc = pa_counts_df[pa_counts_df["player"] == selected_player]
-        if not _pc.empty:
-            _total_k = _pc["strikeouts"].sum()
-            _total_bb = _pc["walks"].sum()
-            _pa_for_rate = n_pa if n_pa else n_bb
-            if _pa_for_rate > 0:
-                if not _k_rate_bayesian:
-                    _k_rate = _total_k / _pa_for_rate * 100
-                if not _bb_rate_bayesian:
-                    _bb_rate = _total_bb / _pa_for_rate * 100
-
-# Display K%, BB%, HR% metrics with percentile context
-if _k_rate_bayesian or _bb_rate_bayesian or _hr_rate_bayesian:
-    st.divider()
-    st.subheader("Plate Discipline")
-    st.caption(
-        "Current-season estimates based on actual plate appearances this year. "
-        "The Bayesian model adjusts for sample size — players with fewer PA get "
-        "pulled toward the league average, while large samples stay close to the raw number."
-    )
-
-    _kbb1, _kbb2, _kbb3 = st.columns(3)
-    with _kbb1:
-        _k_suffix = "" if _k_rate_bayesian else " (raw)"
-        st.metric(f"K%{_k_suffix}", f"{_k_rate:.1f}%",
-                  help="Strikeout rate per plate appearance this season. **Lower is better** for hitters — "
-                  "a low K% means the hitter makes contact more often. "
-                  "The Bayesian model estimates the player's true strikeout rate by adjusting for sample size.")
-        if _k_rate_bayesian and not pa_rankings.empty and "k_rate_posterior" in pa_rankings.columns:
-            # Percentile: lower K% is better for hitters, so invert
-            _k_pct = (pa_rankings["k_rate_posterior"].dropna() > player_ranking["k_rate_posterior"]).mean() * 100
-            render_percentile_bar(_k_pct, container=_kbb1)
-            st.caption("↓ Lower is better")
-            if "k_rate_hdi_low" in player_ranking.index:
-                st.caption(
-                    f"89% CI: {player_ranking['k_rate_hdi_low']*100:.1f}% – {player_ranking['k_rate_hdi_high']*100:.1f}%"
-                )
-    with _kbb2:
-        _bb_suffix = "" if _bb_rate_bayesian else " (raw)"
-        st.metric(f"BB%{_bb_suffix}", f"{_bb_rate:.1f}%",
-                  help="Walk rate per plate appearance this season. **Higher is better** for hitters — "
-                  "walks are free bases. "
-                  "The Bayesian model estimates the player's true walk rate by adjusting for sample size.")
-        if _bb_rate_bayesian and not pa_rankings.empty and "bb_rate_posterior" in pa_rankings.columns:
-            _bb_pct = (pa_rankings["bb_rate_posterior"].dropna() < player_ranking["bb_rate_posterior"]).mean() * 100
-            render_percentile_bar(_bb_pct, container=_kbb2)
-            if "bb_rate_hdi_low" in player_ranking.index:
-                st.caption(
-                    f"89% CI: {player_ranking['bb_rate_hdi_low']*100:.1f}% – {player_ranking['bb_rate_hdi_high']*100:.1f}%"
-                )
-    with _kbb3:
-        _hr_suffix = "" if _hr_rate_bayesian else " (raw)"
-        st.metric(f"HR%{_hr_suffix}", f"{_hr_rate:.1f}%",
-                  help="Home run rate per plate appearance this season. "
-                  "The Bayesian model estimates the player's true HR rate by adjusting for sample size.")
-        if _hr_rate_bayesian and not pa_rankings.empty and "hr_rate_posterior" in pa_rankings.columns:
-            _hr_pct = (pa_rankings["hr_rate_posterior"].dropna() < player_ranking["hr_rate_posterior"]).mean() * 100
-            render_percentile_bar(_hr_pct, container=_kbb3)
-            if "hr_rate_hdi_low" in player_ranking.index:
-                st.caption(
-                    f"89% CI: {player_ranking['hr_rate_hdi_low']*100:.1f}% – {player_ranking['hr_rate_hdi_high']*100:.1f}%"
-                )
-
-
-# =============================================================================
 # SEASON STATS (traditional counting stats for context)
 # =============================================================================
 
@@ -689,15 +602,18 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
     for s in sorted(all_season_pa_rankings.keys()):
         pa_df = all_season_pa_rankings[s]
 
-        # League average
+        # League average + SD
         lg_mean = pa_df["posterior_mean"].mean()
-        league_avg_data.append({"season": s, "value": lg_mean})
+        lg_sd = pa_df["posterior_mean"].std()
+        league_avg_data.append({"season": s, "value": lg_mean, "sd": lg_sd})
 
-        # Rate stat league averages
+        # Rate stat league averages + SD
         _rate_lg = {"season": s}
         for _rc in ["k_rate_posterior", "bb_rate_posterior", "hr_rate_posterior"]:
             if _rc in pa_df.columns:
-                _rate_lg[_rc] = pa_df[_rc].dropna().mean()
+                _vals = pa_df[_rc].dropna()
+                _rate_lg[_rc] = _vals.mean()
+                _rate_lg[f"{_rc}_sd"] = _vals.std()
         rate_league_avg.append(_rate_lg)
 
         # Best player this season
@@ -779,15 +695,25 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                 return None
 
             fig = go.Figure()
-            # League average
+            # League average with ±1 SD bars, offset right
+            sd_col = f"{mean_col}_sd"
             if not rate_lg_df.empty and mean_col in rate_lg_df.columns:
                 lg_vals = rate_lg_df.dropna(subset=[mean_col])
                 if not lg_vals.empty:
+                    _sd_arr = (lg_vals[sd_col] * 100).tolist() if sd_col in lg_vals.columns else [0] * len(lg_vals)
                     fig.add_trace(go.Scatter(
-                        x=lg_vals["season"], y=lg_vals[mean_col] * 100,
+                        x=lg_vals["season"] + 0.15, y=lg_vals[mean_col] * 100,
                         mode="markers", name="Lg Avg",
                         marker=dict(color="rgba(160,160,160,0.8)", size=11),
-                        hovertemplate="Season: %{x}<br>Lg Avg: %{y:.1f}%<extra></extra>",
+                        error_y=dict(
+                            type="data",
+                            array=_sd_arr,
+                            arrayminus=_sd_arr,
+                            color="rgba(160,160,160,0.4)",
+                            thickness=1.5,
+                            width=4,
+                        ),
+                        hovertemplate="Season: %{x:.0f}<br>Lg Avg: %{y:.1f}%<br>±1 SD: %{error_y.array:.1f}%<extra></extra>",
                     ))
 
             c = primary_color.lstrip("#")
@@ -803,7 +729,7 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                     marker=dict(color=primary_color, size=12),
                     error_y=dict(
                         type="data", array=err_hi, arrayminus=err_lo,
-                        color=f"rgba({r},{g},{b},0.5)", thickness=2, width=6,
+                        color=f"rgba({r},{g},{b},0.5)", thickness=2, width=8,
                     ) if err_hi else None,
                     hovertemplate=f"Season: %{{x}}<br>{y_label}: %{{y:.1f}}%<extra></extra>",
                 ))
@@ -963,14 +889,22 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
 
             fig_timeline = go.Figure()
 
-            # League average — gray dots only (no line)
+            # League average — gray dots with ±1 SD bars, offset right
             fig_timeline.add_trace(go.Scatter(
-                x=lg_df["season"],
+                x=lg_df["season"] + 0.15,
                 y=lg_df["value"],
                 mode="markers",
                 name="Lg Avg",
                 marker=dict(color="rgba(160,160,160,0.8)", size=11),
-                hovertemplate="Season: %{x}<br>Lg Avg: %{y:.3f}<extra></extra>",
+                error_y=dict(
+                    type="data",
+                    array=lg_df["sd"].tolist(),
+                    arrayminus=lg_df["sd"].tolist(),
+                    color="rgba(160,160,160,0.4)",
+                    thickness=1.5,
+                    width=4,
+                ),
+                hovertemplate="Season: %{x:.0f}<br>Lg Avg: %{y:.3f}<br>±1 SD: %{error_y.array:.3f}<extra></extra>",
             ))
 
             # Best player — gold diamonds per season
@@ -1314,6 +1248,94 @@ fig_luck.update_layout(
 )
 st.plotly_chart(fig_luck, width="stretch", config=PLOTLY_CONFIG)
 
+
+# =============================================================================
+# PLATE DISCIPLINE (K% / BB%)
+# =============================================================================
+
+# K%/BB%/HR% — prefer Bayesian posterior from rankings, fall back to raw pa_counts
+_k_rate = 20.0
+_bb_rate = 8.0
+_hr_rate = 3.0
+_k_rate_bayesian = False
+_bb_rate_bayesian = False
+_hr_rate_bayesian = False
+if player_ranking is not None:
+    if "k_rate_posterior" in player_ranking.index and pd.notna(player_ranking.get("k_rate_posterior")):
+        _k_rate = player_ranking["k_rate_posterior"] * 100
+        _k_rate_bayesian = True
+    if "bb_rate_posterior" in player_ranking.index and pd.notna(player_ranking.get("bb_rate_posterior")):
+        _bb_rate = player_ranking["bb_rate_posterior"] * 100
+        _bb_rate_bayesian = True
+    if "hr_rate_posterior" in player_ranking.index and pd.notna(player_ranking.get("hr_rate_posterior")):
+        _hr_rate = player_ranking["hr_rate_posterior"] * 100
+        _hr_rate_bayesian = True
+
+# Fall back to raw computation from pa_counts
+if not _k_rate_bayesian or not _bb_rate_bayesian:
+    if not pa_counts_df.empty:
+        _pc = pa_counts_df[pa_counts_df["player"] == selected_player]
+        if not _pc.empty:
+            _total_k = _pc["strikeouts"].sum()
+            _total_bb = _pc["walks"].sum()
+            _pa_for_rate = n_pa if n_pa else n_bb
+            if _pa_for_rate > 0:
+                if not _k_rate_bayesian:
+                    _k_rate = _total_k / _pa_for_rate * 100
+                if not _bb_rate_bayesian:
+                    _bb_rate = _total_bb / _pa_for_rate * 100
+
+# Display K%, BB%, HR% metrics with percentile context
+if _k_rate_bayesian or _bb_rate_bayesian or _hr_rate_bayesian:
+    st.divider()
+    st.subheader("Plate Discipline")
+    st.caption(
+        "Current-season estimates based on actual plate appearances this year. "
+        "The Bayesian model adjusts for sample size — players with fewer PA get "
+        "pulled toward the league average, while large samples stay close to the raw number."
+    )
+
+    _kbb1, _kbb2, _kbb3 = st.columns(3)
+    with _kbb1:
+        _k_suffix = "" if _k_rate_bayesian else " (raw)"
+        st.metric(f"K%{_k_suffix}", f"{_k_rate:.1f}%",
+                  help="Strikeout rate per plate appearance this season. **Lower is better** for hitters — "
+                  "a low K% means the hitter makes contact more often. "
+                  "The Bayesian model estimates the player's true strikeout rate by adjusting for sample size.")
+        if _k_rate_bayesian and not pa_rankings.empty and "k_rate_posterior" in pa_rankings.columns:
+            # Percentile: lower K% is better for hitters, so invert
+            _k_pct = (pa_rankings["k_rate_posterior"].dropna() > player_ranking["k_rate_posterior"]).mean() * 100
+            render_percentile_bar(_k_pct, container=_kbb1)
+            st.caption("↓ Lower is better")
+            if "k_rate_hdi_low" in player_ranking.index:
+                st.caption(
+                    f"89% CI: {player_ranking['k_rate_hdi_low']*100:.1f}% – {player_ranking['k_rate_hdi_high']*100:.1f}%"
+                )
+    with _kbb2:
+        _bb_suffix = "" if _bb_rate_bayesian else " (raw)"
+        st.metric(f"BB%{_bb_suffix}", f"{_bb_rate:.1f}%",
+                  help="Walk rate per plate appearance this season. **Higher is better** for hitters — "
+                  "walks are free bases. "
+                  "The Bayesian model estimates the player's true walk rate by adjusting for sample size.")
+        if _bb_rate_bayesian and not pa_rankings.empty and "bb_rate_posterior" in pa_rankings.columns:
+            _bb_pct = (pa_rankings["bb_rate_posterior"].dropna() < player_ranking["bb_rate_posterior"]).mean() * 100
+            render_percentile_bar(_bb_pct, container=_kbb2)
+            if "bb_rate_hdi_low" in player_ranking.index:
+                st.caption(
+                    f"89% CI: {player_ranking['bb_rate_hdi_low']*100:.1f}% – {player_ranking['bb_rate_hdi_high']*100:.1f}%"
+                )
+    with _kbb3:
+        _hr_suffix = "" if _hr_rate_bayesian else " (raw)"
+        st.metric(f"HR%{_hr_suffix}", f"{_hr_rate:.1f}%",
+                  help="Home run rate per plate appearance this season. "
+                  "The Bayesian model estimates the player's true HR rate by adjusting for sample size.")
+        if _hr_rate_bayesian and not pa_rankings.empty and "hr_rate_posterior" in pa_rankings.columns:
+            _hr_pct = (pa_rankings["hr_rate_posterior"].dropna() < player_ranking["hr_rate_posterior"]).mean() * 100
+            render_percentile_bar(_hr_pct, container=_kbb3)
+            if "hr_rate_hdi_low" in player_ranking.index:
+                st.caption(
+                    f"89% CI: {player_ranking['hr_rate_hdi_low']*100:.1f}% – {player_ranking['hr_rate_hdi_high']*100:.1f}%"
+                )
 
 
 # =============================================================================
