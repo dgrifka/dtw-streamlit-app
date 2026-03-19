@@ -395,6 +395,203 @@ with hero_bayesian:
 
 
 # =============================================================================
+# RADAR + LUCK COMPUTATION (moved earlier for Snapshot section)
+# =============================================================================
+
+from utils.player_analytics import (
+    compute_hitter_radar_metrics, cluster_player_archetypes,
+    find_similar_players, get_player_radar_percentiles,
+    HITTER_ARCHETYPE_DESC, generate_player_highlights,
+)
+from utils.player_helpers import (
+    render_radar_chart, render_archetype_badge, render_similar_players,
+    render_snapshot_section, render_highlights, render_true_talent_bar,
+)
+
+# Compute radar metrics for all hitters (cached via Streamlit's data flow)
+_radar_df = compute_hitter_radar_metrics(pa_rankings, bb_df, min_pa=30)
+
+if not _radar_df.empty:
+    _radar_df = cluster_player_archetypes(_radar_df, player_type="hitter")
+    _player_pcts = get_player_radar_percentiles(_radar_df, selected_player, player_team_short, "hitter")
+else:
+    _player_pcts = None
+
+# Look up archetype for this player
+_archetype = "Unknown"
+_arch_desc = ""
+if _player_pcts is not None and not _radar_df.empty:
+    _player_match = _radar_df[
+        (_radar_df["player"] == selected_player) & (_radar_df["team"] == player_team_short)
+    ]
+    if _player_match.empty:
+        _player_match = _radar_df[_radar_df["player"] == selected_player]
+    if not _player_match.empty:
+        _archetype = _player_match.iloc[0]["archetype"]
+        _arch_desc = HITTER_ARCHETYPE_DESC.get(_archetype, "")
+
+# Compute luck/trend stats
+player_bb["_actual_tb"] = player_bb["actual_result"].map(TB_MAP).fillna(0)
+_player_luck = player_bb["_actual_tb"].sum() - player_bb["estimated_bases"].sum()
+
+_league_luck = bb_df.copy()
+_league_luck["_actual_tb"] = _league_luck["actual_result"].map(TB_MAP).fillna(0)
+_league_luck_per_player = _league_luck.groupby("player").apply(
+    lambda x: x["_actual_tb"].sum() - x["estimated_bases"].sum(),
+    include_groups=False,
+)
+_luck_pct = (_league_luck_per_player < _player_luck).mean() * 100
+
+_unlucky_outs = player_bb[
+    (player_bb["_actual_tb"] == 0) & (player_bb["estimated_bases"] > 0.5)
+]
+_n_unlucky = len(_unlucky_outs)
+
+_recent_eb = None
+_recent_vs_season = 0.0
+if "date_parsed" in player_bb.columns and len(player_bb) > 0:
+    _max_date = player_bb["date_parsed"].max()
+    _recent = player_bb[player_bb["date_parsed"] > _max_date - pd.Timedelta(days=14)]
+    if len(_recent) > 5:
+        _recent_eb = _recent["estimated_bases"].mean()
+        _recent_vs_season = _recent_eb - avg_eb
+
+_platoon_str = None
+if not metadata_df.empty and "pitcher" in player_bb.columns:
+    _thm = metadata_df.set_index("player_name")["throw_hand"].to_dict()
+    player_bb["_pitcher_hand"] = player_bb["pitcher"].map(_thm)
+    _vs_l = player_bb[player_bb["_pitcher_hand"] == "L"]
+    _vs_r = player_bb[player_bb["_pitcher_hand"] == "R"]
+    if len(_vs_l) >= 10 and len(_vs_r) >= 10:
+        _gap = _vs_l["estimated_bases"].mean() - _vs_r["estimated_bases"].mean()
+        if abs(_gap) > 0.03:
+            _better = "vs LHP" if _gap > 0 else "vs RHP"
+            _platoon_str = f"+{abs(_gap):.3f} EB/BB {_better}"
+    player_bb.drop(columns=["_pitcher_hand"], inplace=True, errors="ignore")
+
+
+# =============================================================================
+# PLAYER SNAPSHOT (Score + Percentile Bars + Highlights + True Talent)
+# =============================================================================
+
+if _player_pcts is not None and not _radar_df.empty:
+    st.divider()
+
+    # Get raw values for display from radar_df
+    _pm = _radar_df[
+        (_radar_df["player"] == selected_player) & (_radar_df["team"] == player_team_short)
+    ]
+    if _pm.empty:
+        _pm = _radar_df[_radar_df["player"] == selected_player]
+    _pr = _pm.iloc[0] if not _pm.empty else None
+
+    if _pr is not None:
+        # Composite score = mean of 6 radar percentiles
+        _radar_pct_vals = [_player_pcts[label] for label in _player_pcts]
+        _composite = sum(_radar_pct_vals) / len(_radar_pct_vals)
+
+        # Build 8 metrics: 4 contact/power (group 0) + 4 discipline (group 1)
+        _snapshot_metrics = []
+
+        # EB/PA: use posterior_mean + hero's eb_pct for consistency
+        if player_ranking is not None:
+            _snapshot_metrics.append({"label": "Est. Bases/PA", "pct": eb_pct, "value": f"{player_ranking['posterior_mean']:.3f}", "group": 0})
+
+        # Exit Velocity (from hero section computation)
+        _snapshot_metrics.append({"label": "Exit Velocity", "pct": ev_pct, "value": f"{avg_ev:.1f} mph", "group": 0})
+
+        # Hard Hit %
+        _hhr_val = _pr.get("hard_hit_rate", None)
+        _hhr_pct = _pr.get("hard_hit_rate_pct", 50)
+        if _hhr_val is not None:
+            _snapshot_metrics.append({"label": "Hard Hit %", "pct": _hhr_pct, "value": f"{_hhr_val * 100:.1f}%", "group": 0})
+
+        # Barrel Rate (from hero section)
+        _snapshot_metrics.append({"label": "Barrel Rate", "pct": barrel_pct, "value": f"{barrel_rate:.1f}%", "group": 0})
+
+        # --- Discipline group ---
+        # K Rate (contact_rate is 1-K%, so K% = 1-contact_rate, pct needs inversion)
+        _cr_val = _pr.get("contact_rate", None)
+        _cr_pct = _pr.get("contact_rate_pct", 50)
+        if _cr_val is not None:
+            _k_rate_display = (1 - _cr_val) * 100
+            _snapshot_metrics.append({"label": "K Rate", "pct": _cr_pct, "value": f"{_k_rate_display:.1f}%", "group": 1})
+
+        # BB Rate
+        _disc_val = _pr.get("discipline", None)
+        _disc_pct = _pr.get("discipline_pct", 50)
+        if _disc_val is not None:
+            _snapshot_metrics.append({"label": "BB Rate", "pct": _disc_pct, "value": f"{_disc_val * 100:.1f}%", "group": 1})
+
+        # HR Rate (power)
+        _pow_val = _pr.get("power", None)
+        _pow_pct = _pr.get("power_pct", 50)
+        if _pow_val is not None:
+            _snapshot_metrics.append({"label": "HR Rate", "pct": _pow_pct, "value": f"{_pow_val * 100:.1f}%", "group": 1})
+
+        # Speed
+        _spd_val = _pr.get("speed", None)
+        _spd_pct = _pr.get("speed_pct", 50)
+        _sb_display = int(player_ranking["stolen_bases"]) if player_ranking is not None and "stolen_bases" in player_ranking.index else 0
+        if _spd_val is not None:
+            _snapshot_metrics.append({"label": "Speed", "pct": _spd_pct, "value": f"{_sb_display} SB", "group": 1})
+
+        render_snapshot_section(_snapshot_metrics, _composite, _archetype, primary_color)
+
+    # Auto-generated highlights
+    _deviation = None
+    if player_ranking is not None and "deviation" in player_ranking.index:
+        _deviation = player_ranking.get("deviation")
+        if pd.isna(_deviation):
+            _deviation = None
+
+    _highlights = generate_player_highlights(
+        radar_pcts=_player_pcts,
+        archetype_name=_archetype,
+        player_type="hitter",
+        deviation=_deviation,
+        luck_pct=_luck_pct,
+        recent_vs_season=_recent_vs_season if _recent_eb is not None else None,
+        platoon_str=_platoon_str,
+        archetype_desc=_arch_desc,
+    )
+    render_highlights(_highlights, primary_color)
+
+    # True talent vs observed bar
+    if (player_ranking is not None
+            and "true_talent_eb_pa" in player_ranking.index
+            and pd.notna(player_ranking.get("true_talent_eb_pa"))
+            and _deviation is not None
+            and abs(_deviation) > 0.005):
+        _league_avg_eb_pa = pa_rankings["posterior_mean"].mean()
+        render_true_talent_bar(
+            observed_eb=player_ranking["posterior_mean"],
+            true_talent_eb=player_ranking["true_talent_eb_pa"],
+            league_avg_eb=_league_avg_eb_pa,
+            deviation=_deviation,
+            primary_color=primary_color,
+            is_pitcher=False,
+        )
+
+    with st.expander("How does this work?"):
+        st.markdown(
+            "**Overall Score (0-100):** The average of 6 skill percentiles from the radar chart below "
+            "(Contact Quality, Power, Plate Discipline, Contact Rate, Hard Hit %, Speed). "
+            "A score of 70 means the player averages in the 70th percentile across all skills.\n\n"
+            "**Letter Grades:** A+ (90+), A (80-89), B+ (70-79), B (60-69), C+ (50-59), C (40-49), D (30-39), F (<30).\n\n"
+            "**Percentile Bars:** Each bar shows where this player ranks among all hitters with 30+ plate appearances. "
+            "The filled portion represents the player's percentile (team color), with a thin line at the 50th percentile "
+            "(league median). Higher percentile = better for all metrics shown. "
+            "K Rate is oriented so that a higher percentile means a *lower* strikeout rate.\n\n"
+            "**Highlights:** Auto-generated callouts based on the player's most notable traits — "
+            "standout skills, luck context, recent trends, and platoon splits.\n\n"
+            "**True Talent Bar:** When preseason projections are available, shows the gap between "
+            "current season performance and the model's best estimate of the player's true ability. "
+            "A green arrow means the player is likely to improve; red means potential regression."
+        )
+
+
+# =============================================================================
 # SEASON STATS (traditional counting stats for context)
 # =============================================================================
 
@@ -440,62 +637,6 @@ if player_ranking is not None and "avg" in player_ranking.index and pd.notna(pla
 # PLAYER PROFILE (Radar Chart + Archetype + Similar Players)
 # =============================================================================
 
-from utils.player_analytics import (
-    compute_hitter_radar_metrics, cluster_player_archetypes,
-    find_similar_players, get_player_radar_percentiles,
-    HITTER_ARCHETYPE_DESC,
-)
-from utils.player_helpers import render_radar_chart, render_archetype_badge, render_similar_players
-
-# Compute radar metrics for all hitters (cached via Streamlit's data flow)
-_radar_df = compute_hitter_radar_metrics(pa_rankings, bb_df, min_pa=30)
-
-if not _radar_df.empty:
-    _radar_df = cluster_player_archetypes(_radar_df, player_type="hitter")
-    _player_pcts = get_player_radar_percentiles(_radar_df, selected_player, player_team_short, "hitter")
-else:
-    _player_pcts = None
-
-# Compute luck/trend stats (preserved from old Fantasy Context)
-player_bb["_actual_tb"] = player_bb["actual_result"].map(TB_MAP).fillna(0)
-_player_luck = player_bb["_actual_tb"].sum() - player_bb["estimated_bases"].sum()
-
-_league_luck = bb_df.copy()
-_league_luck["_actual_tb"] = _league_luck["actual_result"].map(TB_MAP).fillna(0)
-_league_luck_per_player = _league_luck.groupby("player").apply(
-    lambda x: x["_actual_tb"].sum() - x["estimated_bases"].sum(),
-    include_groups=False,
-)
-_luck_pct = (_league_luck_per_player < _player_luck).mean() * 100
-
-_unlucky_outs = player_bb[
-    (player_bb["_actual_tb"] == 0) & (player_bb["estimated_bases"] > 0.5)
-]
-_n_unlucky = len(_unlucky_outs)
-
-_recent_eb = None
-_recent_vs_season = 0.0
-if "date_parsed" in player_bb.columns and len(player_bb) > 0:
-    _max_date = player_bb["date_parsed"].max()
-    _recent = player_bb[player_bb["date_parsed"] > _max_date - pd.Timedelta(days=14)]
-    if len(_recent) > 5:
-        _recent_eb = _recent["estimated_bases"].mean()
-        _recent_vs_season = _recent_eb - avg_eb
-
-_platoon_str = None
-if not metadata_df.empty and "pitcher" in player_bb.columns:
-    _thm = metadata_df.set_index("player_name")["throw_hand"].to_dict()
-    player_bb["_pitcher_hand"] = player_bb["pitcher"].map(_thm)
-    _vs_l = player_bb[player_bb["_pitcher_hand"] == "L"]
-    _vs_r = player_bb[player_bb["_pitcher_hand"] == "R"]
-    if len(_vs_l) >= 10 and len(_vs_r) >= 10:
-        _gap = _vs_l["estimated_bases"].mean() - _vs_r["estimated_bases"].mean()
-        if abs(_gap) > 0.03:
-            _better = "vs LHP" if _gap > 0 else "vs RHP"
-            _platoon_str = f"+{abs(_gap):.3f} EB/BB {_better}"
-    player_bb.drop(columns=["_pitcher_hand"], inplace=True, errors="ignore")
-
-# Display
 st.divider()
 st.subheader("Player Profile")
 
@@ -509,15 +650,6 @@ if _player_pcts is not None:
             st.caption(f"Based on {n_bb} batted balls — profile may shift as more data accumulates.")
 
     with _col_info:
-        # Archetype badge
-        _player_match = _radar_df[
-            (_radar_df["player"] == selected_player) & (_radar_df["team"] == player_team_short)
-        ]
-        if _player_match.empty:
-            _player_match = _radar_df[_radar_df["player"] == selected_player]
-        _archetype = _player_match.iloc[0]["archetype"] if not _player_match.empty else "Unknown"
-        _arch_desc = HITTER_ARCHETYPE_DESC.get(_archetype, "")
-
         st.markdown(render_archetype_badge(_archetype, _arch_desc, primary_color), unsafe_allow_html=True)
 
         # Similar players

@@ -453,28 +453,14 @@ for _s in sorted(all_season_pa_rankings.keys(), reverse=True):
 
 st.markdown("#### Head-to-Head")
 
+from utils.player_helpers import render_comparison_grades, render_comparison_bars
+
 # Season/projection selector — shared between Head-to-Head EB/PA row and bar chart
-_h2h_header_cols = st.columns([2, 1.5, 2])
-with _h2h_header_cols[0]:
-    st.markdown(
-        f'<span style="font-weight:700; color:{p1_color}; font-size:0.95rem;">{safe_html(p1["name"])}</span>',
-        unsafe_allow_html=True,
-    )
-with _h2h_header_cols[1]:
-    if len(_ebpa_options) > 1:
-        _ebpa_choice = st.selectbox("Compare", options=_ebpa_options, index=0,
-                                     key="cmp_ebpa_view", label_visibility="collapsed")
-    else:
-        _ebpa_choice = _ebpa_options[0] if _ebpa_options else f"{season} Actual"
-        st.markdown(
-            f'<div style="text-align:center; color:#718096; font-size:0.85rem; padding-top:8px;">{_ebpa_choice}</div>',
-            unsafe_allow_html=True,
-        )
-with _h2h_header_cols[2]:
-    st.markdown(
-        f'<span style="font-weight:700; color:{p2_color}; font-size:0.95rem; float:right;">{safe_html(p2["name"])}</span>',
-        unsafe_allow_html=True,
-    )
+if len(_ebpa_options) > 1:
+    _ebpa_choice = st.selectbox("Compare", options=_ebpa_options, index=0,
+                                 key="cmp_ebpa_view", label_visibility="collapsed")
+else:
+    _ebpa_choice = _ebpa_options[0] if _ebpa_options else f"{season} Actual"
 
 _ebpa_year = int(_ebpa_choice.split()[0])
 _ebpa_is_proj = "Projected" in _ebpa_choice
@@ -524,7 +510,7 @@ else:
 luck_1 = p1["total_actual_tb"] - p1["total_expected_tb"]
 luck_2 = p2["total_actual_tb"] - p2["total_expected_tb"]
 
-# Luck percentiles (computed early for Head-to-Head)
+# Luck percentiles
 luck_pct_1 = luck_pct_2 = None
 actual_pct_1 = actual_pct_2 = None
 expected_pct_1 = expected_pct_2 = None
@@ -546,58 +532,68 @@ if len(bb_df) > 1000:
         actual_pct_2 = (player_luck["actual"] < p2["total_actual_tb"]).mean() * 100
         expected_pct_2 = (player_luck["expected"] < p2["total_expected_tb"]).mean() * 100
 
-# Section header helper
-def _section_header(label):
-    return (
-        f'<div style="text-align:center; padding:6px 0 2px; margin-top:4px;">'
-        f'<span style="font-size:11px; font-weight:600; color:#8B8FA3; text-transform:uppercase; letter-spacing:1px;">{label}</span>'
-        f'</div>'
+# --- Grade badges ---
+_score_1 = _score_2 = None
+_arch_1 = p1.get("archetype", "Unknown") or "Unknown"
+_arch_2 = p2.get("archetype", "Unknown") or "Unknown"
+
+if not _cmp_radar_df.empty:
+    _rp1 = get_player_radar_percentiles(_cmp_radar_df, p1["name"], p1["team"], "hitter")
+    _rp2 = get_player_radar_percentiles(_cmp_radar_df, p2["name"], p2["team"], "hitter")
+    if _rp1:
+        _score_1 = sum(_rp1.values()) / len(_rp1)
+    if _rp2:
+        _score_2 = sum(_rp2.values()) / len(_rp2)
+
+if _score_1 is not None and _score_2 is not None:
+    render_comparison_grades(
+        p1["name"], _score_1, _arch_1, p1_color,
+        p2["name"], _score_2, _arch_2, p2_color,
     )
 
-# Build comparison rows
-h2h_rows = ""
-h2h_rows += _section_header("Season Actuals")
-h2h_rows += render_comparison_metric("Batted Balls", f"{p1['n_bb']:,}", f"{p2['n_bb']:,}", p1['n_bb'], p2['n_bb'], bold_higher=False)
-h2h_rows += render_comparison_metric("Avg EV", f"{p1['avg_ev']:.1f} mph", f"{p2['avg_ev']:.1f} mph", p1['avg_ev'], p2['avg_ev'], ev_pct_1, ev_pct_2)
-h2h_rows += render_comparison_metric("Barrel Rate", f"{p1['barrel_rate']:.1f}%", f"{p2['barrel_rate']:.1f}%", p1['barrel_rate'], p2['barrel_rate'], barrel_pct_1, barrel_pct_2)
-h2h_rows += render_comparison_metric("Avg EB/BB", f"{p1['avg_eb']:.3f}", f"{p2['avg_eb']:.3f}", p1['avg_eb'], p2['avg_eb'], avg_eb_pct_1, avg_eb_pct_2)
-h2h_rows += render_comparison_metric("Net Lucky Bases", f"{luck_1:+.1f}", f"{luck_2:+.1f}", luck_1, luck_2, luck_pct_1, luck_pct_2, bold_higher=False)
+# --- Build comparison bar metrics ---
+_h2h_metrics = []
 
-h2h_rows += _section_header("Bayesian Estimates")
+# Season actuals
+_h2h_metrics.append({"label": "Avg Exit Velocity", "v1": f"{p1['avg_ev']:.1f} mph", "v2": f"{p2['avg_ev']:.1f} mph",
+                      "pct1": ev_pct_1, "pct2": ev_pct_2, "num1": p1["avg_ev"], "num2": p2["avg_ev"]})
+_h2h_metrics.append({"label": "Barrel Rate", "v1": f"{p1['barrel_rate']:.1f}%", "v2": f"{p2['barrel_rate']:.1f}%",
+                      "pct1": barrel_pct_1, "pct2": barrel_pct_2, "num1": p1["barrel_rate"], "num2": p2["barrel_rate"]})
+_h2h_metrics.append({"label": "Avg Est. Bases/BB", "v1": f"{p1['avg_eb']:.3f}", "v2": f"{p2['avg_eb']:.3f}",
+                      "pct1": avg_eb_pct_1, "pct2": avg_eb_pct_2, "num1": p1["avg_eb"], "num2": p2["avg_eb"]})
 
-# EB/PA row — uses the selected season/projection from the dropdown
+# EB/PA (Bayesian or projected)
 if _sel_eb1 is not None and _sel_eb2 is not None:
-    _ebpa_label = f"EB/PA ({_ebpa_year})" if _ebpa_year != season else "EB/PA"
+    _ebpa_label = f"EB/PA ({_ebpa_year})" if _ebpa_year != season else "Est. Bases/PA"
     if _ebpa_is_proj:
         _ebpa_label = f"Proj. EB/PA ({_ebpa_year})"
-    h2h_rows += render_comparison_metric(
-        _ebpa_label, f"{_sel_eb1:.3f}", f"{_sel_eb2:.3f}",
-        _sel_eb1, _sel_eb2, _sel_pct1, _sel_pct2,
-    )
+    _h2h_metrics.append({"label": _ebpa_label, "v1": f"{_sel_eb1:.3f}", "v2": f"{_sel_eb2:.3f}",
+                          "pct1": _sel_pct1, "pct2": _sel_pct2, "num1": _sel_eb1, "num2": _sel_eb2})
 
-# True talent row (in-season combined estimate)
+# True talent
 if p1["ranking"] is not None and p2["ranking"] is not None:
     _tt1 = p1["ranking"].get("true_talent_eb_pa") if "true_talent_eb_pa" in p1["ranking"].index else None
     _tt2 = p2["ranking"].get("true_talent_eb_pa") if "true_talent_eb_pa" in p2["ranking"].index else None
     if _tt1 is not None and _tt2 is not None and pd.notna(_tt1) and pd.notna(_tt2):
-        h2h_rows += render_comparison_metric(
-            "True Talent EB/PA",
-            f"{_tt1:.3f}", f"{_tt2:.3f}", _tt1, _tt2,
-        )
+        _h2h_metrics.append({"label": "True Talent EB/PA", "v1": f"{_tt1:.3f}", "v2": f"{_tt2:.3f}",
+                              "pct1": None, "pct2": None, "num1": _tt1, "num2": _tt2})
 
-# Rate stat comparison rows (K%, BB%, HR% — Bayesian posteriors)
+# Rate stats (K%, BB%, HR%)
 if p1["ranking"] is not None and p2["ranking"] is not None:
     _r1, _r2 = p1["ranking"], p2["ranking"]
-    for _rc, _rlabel, _invert in [("k_rate_posterior", "K%", True), ("bb_rate_posterior", "BB%", False), ("hr_rate_posterior", "HR%", False)]:
+    for _rc, _rlabel, _higher_is_better in [("k_rate_posterior", "K Rate", False), ("bb_rate_posterior", "BB Rate", True), ("hr_rate_posterior", "HR Rate", True)]:
         if _rc in _r1.index and _rc in _r2.index and pd.notna(_r1.get(_rc)) and pd.notna(_r2.get(_rc)):
             _rpct1 = (_r1[_rc] > pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
             _rpct2 = (_r2[_rc] > pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
-            h2h_rows += render_comparison_metric(
-                _rlabel, f"{_r1[_rc]*100:.1f}%", f"{_r2[_rc]*100:.1f}%",
-                _r1[_rc], _r2[_rc], _rpct1, _rpct2, invert=_invert,
-            )
+            # For K%, lower is better — invert percentile so high pct = low K%
+            if not _higher_is_better:
+                _rpct1 = 100 - _rpct1 if _rpct1 is not None else None
+                _rpct2 = 100 - _rpct2 if _rpct2 is not None else None
+            _h2h_metrics.append({"label": _rlabel, "v1": f"{_r1[_rc]*100:.1f}%", "v2": f"{_r2[_rc]*100:.1f}%",
+                                  "pct1": _rpct1, "pct2": _rpct2, "num1": _r1[_rc], "num2": _r2[_rc],
+                                  "higher_better": _higher_is_better})
 
-st.markdown(f'<div style="background:#F7FAFC; border-radius:8px; padding:8px 4px;">{h2h_rows}</div>', unsafe_allow_html=True)
+render_comparison_bars(_h2h_metrics, p1["name"], p1_color, p2["name"], p2_color)
 
 
 # =============================================================================

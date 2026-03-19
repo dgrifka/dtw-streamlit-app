@@ -482,3 +482,161 @@ def compute_platoon_splits(bb_df, metadata_df, min_bb=15):
     return merged.sort_values(
         "platoon_gap", key=abs, ascending=False
     ).reset_index(drop=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Auto-generated player highlights
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generate_player_highlights(
+    radar_pcts,
+    archetype_name,
+    player_type="hitter",
+    deviation=None,
+    luck_pct=None,
+    recent_vs_season=None,
+    platoon_str=None,
+    archetype_desc=None,
+):
+    """Generate 2-4 short, data-driven highlight callouts for a player.
+
+    Parameters
+    ----------
+    radar_pcts : dict
+        {axis_label: percentile_value (0-100)} from get_player_radar_percentiles.
+    archetype_name : str
+        Player archetype label.
+    player_type : str
+        "hitter" or "pitcher".
+    deviation : float or None
+        true_talent_eb_pa - posterior_mean. Positive = true talent above observed.
+    luck_pct : float or None
+        Luck percentile (0-100).
+    recent_vs_season : float or None
+        14-day EB/BB minus season average.
+    platoon_str : str or None
+        Platoon advantage string (e.g., "+0.050 EB/BB vs LHP").
+    archetype_desc : str or None
+        Archetype description text.
+
+    Returns
+    -------
+    list of dict
+        Each: {"bold": str, "text": str}. Max 4 items.
+    """
+    if not radar_pcts:
+        return []
+
+    candidates = []  # (priority, {"bold": ..., "text": ...})
+
+    # 1. Standout skill — any axis >= 85th percentile
+    for label, pct in radar_pcts.items():
+        if pct >= 85:
+            ordinal = int(pct)
+            if player_type == "pitcher":
+                candidates.append((1, {
+                    "bold": f"Elite {label}.",
+                    "text": f"Ranks in the top {100 - ordinal}% of all pitchers in {label.lower()} this season.",
+                }))
+            else:
+                candidates.append((1, {
+                    "bold": f"Elite {label}.",
+                    "text": f"Ranks in the top {100 - ordinal}% of all hitters in {label.lower()} this season.",
+                }))
+
+    # 2. True talent divergence
+    if deviation is not None and abs(deviation) > 0.02:
+        if player_type == "pitcher":
+            if deviation < 0:
+                candidates.append((2, {
+                    "bold": "Regression candidate (favorable).",
+                    "text": "True talent estimate is better than current stats suggest \u2014 expect improvement.",
+                }))
+            else:
+                candidates.append((2, {
+                    "bold": "Regression candidate (unfavorable).",
+                    "text": "True talent estimate is worse than current stats suggest \u2014 performance may decline.",
+                }))
+        else:
+            if deviation > 0:
+                candidates.append((2, {
+                    "bold": "Regression candidate (favorable).",
+                    "text": "True talent estimate is above current stats \u2014 expect improvement.",
+                }))
+            else:
+                candidates.append((2, {
+                    "bold": "Regression candidate (unfavorable).",
+                    "text": "True talent estimate is below current stats \u2014 performance may decline.",
+                }))
+
+    # 3. Luck context
+    if luck_pct is not None:
+        if luck_pct < 15:
+            if player_type == "pitcher":
+                candidates.append((3, {
+                    "bold": "Running unlucky.",
+                    "text": "Has been one of the unluckiest pitchers this season \u2014 results have been worse than the contact quality suggests.",
+                }))
+            else:
+                candidates.append((3, {
+                    "bold": "Running unlucky.",
+                    "text": "Has been one of the unluckiest hitters this season \u2014 expect a rebound.",
+                }))
+        elif luck_pct > 85:
+            if player_type == "pitcher":
+                candidates.append((3, {
+                    "bold": "Running lucky.",
+                    "text": "Has been one of the luckiest pitchers this season \u2014 batted ball quality suggests results may worsen.",
+                }))
+            else:
+                candidates.append((3, {
+                    "bold": "Running lucky.",
+                    "text": "Has been one of the luckiest hitters this season \u2014 results may cool off.",
+                }))
+
+    # 4. Hot/cold streak
+    if recent_vs_season is not None:
+        if player_type == "pitcher":
+            # For pitchers, negative = recent is better (lower EB allowed)
+            if recent_vs_season < -0.02:
+                candidates.append((4, {
+                    "bold": "Trending up.",
+                    "text": f"Last 14 days: allowing {abs(recent_vs_season):.3f} fewer EB/BB than season average.",
+                }))
+            elif recent_vs_season > 0.02:
+                candidates.append((4, {
+                    "bold": "Recent struggles.",
+                    "text": f"Last 14 days: allowing {recent_vs_season:.3f} more EB/BB than season average.",
+                }))
+        else:
+            if recent_vs_season > 0.02:
+                candidates.append((4, {
+                    "bold": "Trending up.",
+                    "text": f"Last 14 days: producing {recent_vs_season:.3f} more EB/BB than season average.",
+                }))
+            elif recent_vs_season < -0.02:
+                candidates.append((4, {
+                    "bold": "Recent slump.",
+                    "text": f"Last 14 days: producing {abs(recent_vs_season):.3f} fewer EB/BB than season average.",
+                }))
+
+    # 5. Platoon advantage
+    if platoon_str:
+        candidates.append((5, {
+            "bold": "Platoon advantage.",
+            "text": platoon_str if player_type == "hitter" else f"Weakness: {platoon_str}",
+        }))
+
+    # Sort by priority, take top 3 (archetype always appended as #4)
+    candidates.sort(key=lambda x: x[0])
+    highlights = [c[1] for c in candidates[:3]]
+
+    # Always include archetype as final highlight
+    if archetype_name and archetype_name != "Unknown":
+        desc = archetype_desc or ""
+        highlights.append({
+            "bold": f"{archetype_name}.",
+            "text": desc,
+        })
+
+    return highlights[:4]

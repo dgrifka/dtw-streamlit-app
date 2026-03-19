@@ -3,6 +3,8 @@ Shared player-related helpers used by Hitter Profile, Pitcher Profile, and Hitte
 """
 
 import html
+import textwrap
+
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -657,3 +659,288 @@ def render_sticky_comparison_bar(
 }})();
 </script>
 """, height=0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Player Snapshot components
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _score_letter_grade(score):
+    """Map 0-100 composite score to letter grade."""
+    if score >= 90:
+        return "A+"
+    elif score >= 80:
+        return "A"
+    elif score >= 70:
+        return "B+"
+    elif score >= 60:
+        return "B"
+    elif score >= 50:
+        return "C+"
+    elif score >= 40:
+        return "C"
+    elif score >= 30:
+        return "D"
+    else:
+        return "F"
+
+
+def render_snapshot_section(metrics, composite_score, archetype_name, primary_color):
+    """Render the combined overall score badge + percentile bars as a single HTML block.
+
+    Parameters
+    ----------
+    metrics : list of dict
+        Each dict: {"label": str, "pct": float 0-100, "value": str, "group": int (0 or 1)}
+        group=0 for contact/power metrics, group=1 for discipline metrics.
+    composite_score : float
+        0-100 overall score (mean of radar percentiles).
+    archetype_name : str
+        Player archetype label.
+    primary_color : str
+        Team primary hex color.
+    """
+    grade = _score_letter_grade(composite_score)
+    score_int = int(round(composite_score))
+
+    # Parse hex color for rgba
+    h = primary_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+    # Build bar rows HTML
+    bar_rows = []
+    prev_group = None
+    for m in metrics:
+        pct = max(0, min(100, m["pct"]))
+        # Opacity varies by how extreme the percentile is (distance from 50)
+        extremeness = abs(pct - 50) / 50  # 0 to 1
+        fill_opacity = 0.45 + 0.55 * extremeness  # 0.45 to 1.0
+
+        # Separator between groups
+        if prev_group is not None and m.get("group", 0) != prev_group:
+            bar_rows.append(
+                '<div style="border-top:1px dashed #E2E8F0; margin:6px 0;"></div>'
+            )
+        prev_group = m.get("group", 0)
+
+        bar_rows.append(
+            f'<div style="display:flex; align-items:center; height:30px; gap:8px;">'
+            f'<div style="width:90px; text-align:right; font-size:0.82rem; color:#4A5568; font-weight:500; white-space:nowrap;">{safe_html(m["label"])}</div>'
+            f'<div style="flex:1; position:relative; height:18px; background:#EDF2F7; border-radius:9px; overflow:hidden;">'
+            f'<div style="position:absolute; top:0; left:0; width:{pct:.1f}%; height:100%; background:rgba({r},{g},{b},{fill_opacity:.2f}); border-radius:9px; transition:width 0.3s ease;"></div>'
+            f'<div style="position:absolute; top:0; left:50%; width:1px; height:100%; background:rgba(0,0,0,0.12);"></div>'
+            f'</div>'
+            f'<div style="width:100px; text-align:right; font-size:0.82rem; white-space:nowrap;">'
+            f'<span style="color:#1a1a1a; font-weight:600;">{safe_html(m["value"])}</span>'
+            f'<span style="color:#A0AEC0; margin-left:4px;">{_ordinal(int(pct))}</span>'
+            f'</div>'
+            f'</div>'
+        )
+
+    bars_html = "".join(bar_rows)
+
+    html_block = (
+        f'<div style="display:flex; gap:20px; align-items:stretch; background:#FAFBFC; border-radius:12px; padding:20px; border:1px solid #EDF2F7; margin-bottom:4px;">'
+        f'<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:110px; flex-shrink:0;">'
+        f'<div style="width:88px; height:88px; border-radius:50%; border:4px solid {primary_color}; display:flex; align-items:center; justify-content:center; background:white; box-shadow:0 2px 8px rgba(0,0,0,0.06);">'
+        f'<span style="font-size:2rem; font-weight:800; color:#1a1a1a;">{score_int}</span>'
+        f'</div>'
+        f'<div style="margin-top:6px; font-size:1.3rem; font-weight:700; color:{primary_color};">{grade}</div>'
+        f'<div style="margin-top:2px; font-size:0.78rem; color:#718096; text-align:center; max-width:110px;">{safe_html(archetype_name)}</div>'
+        f'</div>'
+        f'<div style="flex:1; min-width:0;">{bars_html}</div>'
+        f'</div>'
+    )
+    st.markdown(html_block, unsafe_allow_html=True)
+
+
+def render_highlights(highlights, primary_color):
+    """Render 2-4 auto-generated highlight cards.
+
+    Parameters
+    ----------
+    highlights : list of dict
+        Each: {"bold": str, "text": str}
+    primary_color : str
+        Team primary hex color.
+    """
+    if not highlights:
+        return
+
+    cards = []
+    for hl in highlights:
+        cards.append(
+            f'<div style="border-left:3px solid {primary_color}; background:white; '
+            f'padding:8px 14px; border-radius:0 8px 8px 0; margin-bottom:6px; '
+            f'box-shadow:0 1px 3px rgba(0,0,0,0.04);">'
+            f'<span style="font-weight:700; color:#1a1a1a;">{safe_html(hl["bold"])}</span> '
+            f'<span style="color:#4A5568;">{safe_html(hl["text"])}</span>'
+            f'</div>'
+        )
+    st.markdown("".join(cards), unsafe_allow_html=True)
+
+
+def render_true_talent_bar(observed_eb, true_talent_eb, league_avg_eb, deviation, primary_color, is_pitcher=False):
+    """Render a horizontal bar showing observed vs true talent vs league average.
+
+    Only call when |deviation| > 0.005.
+    """
+    all_vals = [observed_eb, true_talent_eb, league_avg_eb]
+    d_min = min(all_vals) - 0.03
+    d_max = max(all_vals) + 0.03
+    d_range = d_max - d_min
+    if d_range <= 0:
+        return
+
+    def _pos(v):
+        return max(0, min(100, (v - d_min) / d_range * 100))
+
+    obs_pos = _pos(observed_eb)
+    tt_pos = _pos(true_talent_eb)
+    lg_pos = _pos(league_avg_eb)
+
+    if is_pitcher:
+        arrow_color = "#38A169" if deviation < 0 else "#E53E3E"
+        outlook = "likely to improve" if deviation < 0 else "may regress"
+    else:
+        arrow_color = "#38A169" if deviation > 0 else "#E53E3E"
+        outlook = "likely to improve" if deviation > 0 else "may regress"
+
+    caption = f"Season stats suggest {observed_eb:.3f} EB/PA, but true talent estimate is {true_talent_eb:.3f} \u2014 {outlook}."
+
+    html_block = (
+        f'<div style="background:#FAFBFC; border-radius:10px; padding:14px 16px; border:1px solid #EDF2F7; margin-bottom:4px;">'
+        f'<div style="font-size:0.82rem; font-weight:600; color:#718096; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">True Talent vs. Observed</div>'
+        f'<div style="position:relative; height:28px; margin:0 8px;">'
+        f'<div style="position:absolute; top:11px; left:0; right:0; height:6px; background:#EDF2F7; border-radius:3px;"></div>'
+        f'<div style="position:absolute; top:4px; left:{lg_pos:.1f}%; width:2px; height:20px; margin-left:-1px; background:rgba(160,160,160,0.5);"></div>'
+        f'<div style="position:absolute; top:12px; left:{min(obs_pos, tt_pos):.1f}%; width:{abs(tt_pos - obs_pos):.1f}%; height:4px; background:{arrow_color}; border-radius:2px; opacity:0.6;"></div>'
+        f'<div style="position:absolute; top:4px; left:{obs_pos:.1f}%; width:20px; height:20px; margin-left:-10px; background:white; border:3px solid {primary_color}; border-radius:50%; box-shadow:0 1px 3px rgba(0,0,0,0.1);"></div>'
+        f'<div style="position:absolute; top:7px; left:{tt_pos:.1f}%; width:14px; height:14px; margin-left:-7px; background:{arrow_color}; transform:rotate(45deg); box-shadow:0 1px 3px rgba(0,0,0,0.1);"></div>'
+        f'</div>'
+        f'<div style="display:flex; gap:16px; justify-content:center; margin-top:8px; font-size:0.75rem; color:#718096;">'
+        f'<span>&#9679; Observed</span><span>&#9670; True Talent</span><span>&#124; Lg Avg</span>'
+        f'</div>'
+        f'<div style="font-size:0.82rem; color:#4A5568; margin-top:6px; text-align:center;">{safe_html(caption)}</div>'
+        f'</div>'
+    )
+    st.markdown(html_block, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Comparison page components
+# ─────────────────────────────────────────────────────────────────────────────
+
+def render_comparison_grades(
+    name_1, score_1, archetype_1, color_1,
+    name_2, score_2, archetype_2, color_2,
+):
+    """Render two grade badges side by side for comparison pages."""
+    def _badge(name, score, archetype, color):
+        s = int(round(score))
+        grade = _score_letter_grade(score)
+        return (
+            f'<div style="display:flex; flex-direction:column; align-items:center; flex:1;">'
+            f'<div style="font-weight:700; color:{color}; font-size:0.9rem; margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:160px;">{safe_html(name)}</div>'
+            f'<div style="width:72px; height:72px; border-radius:50%; border:3px solid {color}; display:flex; align-items:center; justify-content:center; background:white; box-shadow:0 2px 6px rgba(0,0,0,0.06);">'
+            f'<span style="font-size:1.6rem; font-weight:800; color:#1a1a1a;">{s}</span>'
+            f'</div>'
+            f'<div style="margin-top:4px; font-size:1.1rem; font-weight:700; color:{color};">{grade}</div>'
+            f'<div style="font-size:0.75rem; color:#718096; text-align:center;">{safe_html(archetype)}</div>'
+            f'</div>'
+        )
+
+    html = (
+        f'<div style="display:flex; align-items:flex-start; justify-content:center; gap:40px; '
+        f'background:#FAFBFC; border-radius:12px; padding:16px; border:1px solid #EDF2F7; margin-bottom:8px;">'
+        f'{_badge(name_1, score_1, archetype_1, color_1)}'
+        f'<div style="display:flex; align-items:center; padding-top:28px; color:#A0AEC0; font-weight:700; font-size:0.9rem;">vs</div>'
+        f'{_badge(name_2, score_2, archetype_2, color_2)}'
+        f'</div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def render_comparison_bars(metrics, name_1, color_1, name_2, color_2):
+    """Render side-by-side filled percentile bars for two players.
+
+    Parameters
+    ----------
+    metrics : list of dict
+        Each: {"label": str, "v1": str, "v2": str, "pct1": float, "pct2": float,
+               "num1": float, "num2": float, "higher_better": bool (default True)}
+    name_1, name_2 : str
+        Player last names for compact labels.
+    color_1, color_2 : str
+        Hex team colors.
+    """
+    h1 = color_1.lstrip("#")
+    r1, g1, b1 = int(h1[0:2], 16), int(h1[2:4], 16), int(h1[4:6], 16)
+    h2 = color_2.lstrip("#")
+    r2, g2, b2 = int(h2[0:2], 16), int(h2[2:4], 16), int(h2[4:6], 16)
+
+    # Compact last names
+    ln1 = name_1.split()[-1][:8] if " " in name_1 else name_1[:8]
+    ln2 = name_2.split()[-1][:8] if " " in name_2 else name_2[:8]
+
+    rows = []
+    for m in metrics:
+        pct1 = max(0, min(100, m.get("pct1") or 50))
+        pct2 = max(0, min(100, m.get("pct2") or 50))
+        higher_better = m.get("higher_better", True)
+
+        # Bold the winner
+        n1, n2 = m.get("num1"), m.get("num2")
+        w1 = w2 = ""
+        if n1 is not None and n2 is not None:
+            if higher_better:
+                w1 = "font-weight:700;" if n1 > n2 else ""
+                w2 = "font-weight:700;" if n2 > n1 else ""
+            else:
+                w1 = "font-weight:700;" if n1 < n2 else ""
+                w2 = "font-weight:700;" if n2 < n1 else ""
+
+        ext1 = abs(pct1 - 50) / 50
+        ext2 = abs(pct2 - 50) / 50
+        op1 = 0.45 + 0.55 * ext1
+        op2 = 0.45 + 0.55 * ext2
+
+        pct1_label = _ordinal(int(pct1)) if m.get("pct1") is not None else ""
+        pct2_label = _ordinal(int(pct2)) if m.get("pct2") is not None else ""
+
+        rows.append(
+            f'<div style="margin-bottom:10px;">'
+            f'<div style="text-align:center; font-size:0.78rem; font-weight:600; color:#718096; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:3px;">{safe_html(m["label"])}</div>'
+            # Player 1 bar
+            f'<div style="display:flex; align-items:center; height:26px; gap:6px; margin-bottom:2px;">'
+            f'<div style="width:60px; text-align:right; font-size:0.78rem; color:{color_1}; font-weight:600; white-space:nowrap;">{safe_html(ln1)}</div>'
+            f'<div style="flex:1; position:relative; height:16px; background:#EDF2F7; border-radius:8px; overflow:hidden;">'
+            f'<div style="position:absolute; top:0; left:0; width:{pct1:.1f}%; height:100%; background:rgba({r1},{g1},{b1},{op1:.2f}); border-radius:8px;"></div>'
+            f'<div style="position:absolute; top:0; left:50%; width:1px; height:100%; background:rgba(0,0,0,0.1);"></div>'
+            f'</div>'
+            f'<div style="width:90px; text-align:right; font-size:0.78rem; white-space:nowrap;">'
+            f'<span style="{w1} color:#1a1a1a;">{safe_html(m["v1"])}</span>'
+            f'<span style="color:#A0AEC0; margin-left:3px;">{pct1_label}</span>'
+            f'</div>'
+            f'</div>'
+            # Player 2 bar
+            f'<div style="display:flex; align-items:center; height:26px; gap:6px;">'
+            f'<div style="width:60px; text-align:right; font-size:0.78rem; color:{color_2}; font-weight:600; white-space:nowrap;">{safe_html(ln2)}</div>'
+            f'<div style="flex:1; position:relative; height:16px; background:#EDF2F7; border-radius:8px; overflow:hidden;">'
+            f'<div style="position:absolute; top:0; left:0; width:{pct2:.1f}%; height:100%; background:rgba({r2},{g2},{b2},{op2:.2f}); border-radius:8px;"></div>'
+            f'<div style="position:absolute; top:0; left:50%; width:1px; height:100%; background:rgba(0,0,0,0.1);"></div>'
+            f'</div>'
+            f'<div style="width:90px; text-align:right; font-size:0.78rem; white-space:nowrap;">'
+            f'<span style="{w2} color:#1a1a1a;">{safe_html(m["v2"])}</span>'
+            f'<span style="color:#A0AEC0; margin-left:3px;">{pct2_label}</span>'
+            f'</div>'
+            f'</div>'
+            f'</div>'
+        )
+
+    block = (
+        f'<div style="background:#FAFBFC; border-radius:12px; padding:16px 12px; border:1px solid #EDF2F7;">'
+        + "".join(rows)
+        + f'</div>'
+    )
+    st.markdown(block, unsafe_allow_html=True)
