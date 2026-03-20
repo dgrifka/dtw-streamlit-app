@@ -30,6 +30,7 @@ from utils.data_loader import (
     get_player_evaluation_team_image_url,
     get_available_player_evaluation_seasons,
     get_available_projection_seasons,
+    get_cached_radar_data,
 )
 from utils.team_mappings import TEAM_COLORS, get_team_logo_url
 from utils.player_analytics import compute_platoon_splits
@@ -269,20 +270,11 @@ if has_eval_data:
     else:
         df["position"] = ""
 
-# Compute archetypes for PA mode rankings
+# Compute archetypes for PA mode rankings (cached)
 _archetype_map = {}
 if is_pa_mode and has_eval_data:
-    from utils.player_analytics import (
-        compute_hitter_radar_metrics, compute_pitcher_radar_metrics,
-        cluster_player_archetypes,
-    )
-    _bb_for_radar = load_batted_balls(season)
-    if type_key == "hitter":
-        _radar_df = compute_hitter_radar_metrics(df, _bb_for_radar, min_pa=30)
-    else:
-        _radar_df = compute_pitcher_radar_metrics(df, _bb_for_radar, min_pa=30)
+    _radar_df = get_cached_radar_data(season, player_type=type_key, min_pa=30)
     if not _radar_df.empty:
-        _radar_df = cluster_player_archetypes(_radar_df, player_type=type_key)
         _archetype_map = dict(zip(
             _radar_df["player"] + "|" + _radar_df["team"],
             _radar_df["archetype"],

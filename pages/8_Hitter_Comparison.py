@@ -23,7 +23,7 @@ from utils.data_loader import (
     load_all_season_pa_rankings, compute_league_percentiles,
     load_player_evaluations_pa, load_player_metadata, load_pa_counts,
     load_player_projections, load_rate_stat_projections, resolve_player_id,
-    build_player_display_list,
+    build_player_display_list, get_cached_radar_data,
 )
 from utils.team_mappings import get_team_color, get_team_logo_url
 from utils.player_helpers import (
@@ -35,7 +35,6 @@ from utils.player_helpers import (
     TB_MAP, PLOTLY_CONFIG, PLOTLY_CONFIG_STATIC,
 )
 from utils.player_analytics import (
-    compute_hitter_radar_metrics, cluster_player_archetypes,
     get_player_radar_percentiles, HITTER_ARCHETYPE_DESC,
     compute_player_grade,
 )
@@ -83,14 +82,12 @@ pa_rankings = load_player_evaluations_pa(season, "hitter")
 # Multi-season PA rankings for historical timeline
 all_season_pa_rankings = load_all_season_pa_rankings("hitter")
 
-# Compute archetypes for hero badge display
+# Compute archetypes for hero badge display (cached)
 _cmp_archetype_map = {}
-if not pa_rankings.empty:
-    _cmp_radar_df = compute_hitter_radar_metrics(pa_rankings, bb_df, min_pa=30)
-    if not _cmp_radar_df.empty:
-        _cmp_radar_df = cluster_player_archetypes(_cmp_radar_df, player_type="hitter")
-        for _, row in _cmp_radar_df[["player", "team", "archetype"]].iterrows():
-            _cmp_archetype_map[f"{row['player']}|{row['team']}"] = row["archetype"]
+_cmp_radar_df = get_cached_radar_data(season, player_type="hitter", min_pa=30)
+if not _cmp_radar_df.empty:
+    for _, row in _cmp_radar_df[["player", "team", "archetype"]].iterrows():
+        _cmp_archetype_map[f"{row['player']}|{row['team']}"] = row["archetype"]
 
 st.title("Hitter Comparison")
 
@@ -1058,15 +1055,16 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
             )
             return fig
 
-        # --- Tabs ---
+        # --- Lazy tab rendering via segmented control ---
         if _has_rate_timeline:
-            _tab_labels = ["EB/PA", "K%", "BB%", "HR%"]
-            _timeline_tabs = st.tabs(_tab_labels)
-            _eb_container = _timeline_tabs[0]
+            _history_view = st.segmented_control(
+                "View", ["EB/PA", "K%", "BB%", "HR%"], default="EB/PA",
+                key="hcmp_history_view",
+            )
         else:
-            _eb_container = st.container()
+            _history_view = "EB/PA"
 
-        with _eb_container:
+        if _history_view == "EB/PA":
             if _has_rate_timeline:
                 st.caption("Bayesian model estimate with projections")
 
@@ -1243,25 +1241,24 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
             )
             st.plotly_chart(fig_tl, width="stretch", config=PLOTLY_CONFIG)
 
-        # --- Rate stat tabs ---
-        if _has_rate_timeline:
-            with _timeline_tabs[1]:
-                st.caption("Bayesian strikeout rate with 89% credible interval and projections")
-                _fig_k = _build_comparison_rate_chart("k_rate", "K%", higher_is_better=False)
-                if _fig_k:
-                    st.plotly_chart(_fig_k, width="stretch", config=PLOTLY_CONFIG)
+        # --- Rate stat views (lazy — only rendered when selected) ---
+        if _has_rate_timeline and _history_view == "K%":
+            st.caption("Bayesian strikeout rate with 89% credible interval and projections")
+            _fig_k = _build_comparison_rate_chart("k_rate", "K%", higher_is_better=False)
+            if _fig_k:
+                st.plotly_chart(_fig_k, width="stretch", config=PLOTLY_CONFIG)
 
-            with _timeline_tabs[2]:
-                st.caption("Bayesian walk rate with 89% credible interval and projections")
-                _fig_bb = _build_comparison_rate_chart("bb_rate", "BB%", higher_is_better=True)
-                if _fig_bb:
-                    st.plotly_chart(_fig_bb, width="stretch", config=PLOTLY_CONFIG)
+        if _has_rate_timeline and _history_view == "BB%":
+            st.caption("Bayesian walk rate with 89% credible interval and projections")
+            _fig_bb = _build_comparison_rate_chart("bb_rate", "BB%", higher_is_better=True)
+            if _fig_bb:
+                st.plotly_chart(_fig_bb, width="stretch", config=PLOTLY_CONFIG)
 
-            with _timeline_tabs[3]:
-                st.caption("Bayesian home run rate with 89% credible interval and projections")
-                _fig_hr = _build_comparison_rate_chart("hr_rate", "HR%", higher_is_better=True)
-                if _fig_hr:
-                    st.plotly_chart(_fig_hr, width="stretch", config=PLOTLY_CONFIG)
+        if _has_rate_timeline and _history_view == "HR%":
+            st.caption("Bayesian home run rate with 89% credible interval and projections")
+            _fig_hr = _build_comparison_rate_chart("hr_rate", "HR%", higher_is_better=True)
+            if _fig_hr:
+                st.plotly_chart(_fig_hr, width="stretch", config=PLOTLY_CONFIG)
 
 
 # =============================================================================

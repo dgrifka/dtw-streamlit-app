@@ -6,6 +6,7 @@ visualizations with Bayesian uncertainty from the DTW Simulator model.
 """
 
 import streamlit as st
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -24,7 +25,7 @@ from utils.data_loader import (
     load_all_season_pa_rankings, compute_league_percentiles,
     load_player_evaluations_pa, load_player_metadata, load_pa_counts,
     load_player_projections, load_rate_stat_projections, resolve_player_id,
-    build_player_display_list,
+    build_player_display_list, get_cached_radar_data,
 )
 from utils.team_mappings import (
     get_team_color, get_team_logo_url, get_short_name,
@@ -399,7 +400,6 @@ with hero_bayesian:
 # =============================================================================
 
 from utils.player_analytics import (
-    compute_hitter_radar_metrics, cluster_player_archetypes,
     find_similar_players, get_player_radar_percentiles,
     HITTER_ARCHETYPE_DESC, generate_player_highlights,
     compute_player_grade,
@@ -409,11 +409,10 @@ from utils.player_helpers import (
     render_snapshot_section, render_highlights,
 )
 
-# Compute radar metrics for all hitters (cached via Streamlit's data flow)
-_radar_df = compute_hitter_radar_metrics(pa_rankings, bb_df, min_pa=30)
+# Compute radar metrics for all hitters (cached in data_loader)
+_radar_df = get_cached_radar_data(season, player_type="hitter", min_pa=30)
 
 if not _radar_df.empty:
-    _radar_df = cluster_player_archetypes(_radar_df, player_type="hitter")
     _player_pcts = get_player_radar_percentiles(_radar_df, selected_player, player_team_short, "hitter")
 else:
     _player_pcts = None
@@ -435,13 +434,9 @@ if _player_pcts is not None and not _radar_df.empty:
 player_bb["_actual_tb"] = player_bb["actual_result"].map(TB_MAP).fillna(0)
 _player_luck = player_bb["_actual_tb"].sum() - player_bb["estimated_bases"].sum()
 
-_league_luck = bb_df.copy()
-_league_luck["_actual_tb"] = _league_luck["actual_result"].map(TB_MAP).fillna(0)
-_league_luck_per_player = _league_luck.groupby("player").apply(
-    lambda x: x["_actual_tb"].sum() - x["estimated_bases"].sum(),
-    include_groups=False,
-)
-_luck_pct = (_league_luck_per_player < _player_luck).mean() * 100
+_league_pcts = compute_league_percentiles(season, group_col="player")
+_league_luck_per_player = _league_pcts.get("luck_per_player", pd.Series(dtype=float))
+_luck_pct = (_league_luck_per_player < _player_luck).mean() * 100 if not _league_luck_per_player.empty else 50.0
 
 _unlucky_outs = player_bb[
     (player_bb["_actual_tb"] == 0) & (player_bb["estimated_bases"] > 0.5)
@@ -999,15 +994,16 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
             )
             return fig
 
-        # --- Tabs ---
+        # --- Lazy tab rendering via segmented control ---
         if _has_rate_timeline:
-            _tab_labels = ["EB/PA", "K%", "BB%", "HR%"]
-            _timeline_tabs = st.tabs(_tab_labels)
-            _eb_container = _timeline_tabs[0]
+            _history_view = st.segmented_control(
+                "View", ["EB/PA", "K%", "BB%", "HR%"], default="EB/PA",
+                key="hitter_history_view",
+            )
         else:
-            _eb_container = st.container()
+            _history_view = "EB/PA"
 
-        with _eb_container:
+        if _history_view == "EB/PA":
             if _has_rate_timeline:
                 st.caption("Bayesian model estimate with projections")
 
@@ -1267,25 +1263,24 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
             if len(timeline_data) == 1:
                 st.caption("Only one season of data available. More history will accumulate over time.")
 
-        # --- Rate stat tabs ---
-        if _has_rate_timeline:
-            with _timeline_tabs[1]:
-                st.caption("Bayesian strikeout rate with 89% credible interval and projections")
-                _fig_k = _build_rate_chart("k_rate", "K%", higher_is_better=False)
-                if _fig_k:
-                    st.plotly_chart(_fig_k, width="stretch", config=PLOTLY_CONFIG)
+        # --- Rate stat views (lazy — only rendered when selected) ---
+        if _has_rate_timeline and _history_view == "K%":
+            st.caption("Bayesian strikeout rate with 89% credible interval and projections")
+            _fig_k = _build_rate_chart("k_rate", "K%", higher_is_better=False)
+            if _fig_k:
+                st.plotly_chart(_fig_k, width="stretch", config=PLOTLY_CONFIG)
 
-            with _timeline_tabs[2]:
-                st.caption("Bayesian walk rate with 89% credible interval and projections")
-                _fig_bb = _build_rate_chart("bb_rate", "BB%")
-                if _fig_bb:
-                    st.plotly_chart(_fig_bb, width="stretch", config=PLOTLY_CONFIG)
+        if _has_rate_timeline and _history_view == "BB%":
+            st.caption("Bayesian walk rate with 89% credible interval and projections")
+            _fig_bb = _build_rate_chart("bb_rate", "BB%")
+            if _fig_bb:
+                st.plotly_chart(_fig_bb, width="stretch", config=PLOTLY_CONFIG)
 
-            with _timeline_tabs[3]:
-                st.caption("Bayesian home run rate with 89% credible interval and projections")
-                _fig_hr = _build_rate_chart("hr_rate", "HR%")
-                if _fig_hr:
-                    st.plotly_chart(_fig_hr, width="stretch", config=PLOTLY_CONFIG)
+        if _has_rate_timeline and _history_view == "HR%":
+            st.caption("Bayesian home run rate with 89% credible interval and projections")
+            _fig_hr = _build_rate_chart("hr_rate", "HR%")
+            if _fig_hr:
+                st.plotly_chart(_fig_hr, width="stretch", config=PLOTLY_CONFIG)
 
     elif len(all_season_pa_rankings) > 0:
         # Player not found in any season rankings
@@ -1306,22 +1301,19 @@ total_actual_tb = player_bb["actual_tb"].sum()
 total_expected_tb = player_bb["estimated_bases"].sum()
 luck_score = total_actual_tb - total_expected_tb
 
-# Compute league-wide percentiles
+# Compute league-wide percentiles (reuse cached league data)
 actual_pct = expected_pct = luck_pct = None
-if len(bb_df) > 1000:
-    all_luck = bb_df.copy()
-    all_luck["actual_tb"] = all_luck["actual_result"].map(TB_MAP).fillna(0)
-    player_luck = all_luck.groupby("player").agg(
-        actual=("actual_tb", "sum"),
-        expected=("estimated_bases", "sum"),
-        n=("estimated_bases", "count"),
-    )
-    player_luck = player_luck[player_luck["n"] >= 30]
-    player_luck["luck"] = player_luck["actual"] - player_luck["expected"]
-    if selected_player in player_luck.index:
-        actual_pct = (player_luck["actual"] < total_actual_tb).mean() * 100
-        expected_pct = (player_luck["expected"] < total_expected_tb).mean() * 100
-        luck_pct = (player_luck["luck"] < luck_score).mean() * 100
+_lp = _league_pcts  # already loaded above
+if _lp and not _lp.get("luck_per_player", pd.Series(dtype=float)).empty:
+    _lp_counts = _lp["bb_counts"]
+    _min30 = _lp_counts >= 30
+    _lp_actual = _lp["actual_tb_sums"][_min30]
+    _lp_expected = _lp["expected_tb_sums"][_min30]
+    _lp_luck = _lp["luck_per_player"][_min30]
+    if selected_player in _lp_luck.index:
+        actual_pct = (_lp_actual < total_actual_tb).mean() * 100
+        expected_pct = (_lp_expected < total_expected_tb).mean() * 100
+        luck_pct = (_lp_luck < luck_score).mean() * 100
 
 # Luck metrics
 lm1, lm2, lm3 = st.columns(3)
@@ -1476,13 +1468,15 @@ _sweet_spot = ((player_bb["launch_angle"] >= 8) & (player_bb["launch_angle"] <= 
 _barrel_count = int(player_bb["is_barrel"].sum()) if "is_barrel" in player_bb.columns else 0
 _max_ev = player_bb["launch_speed"].max() if len(player_bb) > 0 else 0
 
-# League percentiles for contact quality
+# League percentiles for contact quality (from cached league data)
 _league_hh_pct = _league_ss_pct = None
-if len(bb_df) > 1000:
-    _lg_hh = bb_df.groupby("player")["launch_speed"].apply(lambda x: (x >= 95).mean() * 100)
-    _league_hh_pct = (_lg_hh < _hard_hit).mean() * 100
-    _lg_ss = bb_df.groupby("player")["launch_angle"].apply(lambda x: ((x >= 8) & (x <= 32)).mean() * 100)
-    _league_ss_pct = (_lg_ss < _sweet_spot).mean() * 100
+if _league_pcts:
+    _lg_hh = _league_pcts.get("hard_hit_pcts", pd.Series(dtype=float))
+    if not _lg_hh.empty:
+        _league_hh_pct = (_lg_hh < _hard_hit).mean() * 100
+    _lg_ss = _league_pcts.get("sweet_spot_pcts", pd.Series(dtype=float))
+    if not _lg_ss.empty:
+        _league_ss_pct = (_lg_ss < _sweet_spot).mean() * 100
 
 _cq1, _cq2, _cq3, _cq4 = st.columns(4)
 with _cq1:
@@ -1498,8 +1492,13 @@ with _cq3:
 with _cq4:
     st.metric("Max EV", f"{_max_ev:.1f} mph")
 
-# Add derived columns
-player_bb["bb_type"] = player_bb["launch_angle"].apply(categorize_launch_angle)
+# Add derived columns (vectorized)
+_la = player_bb["launch_angle"]
+player_bb["bb_type"] = np.select(
+    [_la.isna(), _la < 10, _la < 25, _la < 50],
+    ["Unknown", "Ground Ball", "Line Drive", "Fly Ball"],
+    default="Pop Up",
+)
 
 # --- Distribution charts row ---
 col_ev, col_la = st.columns(2)
@@ -1758,9 +1757,14 @@ if "spray_direction" in player_bb.columns:
 else:
     type_stats["pull_pct"] = float("nan")
 
-# League type stats for comparison
-bb_df["bb_type"] = bb_df["launch_angle"].apply(categorize_launch_angle)
-league_type_stats = bb_df.groupby("bb_type").agg(
+# League type stats for comparison (vectorized, on copy to avoid mutating cache)
+_lg_la = bb_df["launch_angle"]
+_lg_bb_type = np.select(
+    [_lg_la.isna(), _lg_la < 10, _lg_la < 25, _lg_la < 50],
+    ["Unknown", "Ground Ball", "Line Drive", "Fly Ball"],
+    default="Pop Up",
+)
+league_type_stats = bb_df.assign(bb_type=_lg_bb_type).groupby("bb_type").agg(
     lg_avg_eb=("estimated_bases", "mean"),
 ).reset_index()
 type_stats = type_stats.merge(league_type_stats, on="bb_type", how="left")

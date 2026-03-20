@@ -391,23 +391,66 @@ def load_all_season_pa_rankings(player_type: str = "hitter") -> dict:
 
 @st.cache_data(ttl=3600)
 def compute_league_percentiles(season: int, group_col: str = "player") -> dict:
-    """Compute league-wide EV, barrel rate, and avg EB per player (cached 1h).
+    """Compute league-wide EV, barrel rate, avg EB, luck, hard-hit%, and sweet-spot% per player (cached 1h).
 
-    Returns dict with keys: ev_by_player, barrel_rates, avg_eb_by_player.
+    Returns dict with keys: ev_by_player, barrel_rates, avg_eb_by_player,
+    luck_per_player, hard_hit_pcts, sweet_spot_pcts.
     Each value is a pandas Series indexed by player/pitcher name.
     Returns empty dict if no data.
     """
-    from .player_helpers import is_barrel_vectorized
+    from .player_helpers import is_barrel_vectorized, TB_MAP
 
     bb_df = load_batted_balls(season)
     if bb_df.empty:
         return {}
     is_barrel_col = is_barrel_vectorized(bb_df["launch_speed"], bb_df["launch_angle"])
+    actual_tb = bb_df["actual_result"].map(TB_MAP).fillna(0)
+    enriched = bb_df.assign(is_barrel=is_barrel_col, _actual_tb=actual_tb)
+    grouped = enriched.groupby(group_col)
     return {
-        "ev_by_player": bb_df.groupby(group_col)["launch_speed"].mean(),
-        "barrel_rates": bb_df.assign(is_barrel=is_barrel_col).groupby(group_col)["is_barrel"].mean() * 100,
-        "avg_eb_by_player": bb_df.groupby(group_col)["estimated_bases"].mean(),
+        "ev_by_player": grouped["launch_speed"].mean(),
+        "barrel_rates": grouped["is_barrel"].mean() * 100,
+        "avg_eb_by_player": grouped["estimated_bases"].mean(),
+        "luck_per_player": grouped.apply(
+            lambda x: x["_actual_tb"].sum() - x["estimated_bases"].sum(),
+            include_groups=False,
+        ),
+        "actual_tb_sums": grouped["_actual_tb"].sum(),
+        "expected_tb_sums": grouped["estimated_bases"].sum(),
+        "bb_counts": grouped["estimated_bases"].count(),
+        "hard_hit_pcts": grouped["launch_speed"].apply(lambda x: (x >= 95).mean() * 100),
+        "sweet_spot_pcts": grouped["launch_angle"].apply(
+            lambda x: ((x >= 8) & (x <= 32)).mean() * 100
+        ),
     }
+
+
+@st.cache_data(ttl=3600)
+def get_cached_radar_data(season: int, player_type: str = "hitter", min_pa: int = 30) -> pd.DataFrame:
+    """Compute radar metrics + clustering for all players (cached 1h).
+
+    Returns DataFrame with radar metric columns, percentile columns, and 'archetype' column.
+    Returns empty DataFrame if insufficient data.
+    """
+    from .player_analytics import (
+        compute_hitter_radar_metrics, compute_pitcher_radar_metrics,
+        cluster_player_archetypes,
+    )
+
+    pa_rankings = load_player_evaluations_pa(season, player_type)
+    bb_df = load_batted_balls(season)
+    if pa_rankings.empty:
+        return pd.DataFrame()
+
+    if player_type == "hitter":
+        radar_df = compute_hitter_radar_metrics(pa_rankings, bb_df, min_pa=min_pa)
+    else:
+        radar_df = compute_pitcher_radar_metrics(pa_rankings, bb_df, min_pa=min_pa)
+
+    if not radar_df.empty:
+        radar_df = cluster_player_archetypes(radar_df, player_type=player_type)
+
+    return radar_df
 
 
 def filter_games(
