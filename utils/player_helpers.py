@@ -725,13 +725,13 @@ def render_snapshot_section(metrics, composite_score, archetype_name, primary_co
         prev_group = m.get("group", 0)
 
         bar_rows.append(
-            f'<div style="display:flex; align-items:center; height:30px; gap:8px;">'
-            f'<div style="width:90px; text-align:right; font-size:0.82rem; color:#4A5568; font-weight:500; white-space:nowrap;">{safe_html(m["label"])}</div>'
+            f'<div class="snapshot-bar-row" style="display:flex; align-items:center; height:30px; gap:8px;">'
+            f'<div class="snapshot-label" style="width:90px; text-align:right; font-size:0.82rem; color:#4A5568; font-weight:500; white-space:nowrap;">{safe_html(m["label"])}</div>'
             f'<div style="flex:1; position:relative; height:18px; background:#EDF2F7; border-radius:9px; overflow:hidden;">'
             f'<div style="position:absolute; top:0; left:0; width:{pct:.1f}%; height:100%; background:rgba({r},{g},{b},{fill_opacity:.2f}); border-radius:9px; transition:width 0.3s ease;"></div>'
             f'<div style="position:absolute; top:0; left:50%; width:2px; height:100%; background:rgba(0,0,0,0.25); transform:translateX(-1px);"></div>'
             f'</div>'
-            f'<div style="width:100px; text-align:right; font-size:0.82rem; white-space:nowrap;">'
+            f'<div class="snapshot-value" style="width:100px; text-align:right; font-size:0.82rem; white-space:nowrap;">'
             f'<span style="color:#1a1a1a; font-weight:600;">{safe_html(m["value"])}</span>'
             f'<span style="color:#A0AEC0; margin-left:4px;">{_ordinal(int(pct))}</span>'
             f'</div>'
@@ -746,8 +746,8 @@ def render_snapshot_section(metrics, composite_score, archetype_name, primary_co
     )
 
     html_block = (
-        f'<div style="display:flex; gap:20px; align-items:stretch; background:#FAFBFC; border-radius:12px; padding:20px; border:1px solid #EDF2F7; margin-bottom:4px;">'
-        f'<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:110px; flex-shrink:0;">'
+        f'<div class="snapshot-container" style="display:flex; gap:20px; align-items:stretch; background:#FAFBFC; border-radius:12px; padding:20px; border:1px solid #EDF2F7; margin-bottom:4px;">'
+        f'<div class="snapshot-badge" style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:110px; flex-shrink:0;">'
         f'<div style="width:88px; height:88px; border-radius:50%; border:4px solid {primary_color}; display:flex; align-items:center; justify-content:center; background:white; box-shadow:0 2px 8px rgba(0,0,0,0.06);">'
         f'<span style="font-size:2rem; font-weight:800; color:#1a1a1a;">{score_int}</span>'
         f'</div>'
@@ -755,7 +755,7 @@ def render_snapshot_section(metrics, composite_score, archetype_name, primary_co
         f'<div style="margin-top:2px; font-size:0.78rem; color:#718096; text-align:center; max-width:110px;">{safe_html(archetype_name)}</div>'
         f'{subtitle_html}'
         f'</div>'
-        f'<div style="flex:1; min-width:0;">{bars_html}</div>'
+        f'<div class="snapshot-bars" style="flex:1; min-width:0;">{bars_html}</div>'
         f'</div>'
     )
     st.markdown(html_block, unsafe_allow_html=True)

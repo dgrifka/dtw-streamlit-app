@@ -63,6 +63,20 @@ _RESPONSIVE_CSS = """
 
     /* Prevent long page titles from wrapping */
     h1 { font-size: 1.6rem !important; }
+
+    /* Stack snapshot badge above bars on narrow screens */
+    .snapshot-container {
+        flex-direction: column !important;
+        align-items: center !important;
+        gap: 12px !important;
+    }
+    .snapshot-badge {
+        min-width: unset !important;
+        flex-shrink: unset !important;
+    }
+    .snapshot-bars {
+        width: 100% !important;
+    }
 }
 
 /* ── Phone portrait (≤480px) ─────────────────────────────────────── */
@@ -88,6 +102,16 @@ _RESPONSIVE_CSS = """
 
     /* Smaller team scores in Game Detail */
     .team-score { font-size: 1.1rem !important; }
+
+    /* Compact snapshot labels/values on phones */
+    .snapshot-label {
+        width: 70px !important;
+        font-size: 0.75rem !important;
+    }
+    .snapshot-value {
+        width: 80px !important;
+        font-size: 0.75rem !important;
+    }
 }
 </style>
 """
