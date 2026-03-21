@@ -58,6 +58,49 @@ Using deserve-to-win results to estimate true team strength.
 
 st.markdown("")
 
+# Explainer Threads
+st.markdown("**Explainer Threads**")
+
+THREADS = [
+    {
+        "tag": "Player Metrics",
+        "tag_color": "#2B6CB0",
+        "title": "What is EB/PA?",
+        "description": "How we estimate a hitter's true production — and why sample size matters.",
+        "url": "https://x.com/mlb_simulator/status/2034742985791803895",
+    },
+    {
+        "tag": "Run Scoring",
+        "tag_color": "#2F855A",
+        "title": "Can a Simple Formula Predict Baseball Scores?",
+        "description": "Why the Poisson distribution fails for MLB runs — and what works better.",
+        "url": "https://x.com/mlb_simulator/status/2035183677861163433",
+    },
+    {
+        "tag": "Projections",
+        "tag_color": "#975A16",
+        "title": "Understanding Player Projections",
+        "description": "How multi-year Bayesian models handle aging, uncertainty, and small samples.",
+        "url": "https://x.com/mlb_simulator/status/2035401562906894794",
+    },
+]
+
+cols = st.columns(len(THREADS))
+for col, thread in zip(cols, THREADS):
+    with col:
+        with st.container(border=True):
+            st.markdown(
+                f'<span style="background:{thread["tag_color"]}; color:white; '
+                f'font-size:0.7rem; font-weight:600; padding:2px 8px; '
+                f'border-radius:10px;">{thread["tag"]}</span>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(f'**{thread["title"]}**')
+            st.caption(thread["description"])
+            st.markdown(f'[Read thread &rarr;]({thread["url"]})')
+
+st.markdown("")
+
 # -----------------------------------------------------------------------------
 # Connect
 # -----------------------------------------------------------------------------
