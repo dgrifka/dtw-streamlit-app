@@ -14,6 +14,23 @@ import unicodedata
 # Plotly interaction config
 PLOTLY_CONFIG = {"scrollZoom": False, "displayModeBar": False, "doubleClick": False}
 PLOTLY_CONFIG_STATIC = {"staticPlot": True}
+PLOTLY_CONFIG_FOREST = {
+    "scrollZoom": False,
+    "displayModeBar": True,
+    "modeBarButtonsToRemove": [
+        "zoom2d", "pan2d", "select2d", "lasso2d",
+        "zoomIn2d", "zoomOut2d", "autoScale2d", "resetScale2d",
+    ],
+    "displaylogo": False,
+    "doubleClick": False,
+    "toImageButtonOptions": {
+        "format": "png",
+        "filename": "player_rankings",
+        "height": 800,
+        "width": 1200,
+        "scale": 2,
+    },
+}
 
 # Actual total bases mapping
 TB_MAP = {

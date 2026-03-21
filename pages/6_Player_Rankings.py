@@ -34,7 +34,7 @@ from utils.data_loader import (
 )
 from utils.team_mappings import TEAM_COLORS, get_team_logo_url
 from utils.player_analytics import compute_platoon_splits
-from utils.player_helpers import PLOTLY_CONFIG
+from utils.player_helpers import PLOTLY_CONFIG_FOREST
 from utils.responsive import inject_responsive_css, render_home_link
 
 MLB_LOGO_URL = "https://a.espncdn.com/i/teamlogos/leagues/500/mlb.png"
@@ -60,7 +60,8 @@ def _build_forest_plot(plot_df, color, label, metric_short="EB/PA",
                        high_col="hdi_high", low_50_col="hdi_50_low",
                        high_50_col="hdi_50_high", count_col="n_batted_balls",
                        count_label="PA", sort_ascending=True,
-                       use_team_colors=False, league_mean=None):
+                       use_team_colors=False, league_mean=None,
+                       title=None):
     """Build a Plotly forest plot showing credible intervals."""
     plot_df = plot_df.sort_values(mean_col, ascending=sort_ascending).copy()
 
@@ -80,6 +81,11 @@ def _build_forest_plot(plot_df, color, label, metric_short="EB/PA",
                     + ", age " + plot_df.loc[still_dup, age_col].astype(int).astype(str) + ")"
                 )
 
+    # Truncate long names for compact display; full name stays in hover tooltip
+    plot_df["_display_name"] = plot_df["player"].apply(
+        lambda n: (n[:18] + "...") if len(n) > 18 else n
+    )
+
     # Build per-player colors from team when requested
     if use_team_colors and "team" in plot_df.columns:
         _player_colors = [
@@ -98,7 +104,7 @@ def _build_forest_plot(plot_df, color, label, metric_short="EB/PA",
         _line_color = _player_colors[i] if _player_colors else color
         fig.add_trace(go.Scatter(
             x=[row[low_col], row[high_col]],
-            y=[row["player"], row["player"]],
+            y=[row["_display_name"], row["_display_name"]],
             mode="lines",
             line=dict(color=_line_color, width=1.5),
             showlegend=False,
@@ -112,31 +118,31 @@ def _build_forest_plot(plot_df, color, label, metric_short="EB/PA",
                 _line_color = _player_colors[i] if _player_colors else color
                 fig.add_trace(go.Scatter(
                     x=[row[low_50_col], row[high_50_col]],
-                    y=[row["player"], row["player"]],
+                    y=[row["_display_name"], row["_display_name"]],
                     mode="lines",
                     line=dict(color=_line_color, width=5),
                     showlegend=False,
                     hoverinfo="skip",
                 ))
 
-    # Mean dots
-    _hover_cols = [low_col, high_col, count_col]
+    # Mean dots — include full name in customdata for hover tooltip
+    _hover_cols = ["player", low_col, high_col, count_col]
     _hover_team = "team" in plot_df.columns
     if _hover_team:
         _hover_cols = _hover_cols + ["team"]
     _dot_colors = _player_colors if _player_colors else color
     fig.add_trace(go.Scatter(
         x=plot_df[mean_col],
-        y=plot_df["player"],
+        y=plot_df["_display_name"],
         mode="markers",
         marker=dict(color=_dot_colors, size=8),
         name=label,
         customdata=plot_df[_hover_cols].values,
         hovertemplate=(
-            "<b>%{y}</b>" + (" (%{customdata[3]})" if _hover_team else "") + "<br>"
+            "<b>%{customdata[0]}</b>" + (" (%{customdata[4]})" if _hover_team else "") + "<br>"
             f"{metric_short}: %{{x:.3f}}<br>"
-            "Range: %{customdata[0]:.3f} – %{customdata[1]:.3f}<br>"
-            f"{count_label}: %{{customdata[2]:.0f}}<extra></extra>"
+            "Range: %{customdata[1]:.3f} – %{customdata[2]:.3f}<br>"
+            f"{count_label}: %{{customdata[3]:.0f}}<extra></extra>"
         ),
     ))
 
@@ -155,13 +161,15 @@ def _build_forest_plot(plot_df, color, label, metric_short="EB/PA",
         gridwidth=1,
     )
 
+    _top_margin = 40 if title else 25
     fig.update_layout(
         template="plotly_white",
+        title=dict(text=title, font=dict(size=15, color="#1a1a1a"), x=0.5, xanchor="center") if title else None,
         xaxis_title=f"Est. Bases / {metric_short.split('/')[-1]}",
         height=max(300, len(plot_df) * 30),
-        margin=dict(l=160, r=20, t=25, b=40),
+        margin=dict(l=10, r=20, t=_top_margin, b=40),
         showlegend=False,
-        yaxis=dict(tickfont=dict(size=13)),
+        yaxis=dict(tickfont=dict(size=12), automargin=True),
         xaxis=_xaxis_cfg,
     )
 
@@ -803,8 +811,10 @@ data to trust it.
                         _lg_mean_eb = filtered["posterior_mean"].mean()
                         fig_upside = _build_forest_plot(upside, "#2563eb", "High Upside",
                                                         metric_short=metric_short,
-                                                        league_mean=_lg_mean_eb)
-                        st.plotly_chart(fig_upside, use_container_width=True, config=PLOTLY_CONFIG, theme=None)
+                                                        league_mean=_lg_mean_eb,
+                                                        title=f"High Upside {player_type}s — {metric_short}")
+                        st.plotly_chart(fig_upside, use_container_width=True, config=PLOTLY_CONFIG_FOREST, theme=None)
+                        st.caption("Tap the camera icon (top-right) to download a high-res image.")
 
                         up_display = upside[["player", "team", "posterior_mean",
                                               "hdi_low", "hdi_high", "n_batted_balls"]].copy()
@@ -838,8 +848,10 @@ data to trust it.
                         _lg_mean_eb = filtered["posterior_mean"].mean()
                         fig_floor = _build_forest_plot(safe_floor, "#16a34a", "Reliable Floor",
                                                        metric_short=metric_short,
-                                                       league_mean=_lg_mean_eb)
-                        st.plotly_chart(fig_floor, use_container_width=True, config=PLOTLY_CONFIG, theme=None)
+                                                       league_mean=_lg_mean_eb,
+                                                       title=f"Reliable Floor {player_type}s — {metric_short}")
+                        st.plotly_chart(fig_floor, use_container_width=True, config=PLOTLY_CONFIG_FOREST, theme=None)
+                        st.caption("Tap the camera icon (top-right) to download a high-res image.")
 
                         sf_display = safe_floor[["player", "team", "posterior_mean",
                                                   "hdi_low", "hdi_high", "n_batted_balls"]].copy()
@@ -1251,8 +1263,10 @@ the Season Rankings tab combines projection priors with current performance for 
                     sort_ascending=not _eb_asc,
                     use_team_colors=True,
                     league_mean=_eb_league_mean,
+                    title=f"Projected {player_type}s — EB/PA",
                 )
-                st.plotly_chart(fig_proj, use_container_width=True, config=PLOTLY_CONFIG, theme=None)
+                st.plotly_chart(fig_proj, use_container_width=True, config=PLOTLY_CONFIG_FOREST, theme=None)
+                st.caption("Tap the camera icon (top-right) to download a high-res image.")
 
                 has_50 = ("projected_hdi_50_low" in top_20_proj.columns
                           and top_20_proj["projected_hdi_50_low"].notna().any())
@@ -1307,7 +1321,7 @@ the Season Rankings tab combines projection priors with current performance for 
 
                     _rate_league_mean = _eval_for_rates[f"{_rate_prefix}_posterior"].mean() * 100
                     fig_rate = _build_forest_plot(
-                        _plot_data, _rate_color, f"{_rate_label} (Projected Hitters)",
+                        _plot_data, _rate_color, f"{_rate_label} (Projected {player_type}s)",
                         metric_short=_rate_label,
                         mean_col=f"{_rate_prefix}_posterior",
                         low_col=f"{_rate_prefix}_hdi_low",
@@ -1317,12 +1331,14 @@ the Season Rankings tab combines projection priors with current performance for 
                         sort_ascending=not _sort_asc,
                         use_team_colors=True,
                         league_mean=_rate_league_mean,
+                        title=f"Projected {player_type}s — {_rate_label}",
                     )
                     fig_rate.update_layout(
                         xaxis_title=_rate_label,
                         xaxis=dict(ticksuffix="%"),
                     )
-                    st.plotly_chart(fig_rate, use_container_width=True, config=PLOTLY_CONFIG, theme=None)
+                    st.plotly_chart(fig_rate, use_container_width=True, config=PLOTLY_CONFIG_FOREST, theme=None)
+                    st.caption("Tap the camera icon (top-right) to download a high-res image.")
 
                     _direction_note = " Lower K% is better for hitters." if _rate_prefix == "k_rate" else ""
                     st.caption(
