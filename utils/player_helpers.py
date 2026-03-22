@@ -1033,8 +1033,12 @@ def render_comparison_bars(metrics, name_1, color_1, name_2, color_2):
 
     rows = []
     for m in metrics:
-        pct1 = max(0, min(100, m.get("pct1") or 50))
-        pct2 = max(0, min(100, m.get("pct2") or 50))
+        pct1_raw = m.get("pct1")
+        pct2_raw = m.get("pct2")
+        has_pct1 = pct1_raw is not None
+        has_pct2 = pct2_raw is not None
+        pct1 = max(0, min(100, pct1_raw)) if has_pct1 else 0
+        pct2 = max(0, min(100, pct2_raw)) if has_pct2 else 0
         higher_better = m.get("higher_better", True)
 
         # Bold the winner
@@ -1048,11 +1052,12 @@ def render_comparison_bars(metrics, name_1, color_1, name_2, color_2):
                 w1 = "font-weight:700;" if n1 < n2 else ""
                 w2 = "font-weight:700;" if n2 < n1 else ""
 
-        op1 = 0.30 + 0.70 * (pct1 / 100)
-        op2 = 0.30 + 0.70 * (pct2 / 100)
+        op1 = (0.30 + 0.70 * (pct1 / 100)) if has_pct1 else 0
+        op2 = (0.30 + 0.70 * (pct2 / 100)) if has_pct2 else 0
 
-        pct1_label = _ordinal(int(pct1)) if m.get("pct1") is not None else ""
-        pct2_label = _ordinal(int(pct2)) if m.get("pct2") is not None else ""
+        pct1_label = _ordinal(int(pct1)) if has_pct1 else ""
+        pct2_label = _ordinal(int(pct2)) if has_pct2 else ""
+        median_bg = "rgba(0,0,0,0.25)" if (has_pct1 or has_pct2) else "transparent"
 
         rows.append(
             f'<div style="margin-bottom:10px;">'
@@ -1062,7 +1067,7 @@ def render_comparison_bars(metrics, name_1, color_1, name_2, color_2):
             f'<div style="width:60px; text-align:right; font-size:0.78rem; color:{color_1}; font-weight:600; white-space:nowrap;">{safe_html(ln1)}</div>'
             f'<div style="flex:1; position:relative; height:16px; background:#EDF2F7; border-radius:8px; overflow:hidden;">'
             f'<div style="position:absolute; top:0; left:0; width:{pct1:.1f}%; height:100%; background:rgba({r1},{g1},{b1},{op1:.2f}); border-radius:8px;"></div>'
-            f'<div style="position:absolute; top:0; left:50%; width:2px; height:100%; background:rgba(0,0,0,0.25); transform:translateX(-1px);"></div>'
+            f'<div style="position:absolute; top:0; left:50%; width:2px; height:100%; background:{median_bg}; transform:translateX(-1px);"></div>'
             f'</div>'
             f'<div style="width:90px; text-align:right; font-size:0.78rem; white-space:nowrap;">'
             f'<span style="{w1} color:#1a1a1a;">{safe_html(m["v1"])}</span>'
@@ -1074,7 +1079,7 @@ def render_comparison_bars(metrics, name_1, color_1, name_2, color_2):
             f'<div style="width:60px; text-align:right; font-size:0.78rem; color:{color_2}; font-weight:600; white-space:nowrap;">{safe_html(ln2)}</div>'
             f'<div style="flex:1; position:relative; height:16px; background:#EDF2F7; border-radius:8px; overflow:hidden;">'
             f'<div style="position:absolute; top:0; left:0; width:{pct2:.1f}%; height:100%; background:rgba({r2},{g2},{b2},{op2:.2f}); border-radius:8px;"></div>'
-            f'<div style="position:absolute; top:0; left:50%; width:2px; height:100%; background:rgba(0,0,0,0.25); transform:translateX(-1px);"></div>'
+            f'<div style="position:absolute; top:0; left:50%; width:2px; height:100%; background:{median_bg}; transform:translateX(-1px);"></div>'
             f'</div>'
             f'<div style="width:90px; text-align:right; font-size:0.78rem; white-space:nowrap;">'
             f'<span style="{w2} color:#1a1a1a;">{safe_html(m["v2"])}</span>'

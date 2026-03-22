@@ -1737,12 +1737,23 @@ with col_spray:
                 league_spray = bb_df.dropna(subset=["coord_x", "coord_y"])
                 if "spray_direction" in league_spray.columns:
                     lg_dirs = league_spray["spray_direction"].value_counts(normalize=True) * 100
+                    directions = ["Pull", "Center", "Oppo"]
+                    dir_pcts = {d: player_dirs.get(d, 0) for d in directions}
+                    dominant = max(dir_pcts, key=dir_pcts.get)
                     parts = []
-                    for d in ["Pull", "Center", "Oppo"]:
-                        p = player_dirs.get(d, 0)
+                    for d in directions:
+                        p = dir_pcts[d]
                         lg = lg_dirs.get(d, 0)
-                        parts.append(f"{d}: {p:.0f}% (Lg: {lg:.0f}%)")
-                    st.caption(" · ".join(parts))
+                        delta = p - lg
+                        if d == dominant:
+                            sign = "+" if delta >= 0 else ""
+                            parts.append(f"<b>{d}: {p:.0f}%</b> ({sign}{delta:.0f})")
+                        else:
+                            parts.append(f"{d}: {p:.0f}% (Lg: {lg:.0f}%)")
+                    st.markdown(
+                        f'<span style="font-size:0.85rem; color:#718096;">{" · ".join(parts)}</span>',
+                        unsafe_allow_html=True,
+                    )
 
 # --- Estimated Bases Distribution Chart ---
 st.markdown("#### Estimated Bases Distribution")

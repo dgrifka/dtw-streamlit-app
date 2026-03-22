@@ -607,28 +607,25 @@ if p1["ranking"] is not None and p2["ranking"] is not None:
         ("ERA", "era", False, ".2f"),
         ("WHIP", "whip", False, ".2f"),
         ("IP", "innings_pitched", True, ".1f"),
-        ("K", "strikeouts", True, ".0f"),
-        ("BB", "walks", False, ".0f"),
-        ("HR Allowed", "home_runs_allowed", False, ".0f"),
-        ("SV", "saves", True, ".0f"),
     ]
     for label, col, higher_better, fmt in trad_stats:
         if col and col in _r1.index and col in _r2.index:
             v1 = _r1.get(col)
             v2 = _r2.get(col)
             if pd.notna(v1) and pd.notna(v2):
+                _pct1, _pct2 = None, None
+                if not pa_rankings.empty and col in pa_rankings.columns:
+                    league_vals = pa_rankings[col].dropna()
+                    if len(league_vals) >= 10:
+                        if higher_better:
+                            _pct1 = (v1 > league_vals).mean() * 100
+                            _pct2 = (v2 > league_vals).mean() * 100
+                        else:
+                            _pct1 = (v1 < league_vals).mean() * 100
+                            _pct2 = (v2 < league_vals).mean() * 100
                 _h2h_metrics.append({"label": label, "v1": format(v1, fmt), "v2": format(v2, fmt),
-                                      "pct1": None, "pct2": None, "num1": v1, "num2": v2,
+                                      "pct1": _pct1, "pct2": _pct2, "num1": v1, "num2": v2,
                                       "higher_better": higher_better})
-    # W-L special case
-    w1 = _r1.get("wins") if "wins" in _r1.index else None
-    l1 = _r1.get("losses") if "losses" in _r1.index else None
-    w2 = _r2.get("wins") if "wins" in _r2.index else None
-    l2 = _r2.get("losses") if "losses" in _r2.index else None
-    if w1 is not None and w2 is not None and pd.notna(w1) and pd.notna(w2):
-        _h2h_metrics.append({"label": "W-L", "v1": f"{int(w1)}-{int(l1)}", "v2": f"{int(w2)}-{int(l2)}",
-                              "pct1": None, "pct2": None, "num1": w1, "num2": w2,
-                              "higher_better": True})
 
 render_comparison_bars(_h2h_metrics, p1["name"], p1_color, p2["name"], p2_color)
 
