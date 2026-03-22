@@ -34,7 +34,9 @@ from utils.player_helpers import (
     normalize_name, build_headshot_url, build_video_url,
     categorize_launch_angle, is_barrel, is_barrel_vectorized,
     _ordinal, _percentile_color,
-    render_percentile_bar, luck_tier_label, safe_html,
+    render_percentile_bar, render_comparison_bar_html,
+    plotly_download_config, _player_filename_slug,
+    luck_tier_label, safe_html,
     render_sticky_player_bar,
     TB_MAP, PLOTLY_CONFIG, PLOTLY_CONFIG_STATIC,
 )
@@ -245,6 +247,7 @@ if pitcher_meta is not None:
 # PA count from rankings
 n_pa = int(pitcher_ranking["n_batted_balls"]) if pitcher_ranking is not None and "n_batted_balls" in pitcher_ranking.index else None
 pa_str = f" | {n_pa:,} PA" if n_pa else ""
+bb_str = f" | {n_bb:,} BB"
 
 img_url = build_headshot_url(player_id) if player_id else (get_team_logo_url(pitcher_team_short) or "")
 img_html = ""
@@ -262,7 +265,7 @@ st.markdown(
     f'{img_html}'
     f'<div>'
     f'<div style="font-size:1.5rem; font-weight:700; margin-bottom:2px;">{safe_html(selected_pitcher)}</div>'
-    f'<div style="color:#4A5568; font-size:1rem;"><b>{safe_html(pitcher_team_short)}</b>{pos_str}{throw_str}{age_str}{pa_str}</div>'
+    f'<div style="color:#4A5568; font-size:1rem;"><b>{safe_html(pitcher_team_short)}</b>{pos_str}{throw_str}{age_str}{pa_str}{bb_str}</div>'
     f'</div></div>',
     unsafe_allow_html=True,
 )
@@ -285,111 +288,157 @@ if league_pcts:
 else:
     ev_pct = barrel_pct = 50
 
-hero_stats, hero_bayesian = st.columns([3, 2])
+# --- Pre-compute EV comparison bar data (pitcher: lower = better) ---
+_ev_bar_html = ""
+if league_pcts:
+    _ev_series = league_pcts["ev_by_player"]
+    _bb_counts = league_pcts["bb_counts"]
+    _qualified_ev = _ev_series[_bb_counts >= 50]
+    if not _qualified_ev.empty:
+        _best_ev_name = _qualified_ev.idxmin()  # lowest EV = best pitcher
+        _best_ev_val = _qualified_ev.min()
+        _best_ev_match = pa_rankings[pa_rankings["player"] == _best_ev_name] if not pa_rankings.empty else pd.DataFrame()
+        _best_ev_team = _best_ev_match.iloc[0]["team"] if not _best_ev_match.empty else ""
+        _best_ev_color, _ = get_team_color(_best_ev_team) if _best_ev_team else ("#DAA520", "#DAA520")
+        _best_ev_bb = bb_df[bb_df["pitcher"] == _best_ev_name]
+        _best_ev_se = _best_ev_bb["launch_speed"].std() / np.sqrt(len(_best_ev_bb)) if len(_best_ev_bb) > 1 else 1.0
+        _player_ev_se = pitcher_bb["launch_speed"].std() / np.sqrt(n_bb) if n_bb > 1 else 1.0
+        _ev_bar_html = render_comparison_bar_html(
+            selected_pitcher, avg_ev, avg_ev - 1.6 * _player_ev_se, avg_ev + 1.6 * _player_ev_se, primary_color,
+            _best_ev_name, _best_ev_val, _best_ev_val - 1.6 * _best_ev_se, _best_ev_val + 1.6 * _best_ev_se, _best_ev_color,
+            _qualified_ev.mean(), _qualified_ev.std(),
+            value_fmt=".1f", caption="lower = better",
+        )
 
-with hero_stats:
-    qs1, qs2, qs3 = st.columns(3)
-    qs1.metric("Batted Balls Faced", f"{n_bb:,}")
-    qs2.metric("Avg EV Allowed", f"{avg_ev:.1f} mph",
-               help="Average exit velocity allowed on all batted balls (mph). Lower is better.")
-    render_percentile_bar(ev_pct, label=f"{_ordinal(int(ev_pct))} pct (lower EV = better)", container=qs2)
-    qs3.metric("Barrel Rate Allowed", f"{barrel_rate:.1f}%",
-               help="Barrel rate allowed. Barrels: EV >= 98 mph + launch angle in the sweet spot zone. Lower is better.")
-    render_percentile_bar(barrel_pct, label=f"{_ordinal(int(barrel_pct))} pct (fewer barrels = better)", container=qs3)
+# --- Pre-compute barrel rate comparison bar data (pitcher: lower = better) ---
+_barrel_bar_html = ""
+if league_pcts:
+    _barrel_series = league_pcts["barrel_rates"]
+    _qualified_barrel = _barrel_series[_bb_counts >= 50]
+    if not _qualified_barrel.empty:
+        _best_brl_name = _qualified_barrel.idxmin()  # lowest barrel rate = best pitcher
+        _best_brl_val = _qualified_barrel.min()
+        _best_brl_match = pa_rankings[pa_rankings["player"] == _best_brl_name] if not pa_rankings.empty else pd.DataFrame()
+        _best_brl_team = _best_brl_match.iloc[0]["team"] if not _best_brl_match.empty else ""
+        _best_brl_color, _ = get_team_color(_best_brl_team) if _best_brl_team else ("#DAA520", "#DAA520")
+        _best_brl_bb = bb_df[bb_df["pitcher"] == _best_brl_name]
+        _brl_p_best = max(_best_brl_val / 100, 0.01)
+        _best_brl_se = np.sqrt(_brl_p_best * (1 - _brl_p_best) / len(_best_brl_bb)) * 100 if len(_best_brl_bb) > 1 else 1.0
+        _brl_p_player = max(barrel_rate / 100, 0.01)
+        _player_brl_se = np.sqrt(_brl_p_player * (1 - _brl_p_player) / n_bb) * 100 if n_bb > 1 else 1.0
+        _barrel_bar_html = render_comparison_bar_html(
+            selected_pitcher, barrel_rate, barrel_rate - 1.6 * _player_brl_se, barrel_rate + 1.6 * _player_brl_se, primary_color,
+            _best_brl_name, _best_brl_val, _best_brl_val - 1.6 * _best_brl_se, _best_brl_val + 1.6 * _best_brl_se, _best_brl_color,
+            _qualified_barrel.mean(), _qualified_barrel.std(),
+            value_fmt=".1f", value_suffix="%", caption="lower = better",
+        )
 
-with hero_bayesian:
-    if pitcher_ranking is not None:
-        bayesian_eb = pitcher_ranking["posterior_mean"]
-        hdi_low = pitcher_ranking["hdi_low"]
-        hdi_high = pitcher_ranking["hdi_high"]
+# --- Pre-compute EB/PA comparison bar data (pitcher: lower = better) ---
+# Hierarchy: true_talent_eb_pa > projected_eb_pa > posterior_mean
+_proj_df = load_player_projections(season, "pitcher")
+if _proj_df.empty:
+    _proj_df = load_player_projections(season + 1, "pitcher")
+_proj_active = _proj_df[_proj_df["p_active_next_season"] > 0.3] if not _proj_df.empty and "p_active_next_season" in _proj_df.columns else _proj_df
 
-        # Percentile rank — inverted for pitcher (lower EB/PA = better)
-        eb_pct_raw = (pa_rankings["posterior_mean"] < bayesian_eb).mean() * 100
-        eb_pct = 100 - eb_pct_raw
+_eb_bar_html = ""
+bayesian_eb = None
+eb_pct = None
+_eb_label = "Est. Bases Allowed/PA"
+_eb_help = "Estimated true production allowed per plate appearance. Lower is better for pitchers. Small samples are adjusted toward league average."
 
-        st.metric("Est. Bases Allowed/PA", f"{bayesian_eb:.3f}",
-                  help="Estimated true production allowed per plate appearance. Lower is better for pitchers. Small samples are adjusted toward league average.")
+# Level 1: true_talent_eb_pa (projection + in-season blend)
+_has_tt = (
+    pitcher_ranking is not None
+    and "true_talent_eb_pa" in pa_rankings.columns
+    and pa_rankings["true_talent_eb_pa"].notna().any()
+    and pd.notna(pitcher_ranking.get("true_talent_eb_pa"))
+)
+if _has_tt:
+    _eb_label = "True Talent EB/PA"
+    _eb_help = "True talent estimate combining preseason projections with in-season Bayesian evaluation. Lower is better for pitchers."
+    bayesian_eb = pitcher_ranking["true_talent_eb_pa"]
+    hdi_low = pitcher_ranking["hdi_low"]
+    hdi_high = pitcher_ranking["hdi_high"]
+    _tt_vals = pa_rankings["true_talent_eb_pa"].dropna()
+    eb_pct = 100 - (_tt_vals < bayesian_eb).mean() * 100  # inverted: lower = better
+    _best_idx = _tt_vals.idxmin()
+    _best_row = pa_rankings.loc[_best_idx]
+    _best_name = _best_row["player"]
+    _best_team = _best_row.get("team", "")
+    _best_color, _ = get_team_color(_best_team) if _best_team else ("#DAA520", "#DAA520")
+    _eb_bar_html = render_comparison_bar_html(
+        selected_pitcher, bayesian_eb, hdi_low, hdi_high, primary_color,
+        _best_name, _best_row["true_talent_eb_pa"], _best_row["hdi_low"], _best_row["hdi_high"], _best_color,
+        _tt_vals.mean(), _tt_vals.std(),
+        caption="lower = better",
+    )
+
+# Level 2: projections (pre-season / early-season)
+if bayesian_eb is None and not _proj_active.empty:
+    _pm = _proj_active[_proj_active["player"] == selected_pitcher]
+    _team_pm = _pm[_pm["team"] == pitcher_team_short]
+    _pm = _team_pm if not _team_pm.empty else _pm
+    if not _pm.empty:
+        _eb_label = "Projected EB/PA"
+        _eb_help = "Bayesian projection based on multi-year historical performance and aging curves. Lower is better for pitchers."
+        _p = _pm.iloc[0]
+        bayesian_eb = _p["projected_eb_pa"]
+        hdi_low = _p["projected_hdi_low"]
+        hdi_high = _p["projected_hdi_high"]
+        eb_pct = 100 - (_proj_active["projected_eb_pa"] < bayesian_eb).mean() * 100  # inverted
+        _best_idx = _proj_active["projected_eb_pa"].idxmin()  # lowest = best pitcher
+        _best_proj = _proj_active.loc[_best_idx]
+        _best_name = _best_proj["player"]
+        _best_team = _best_proj.get("team", "")
+        _best_color, _ = get_team_color(_best_team) if _best_team else ("#DAA520", "#DAA520")
+        _eb_bar_html = render_comparison_bar_html(
+            selected_pitcher, bayesian_eb, hdi_low, hdi_high, primary_color,
+            _best_name, _best_proj["projected_eb_pa"], _best_proj["projected_hdi_low"], _best_proj["projected_hdi_high"], _best_color,
+            _proj_active["projected_eb_pa"].mean(), _proj_active["projected_eb_pa"].std(),
+            caption="lower = better",
+        )
+
+# Level 3: raw posterior (historical seasons without projections)
+if bayesian_eb is None and pitcher_ranking is not None:
+    bayesian_eb = pitcher_ranking["posterior_mean"]
+    hdi_low = pitcher_ranking["hdi_low"]
+    hdi_high = pitcher_ranking["hdi_high"]
+    eb_pct_raw = (pa_rankings["posterior_mean"] < bayesian_eb).mean() * 100
+    eb_pct = 100 - eb_pct_raw
+    _best_idx = pa_rankings["posterior_mean"].idxmin()
+    _best_row = pa_rankings.loc[_best_idx]
+    _best_name = _best_row["player"]
+    _best_team = _best_row.get("team", "")
+    _best_color, _ = get_team_color(_best_team) if _best_team else ("#DAA520", "#DAA520")
+    _eb_bar_html = render_comparison_bar_html(
+        selected_pitcher, bayesian_eb, hdi_low, hdi_high, primary_color,
+        _best_name, _best_row["posterior_mean"], _best_row["hdi_low"], _best_row["hdi_high"], _best_color,
+        pa_rankings["posterior_mean"].mean(), pa_rankings["posterior_mean"].std(),
+        caption="lower = better",
+    )
+
+hero_col1, hero_col2, hero_col3 = st.columns(3)
+
+with hero_col1:
+    st.metric("Avg EV Allowed", f"{avg_ev:.1f} mph",
+              help="Average exit velocity allowed on all batted balls (mph). Lower is better.")
+    render_percentile_bar(ev_pct, label=f"{_ordinal(int(ev_pct))} pct (lower EV = better)")
+    if _ev_bar_html:
+        st.markdown(_ev_bar_html, unsafe_allow_html=True)
+
+with hero_col2:
+    st.metric("Barrel Rate Allowed", f"{barrel_rate:.1f}%",
+              help="Barrel rate allowed. Barrels: EV >= 98 mph + launch angle in the sweet spot zone. Lower is better.")
+    render_percentile_bar(barrel_pct, label=f"{_ordinal(int(barrel_pct))} pct (fewer barrels = better)")
+    if _barrel_bar_html:
+        st.markdown(_barrel_bar_html, unsafe_allow_html=True)
+
+with hero_col3:
+    if bayesian_eb is not None:
+        st.metric(_eb_label, f"{bayesian_eb:.3f}", help=_eb_help)
         render_percentile_bar(eb_pct, label=f"{_ordinal(int(eb_pct))} pct (lower EB/PA = better)")
-
-        # --- 3-Row Comparison Bar ---
-        # Best pitcher = lowest posterior_mean
-        best_idx = pa_rankings["posterior_mean"].idxmin()
-        best_row = pa_rankings.loc[best_idx]
-        best_eb = best_row["posterior_mean"]
-        best_hdi_low = best_row["hdi_low"]
-        best_hdi_high = best_row["hdi_high"]
-        best_name = best_row["player"]
-        best_team = best_row.get("team", "")
-        best_color, _ = get_team_color(best_team) if best_team else ("#DAA520", "#DAA520")
-
-        league_mean_eb = pa_rankings["posterior_mean"].mean()
-        league_sd_eb = pa_rankings["posterior_mean"].std()
-        lg_low = league_mean_eb - league_sd_eb
-        lg_high = league_mean_eb + league_sd_eb
-
-        display_min = min(hdi_low, best_hdi_low, lg_low) - 0.03
-        display_max = max(hdi_high, best_hdi_high, lg_high) + 0.03
-        display_range = display_max - display_min
-
-        def _pct_pos(val):
-            return max(0, min(100, (val - display_min) / display_range * 100))
-
-        p_left = _pct_pos(hdi_low)
-        p_width = _pct_pos(hdi_high) - p_left
-        p_marker = _pct_pos(bayesian_eb)
-
-        b_left = _pct_pos(best_hdi_low)
-        b_width = _pct_pos(best_hdi_high) - b_left
-        b_marker = _pct_pos(best_eb)
-
-        lg_left = _pct_pos(lg_low)
-        lg_width = _pct_pos(lg_high) - lg_left
-        lg_marker = _pct_pos(league_mean_eb)
-
-        best_label = best_name.split(" ")[-1][:10] if " " in best_name else best_name[:10]
-
-        st.markdown(f"""
-        <div style="font-size:13px; margin:8px 0 2px 0;">
-            <!-- Row 1: Pitcher -->
-            <div style="display:flex; align-items:center; height:26px; margin-bottom:4px;">
-                <div style="width:70px; text-align:right; padding-right:8px; font-weight:600; color:{primary_color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{safe_html(selected_pitcher.split(' ')[-1][:10])}</div>
-                <div style="flex:1; position:relative; height:16px;">
-                    <div style="position:absolute; top:2px; left:{p_left:.1f}%; width:{p_width:.1f}%;
-                                height:12px; background:{primary_color}; opacity:0.7; border-radius:6px;"></div>
-                    <div style="position:absolute; top:0px; left:{p_marker:.1f}%;
-                                width:16px; height:16px; margin-left:-8px;
-                                background:white; border:3px solid {primary_color};
-                                border-radius:50%;"></div>
-                </div>
-                <div style="width:50px; padding-left:6px; font-size:12px; color:{primary_color}; font-weight:600;">{bayesian_eb:.3f}</div>
-            </div>
-            <!-- Row 2: Best Pitcher -->
-            <div style="display:flex; align-items:center; height:26px; margin-bottom:4px;">
-                <div style="width:70px; text-align:right; padding-right:8px; color:{best_color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{safe_html(best_name)}">{safe_html(best_label)}</div>
-                <div style="flex:1; position:relative; height:16px;">
-                    <div style="position:absolute; top:2px; left:{b_left:.1f}%; width:{b_width:.1f}%;
-                                height:12px; background:{best_color}; opacity:0.5; border-radius:6px;"></div>
-                    <div style="position:absolute; top:1px; left:{b_marker:.1f}%;
-                                width:14px; height:14px; margin-left:-7px;
-                                background:{best_color}; transform:rotate(45deg);"></div>
-                </div>
-                <div style="width:50px; padding-left:6px; font-size:12px; color:{best_color};">{best_eb:.3f}</div>
-            </div>
-            <!-- Row 3: League Average +/- 1 SD -->
-            <div style="display:flex; align-items:center; height:26px;">
-                <div style="width:70px; text-align:right; padding-right:8px; color:rgba(120,120,120,0.9);">Lg Avg</div>
-                <div style="flex:1; position:relative; height:16px;">
-                    <div style="position:absolute; top:2px; left:{lg_left:.1f}%; width:{lg_width:.1f}%;
-                                height:12px; background:rgba(160,160,160,0.35); border-radius:6px;"></div>
-                    <div style="position:absolute; top:2px; left:{lg_marker:.1f}%;
-                                width:12px; height:12px; margin-left:-6px;
-                                background:rgba(150,150,150,0.7); border-radius:50%;"></div>
-                </div>
-                <div style="width:50px; padding-left:6px; font-size:12px; color:rgba(120,120,120,0.9);">{league_mean_eb:.3f}</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.caption("← Lower is better for pitchers. Diamond = best pitcher this season.")
+        if _eb_bar_html:
+            st.markdown(_eb_bar_html, unsafe_allow_html=True)
     else:
         st.metric("Avg Est. Bases Allowed/BB", f"{avg_eb:.3f}")
         st.caption("Full ranking not available (need player evaluation data)")
@@ -653,7 +702,9 @@ if _player_pcts is not None:
 
     with _col_radar:
         _radar_fig = render_radar_chart(_player_pcts, primary_color)
-        st.plotly_chart(_radar_fig, use_container_width=True, config=PLOTLY_CONFIG)
+        _slug = _player_filename_slug(selected_pitcher)
+        st.plotly_chart(_radar_fig, use_container_width=True, config=plotly_download_config(f"{_slug}_radar_{season}", width=800, height=800))
+        st.caption("Tap the camera icon above any chart to save as PNG.")
         if n_bb < 50:
             st.caption(f"Based on {n_bb} batted balls faced — profile may shift as more data accumulates.")
 
@@ -1130,7 +1181,7 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                 xanchor="left", yanchor="top",
                 bgcolor="rgba(255,255,255,0.7)",
             )
-            st.plotly_chart(fig_timeline, width="stretch", config=PLOTLY_CONFIG)
+            st.plotly_chart(fig_timeline, width="stretch", config=plotly_download_config(f"{_player_filename_slug(selected_pitcher)}_timeline_{season}", height=600))
 
             if len(timeline_data) == 1:
                 st.caption("Only one season of data available. More history will accumulate over time.")
@@ -1226,7 +1277,7 @@ fig_luck.update_layout(
     xaxis_title="Batted Ball #", yaxis_title="Cumulative Luck (TB)",
     height=400, template="plotly_white", dragmode=False,
 )
-st.plotly_chart(fig_luck, width="stretch", config=PLOTLY_CONFIG)
+st.plotly_chart(fig_luck, width="stretch", config=plotly_download_config(f"{_player_filename_slug(selected_pitcher)}_luck_{season}", height=600))
 
 
 # =============================================================================
@@ -1403,7 +1454,7 @@ with col_evla:
             xaxis_title="Exit Velocity (mph)", yaxis_title="Launch Angle (&deg;)",
             height=500, template="plotly_white", dragmode=False,
         )
-        st.plotly_chart(fig_evla, width="stretch", config=PLOTLY_CONFIG)
+        st.plotly_chart(fig_evla, width="stretch", config=plotly_download_config(f"{_player_filename_slug(selected_pitcher)}_ev_la_{season}"))
 
 with col_spray:
     st.markdown("#### Spray Chart")
@@ -1469,7 +1520,7 @@ with col_spray:
                 yaxis=dict(visible=False, autorange="reversed"),
                 dragmode=False,
             )
-            st.plotly_chart(fig_spray, width="stretch", config=PLOTLY_CONFIG_STATIC)
+            st.plotly_chart(fig_spray, width="stretch", config=plotly_download_config(f"{_player_filename_slug(selected_pitcher)}_spray_{season}", width=800, height=800))
 
             if "spray_direction" in spray_data.columns:
                 player_dirs = spray_data["spray_direction"].value_counts(normalize=True) * 100

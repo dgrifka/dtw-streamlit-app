@@ -47,6 +47,23 @@ _RESPONSIVE_CSS = """
     /* Compact metric labels */
     [data-testid="stMetric"] label { font-size: 0.75rem !important; }
 
+    /* Tighter metric cards on tablet */
+    [data-testid="stMetric"] {
+        padding: 8px 10px !important;
+    }
+
+    /* Compact comparison bars on tablet (3 cols → 2-per-row) */
+    .comp-bar-label {
+        width: 38px !important;
+        font-size: 10px !important;
+        padding-right: 4px !important;
+    }
+    .comp-bar-value {
+        width: 36px !important;
+        font-size: 10px !important;
+        padding-left: 3px !important;
+    }
+
     /* Card images: allow natural height */
     .responsive-card-img {
         height: auto !important;
@@ -92,6 +109,23 @@ _RESPONSIVE_CSS = """
 
     /* Smaller page titles on phones */
     h1 { font-size: 1.4rem !important; }
+
+    /* Add breathing room below comparison bars when columns stack */
+    .comp-bar-container {
+        margin-bottom: 12px !important;
+    }
+
+    /* Comparison bars at full width — restore comfortable sizing */
+    .comp-bar-label {
+        width: 50px !important;
+        font-size: 11px !important;
+        padding-right: 5px !important;
+    }
+    .comp-bar-value {
+        width: 42px !important;
+        font-size: 11px !important;
+        padding-left: 4px !important;
+    }
 
     /* Slightly smaller logo on phones */
     .page-logo { width: 50px !important; }

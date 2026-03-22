@@ -121,6 +121,130 @@ def _percentile_color(pct):
     return f"rgb({r},{g},{b})"
 
 
+def plotly_download_config(filename, width=1200, height=800, scale=2):
+    """Plotly config with only the camera (download PNG) button visible."""
+    return {
+        "scrollZoom": False,
+        "displayModeBar": True,
+        "modeBarButtonsToRemove": [
+            "zoom2d", "pan2d", "select2d", "lasso2d",
+            "zoomIn2d", "zoomOut2d", "autoScale2d", "resetScale2d",
+        ],
+        "displaylogo": False,
+        "doubleClick": False,
+        "toImageButtonOptions": {
+            "format": "png",
+            "filename": filename,
+            "height": height,
+            "width": width,
+            "scale": scale,
+        },
+    }
+
+
+def _player_filename_slug(name):
+    """Convert player name to clean filename slug (e.g., 'Aaron Judge' -> 'judge')."""
+    slug = name.split()[-1].lower() if " " in name else name.lower()
+    return normalize_name(slug).replace(" ", "_")
+
+
+def render_comparison_bar_html(
+    player_name, player_val, player_low, player_high, player_color,
+    best_name, best_val, best_low, best_high, best_color,
+    league_mean, league_sd,
+    value_fmt=".3f", value_suffix="", caption=None,
+):
+    """Render a 3-row comparison bar (player vs best vs league avg).
+
+    Returns HTML string. Caller wraps in st.markdown(..., unsafe_allow_html=True).
+    Sized to fit in a 1/3-width column.
+    """
+    lg_low = league_mean - league_sd
+    lg_high = league_mean + league_sd
+    all_vals = [player_low, player_high, best_low, best_high, lg_low, lg_high]
+    pad = (max(all_vals) - min(all_vals)) * 0.1 + 0.01
+    d_min = min(all_vals) - pad
+    d_max = max(all_vals) + pad
+    d_range = d_max - d_min
+    if d_range <= 0:
+        return ""
+
+    def _pos(v):
+        return max(0, min(100, (v - d_min) / d_range * 100))
+
+    p_left = _pos(player_low)
+    p_width = max(_pos(player_high) - p_left, 0.5)
+    p_marker = _pos(player_val)
+
+    b_left = _pos(best_low)
+    b_width = max(_pos(best_high) - b_left, 0.5)
+    b_marker = _pos(best_val)
+
+    lg_left_pos = _pos(lg_low)
+    lg_width_pos = max(_pos(lg_high) - lg_left_pos, 0.5)
+    lg_marker_pos = _pos(league_mean)
+
+    player_label = safe_html(player_name.split(" ")[-1][:8] if " " in player_name else player_name[:8])
+    best_label = safe_html(best_name.split(" ")[-1][:8] if " " in best_name else best_name[:8])
+
+    fmt = f"{{:{value_fmt}}}"
+    p_str = fmt.format(player_val) + value_suffix
+    b_str = fmt.format(best_val) + value_suffix
+    lg_str = fmt.format(league_mean) + value_suffix
+
+    caption_html = ""
+    if caption:
+        caption_html = (
+            f'<div style="font-size:11px; color:rgba(120,120,120,0.8); '
+            f'margin-top:2px; text-align:center;">{safe_html(caption)}</div>'
+        )
+
+    return (
+        f'<div class="comp-bar-container" style="font-size:12px; margin:4px 0 2px 0;">'
+        # Row 1: Player
+        f'<div style="display:flex; align-items:center; height:22px; margin-bottom:3px;">'
+        f'<div class="comp-bar-label" style="width:55px; text-align:right; padding-right:6px; font-weight:600; color:{player_color}; '
+        f'white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:11px;">{player_label}</div>'
+        f'<div style="flex:1; position:relative; height:14px; min-width:0;">'
+        f'<div style="position:absolute; top:1px; left:{p_left:.1f}%; width:{p_width:.1f}%; '
+        f'height:12px; background:{player_color}; opacity:0.7; border-radius:6px;"></div>'
+        f'<div style="position:absolute; top:0px; left:{p_marker:.1f}%; '
+        f'width:14px; height:14px; margin-left:-7px; '
+        f'background:white; border:2.5px solid {player_color}; border-radius:50%;"></div>'
+        f'</div>'
+        f'<div class="comp-bar-value" style="width:44px; padding-left:4px; font-size:11px; color:{player_color}; font-weight:600;">{p_str}</div>'
+        f'</div>'
+        # Row 2: Best player
+        f'<div style="display:flex; align-items:center; height:22px; margin-bottom:3px;">'
+        f'<div class="comp-bar-label" style="width:55px; text-align:right; padding-right:6px; color:{best_color}; '
+        f'white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:11px;" '
+        f'title="{safe_html(best_name)}">{best_label}</div>'
+        f'<div style="flex:1; position:relative; height:14px; min-width:0;">'
+        f'<div style="position:absolute; top:1px; left:{b_left:.1f}%; width:{b_width:.1f}%; '
+        f'height:12px; background:{best_color}; opacity:0.5; border-radius:6px;"></div>'
+        f'<div style="position:absolute; top:0px; left:{b_marker:.1f}%; '
+        f'width:12px; height:12px; margin-left:-6px; '
+        f'background:{best_color}; transform:rotate(45deg);"></div>'
+        f'</div>'
+        f'<div class="comp-bar-value" style="width:44px; padding-left:4px; font-size:11px; color:{best_color};">{b_str}</div>'
+        f'</div>'
+        # Row 3: League average
+        f'<div style="display:flex; align-items:center; height:22px;">'
+        f'<div class="comp-bar-label" style="width:55px; text-align:right; padding-right:6px; color:rgba(120,120,120,0.9); font-size:11px;">Lg Avg</div>'
+        f'<div style="flex:1; position:relative; height:14px; min-width:0;">'
+        f'<div style="position:absolute; top:1px; left:{lg_left_pos:.1f}%; width:{lg_width_pos:.1f}%; '
+        f'height:12px; background:rgba(160,160,160,0.35); border-radius:6px;"></div>'
+        f'<div style="position:absolute; top:1px; left:{lg_marker_pos:.1f}%; '
+        f'width:10px; height:10px; margin-left:-5px; '
+        f'background:rgba(150,150,150,0.7); border-radius:50%;"></div>'
+        f'</div>'
+        f'<div class="comp-bar-value" style="width:44px; padding-left:4px; font-size:11px; color:rgba(120,120,120,0.9);">{lg_str}</div>'
+        f'</div>'
+        f'{caption_html}'
+        f'</div>'
+    )
+
+
 def render_percentile_bar(percentile, label=None, container=None):
     """Render a horizontal percentile bar with colored circle indicator."""
     if percentile is None:
