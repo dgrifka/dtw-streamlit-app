@@ -148,6 +148,27 @@ def compute_player_grade(radar_pcts, player_type="hitter"):
     return (1 - w) * eb_pa + w * speed
 
 
+def compute_projected_grade(player_name, player_team, proj_df, player_type="hitter"):
+    """Compute 0-100 grade from projection percentile (preseason mode).
+
+    Uses projected_eb_pa rank among all projected players.
+    Hitters: higher = better. Pitchers: lower = better (inverted).
+    """
+    if proj_df.empty or "projected_eb_pa" not in proj_df.columns:
+        return None
+
+    match = proj_df[(proj_df["player"] == player_name) & (proj_df["team"] == player_team)]
+    if match.empty:
+        match = proj_df[proj_df["player"] == player_name]
+    if match.empty:
+        return None
+
+    player_eb = match.iloc[0]["projected_eb_pa"]
+    if player_type == "pitcher":
+        return (1 - (proj_df["projected_eb_pa"] < player_eb).mean()) * 100
+    return (proj_df["projected_eb_pa"] < player_eb).mean() * 100
+
+
 def compute_pitcher_radar_metrics(pa_rankings, bb_df, min_pa=30):
     """
     Build the 6-axis radar metric DataFrame for all pitchers.

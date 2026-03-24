@@ -454,7 +454,7 @@ pitcher_bb["actual_tb"] = pitcher_bb["actual_result"].map(TB_MAP).fillna(0)
 from utils.player_analytics import (
     find_similar_players, get_player_radar_percentiles,
     PITCHER_ARCHETYPE_DESC, generate_player_highlights,
-    compute_player_grade,
+    compute_player_grade, compute_projected_grade,
 )
 from utils.player_helpers import (
     render_radar_chart, render_archetype_badge, render_similar_players,
@@ -532,10 +532,29 @@ if _player_pcts is not None and not _radar_df.empty:
     _pr = _pm.iloc[0] if not _pm.empty else None
 
     if _pr is not None:
-        # Grade = run prevention percentile (EB/PA allowed, inverted)
-        _composite = compute_player_grade(_player_pcts, player_type="pitcher")
-        if _composite is None:
-            _composite = sum(_player_pcts.values()) / len(_player_pcts)
+        # Grade — preseason mode uses projections; in-season uses radar percentiles
+        _current_year = pd.Timestamp.now().year
+        _is_preseason = season < _current_year and not _proj_active.empty
+
+        if _is_preseason:
+            _proj_grade = compute_projected_grade(
+                selected_pitcher, pitcher_team_short, _proj_active, player_type="pitcher"
+            )
+            if _proj_grade is not None:
+                _composite = _proj_grade
+                _target_season = int(_proj_df["target_season"].iloc[0]) if "target_season" in _proj_df.columns else _current_year
+                _snap_subtitle = f"Based on {_target_season} projections"
+            else:
+                _composite = compute_player_grade(_player_pcts, player_type="pitcher")
+                if _composite is None:
+                    _composite = sum(_player_pcts.values()) / len(_player_pcts)
+                _snap_subtitle = None
+        else:
+            _composite = compute_player_grade(_player_pcts, player_type="pitcher")
+            if _composite is None:
+                _composite = sum(_player_pcts.values()) / len(_player_pcts)
+            _has_projections = "true_talent_eb_pa" in _pr.index and pd.notna(_pr.get("true_talent_eb_pa"))
+            _snap_subtitle = f"Includes {season} projections" if _has_projections else None
 
         # Build 8 metrics for pitcher — all oriented higher=better
         _snapshot_metrics = []
@@ -583,8 +602,6 @@ if _player_pcts is not None and not _radar_df.empty:
         if _gb_val is not None:
             _snapshot_metrics.append({"label": "Ground Balls", "pct": _gb_pct, "value": f"{_gb_val * 100:.1f}%", "group": 1})
 
-        _has_projections = "true_talent_eb_pa" in _pr.index and pd.notna(_pr.get("true_talent_eb_pa"))
-        _snap_subtitle = f"Includes {season} projections" if _has_projections else None
         render_snapshot_section(_snapshot_metrics, _composite, _archetype, primary_color, subtitle=_snap_subtitle)
 
     # Auto-generated highlights

@@ -36,7 +36,7 @@ from utils.player_helpers import (
 )
 from utils.player_analytics import (
     get_player_radar_percentiles, HITTER_ARCHETYPE_DESC,
-    compute_player_grade,
+    compute_player_grade, compute_projected_grade,
 )
 from utils.responsive import inject_responsive_css, render_home_link
 
@@ -534,15 +534,34 @@ if len(bb_df) > 1000:
 _score_1 = _score_2 = None
 _arch_1 = p1.get("archetype", "Unknown") or "Unknown"
 _arch_2 = p2.get("archetype", "Unknown") or "Unknown"
+_grade_caption = None
 
+# Preseason detection: evaluation season < current year and projections exist
+_current_year = pd.Timestamp.now().year
+_cmp_proj_df = load_player_projections(season + 1, "hitter") if season < _current_year else pd.DataFrame()
+_cmp_proj_active = _cmp_proj_df[_cmp_proj_df["p_active_next_season"] > 0.3] if not _cmp_proj_df.empty and "p_active_next_season" in _cmp_proj_df.columns else _cmp_proj_df
+_cmp_is_preseason = season < _current_year and not _cmp_proj_active.empty
+
+if _cmp_is_preseason:
+    _pg1 = compute_projected_grade(p1["name"], p1["team"], _cmp_proj_active, player_type="hitter")
+    _pg2 = compute_projected_grade(p2["name"], p2["team"], _cmp_proj_active, player_type="hitter")
+    if _pg1 is not None:
+        _score_1 = _pg1
+    if _pg2 is not None:
+        _score_2 = _pg2
+    if _pg1 is not None or _pg2 is not None:
+        _target_season = int(_cmp_proj_df["target_season"].iloc[0]) if "target_season" in _cmp_proj_df.columns else _current_year
+        _grade_caption = f"Grades based on {_target_season} projections"
+
+# Fill any missing scores from radar percentiles
 if not _cmp_radar_df.empty:
     _rp1 = get_player_radar_percentiles(_cmp_radar_df, p1["name"], p1["team"], "hitter")
     _rp2 = get_player_radar_percentiles(_cmp_radar_df, p2["name"], p2["team"], "hitter")
-    if _rp1:
+    if _score_1 is None and _rp1:
         _score_1 = compute_player_grade(_rp1, player_type="hitter")
         if _score_1 is None:
             _score_1 = sum(_rp1.values()) / len(_rp1)
-    if _rp2:
+    if _score_2 is None and _rp2:
         _score_2 = compute_player_grade(_rp2, player_type="hitter")
         if _score_2 is None:
             _score_2 = sum(_rp2.values()) / len(_rp2)
@@ -552,6 +571,8 @@ if _score_1 is not None and _score_2 is not None:
         p1["name"], _score_1, _arch_1, p1_color,
         p2["name"], _score_2, _arch_2, p2_color,
     )
+    if _grade_caption:
+        st.caption(_grade_caption)
 
 # --- Build comparison bar metrics ---
 _h2h_metrics = []
