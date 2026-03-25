@@ -24,19 +24,23 @@ PLAYOFF_START_DATES = {
 
 def filter_to_regular_season(df: pd.DataFrame, season: int) -> pd.DataFrame:
     """
-    Filter out playoff games for a given season.
-    
+    Filter out playoff and non-regular-season games for a given season.
+
     Args:
         df: DataFrame with 'date' column
         season: Year to filter (e.g., 2025)
-    
+
     Returns:
         DataFrame with only regular season games
     """
+    result = df.copy()
+    # Filter by game_type when available (excludes Spring Training, etc.)
+    if 'game_type' in result.columns:
+        result = result[result['game_type'] == 'R']
     if season in PLAYOFF_START_DATES:
         cutoff = PLAYOFF_START_DATES[season]
-        return df[df['date'] < cutoff].copy()
-    return df.copy()
+        result = result[result['date'] < cutoff]
+    return result
 
 
 def redistribute_tie_probability(df: pd.DataFrame) -> pd.DataFrame:
