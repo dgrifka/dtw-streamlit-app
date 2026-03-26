@@ -223,7 +223,18 @@ avg_eb = player_bb["estimated_bases"].mean()
 avg_ev = player_bb["launch_speed"].mean()
 n_bb = len(player_bb)
 player_bb["is_barrel"] = is_barrel_vectorized(player_bb["launch_speed"], player_bb["launch_angle"])
-barrel_rate = player_bb["is_barrel"].mean() * 100
+barrel_rate_raw = player_bb["is_barrel"].mean() * 100
+
+# Prefer true talent → Bayesian posterior → raw for barrel rate
+barrel_rate = barrel_rate_raw
+_barrel_bayesian = False
+if player_ranking is not None:
+    if "true_talent_barrel_rate" in player_ranking.index and pd.notna(player_ranking.get("true_talent_barrel_rate")):
+        barrel_rate = player_ranking["true_talent_barrel_rate"] * 100
+        _barrel_bayesian = True
+    elif "barrel_rate_posterior" in player_ranking.index and pd.notna(player_ranking.get("barrel_rate_posterior")):
+        barrel_rate = player_ranking["barrel_rate_posterior"] * 100
+        _barrel_bayesian = True
 
 # Hero identity card — stays cohesive on mobile
 pos_str = ""
@@ -283,7 +294,11 @@ render_sticky_player_bar(
 # Key stats row — 3 metrics with comparison bars
 league_pcts = compute_league_percentiles(season, "player")
 ev_pct = (league_pcts["ev_by_player"] < avg_ev).mean() * 100 if league_pcts else 50
-barrel_pct = (league_pcts["barrel_rates"] < barrel_rate).mean() * 100 if league_pcts else 50
+# Prefer Bayesian percentile ranking when available
+if _barrel_bayesian and not pa_rankings.empty and "barrel_rate_posterior" in pa_rankings.columns:
+    barrel_pct = (pa_rankings["barrel_rate_posterior"].dropna() < player_ranking["barrel_rate_posterior"]).mean() * 100
+else:
+    barrel_pct = (league_pcts["barrel_rates"] < barrel_rate).mean() * 100 if league_pcts else 50
 
 # --- Pre-compute EV comparison bar data ---
 _ev_bar_html = ""
@@ -418,11 +433,19 @@ with hero_col1:
         st.markdown(_ev_bar_html, unsafe_allow_html=True)
 
 with hero_col2:
-    st.metric("Barrel Rate", f"{barrel_rate:.1f}%",
-              help="Barrels: EV >= 98 mph + launch angle in the sweet spot zone. Barrels produce the highest expected bases.")
+    _barrel_help = ("Barrels: EV >= 98 mph + launch angle in the sweet spot zone. "
+                    "Barrels produce the highest expected bases.")
+    if _barrel_bayesian:
+        _barrel_help += " Adjusted for sample size using a Bayesian model."
+    st.metric("Barrel Rate", f"{barrel_rate:.1f}%", help=_barrel_help)
     render_percentile_bar(barrel_pct)
     if _barrel_bar_html:
         st.markdown(_barrel_bar_html, unsafe_allow_html=True)
+    if _barrel_bayesian and "barrel_rate_hdi_low" in player_ranking.index:
+        st.caption(
+            f"89% CI: {player_ranking['barrel_rate_hdi_low']*100:.1f}% – "
+            f"{player_ranking['barrel_rate_hdi_high']*100:.1f}%"
+        )
 
 with hero_col3:
     if bayesian_eb is not None:
@@ -1519,37 +1542,104 @@ if _k_rate_bayesian or _bb_rate_bayesian or _hr_rate_bayesian:
 
 st.divider()
 st.subheader("Contact Quality Profile")
-st.caption(f"{season} Season")
 
-# Contact quality summary metrics
-_hard_hit = (player_bb["launch_speed"] >= 95).mean() * 100 if len(player_bb) > 0 else 0
-_sweet_spot = ((player_bb["launch_angle"] >= 8) & (player_bb["launch_angle"] <= 32)).mean() * 100 if len(player_bb) > 0 else 0
+# Determine if Bayesian contact quality stats are available
+_has_bayesian_cq = (
+    player_ranking is not None
+    and "barrel_rate_posterior" in player_ranking.index
+    and pd.notna(player_ranking.get("barrel_rate_posterior"))
+)
+
+if _has_bayesian_cq:
+    st.caption(
+        "Contact quality estimates adjusted for sample size. Players with fewer "
+        "batted balls are pulled toward the league average, reflecting uncertainty."
+    )
+else:
+    st.caption(f"{season} Season")
+
+# Contact quality summary metrics — prefer Bayesian, fall back to raw
+_hard_hit_raw = (player_bb["launch_speed"] >= 95).mean() * 100 if len(player_bb) > 0 else 0
+_sweet_spot_raw = ((player_bb["launch_angle"] >= 8) & (player_bb["launch_angle"] <= 32)).mean() * 100 if len(player_bb) > 0 else 0
 _barrel_count = int(player_bb["is_barrel"].sum()) if "is_barrel" in player_bb.columns else 0
 _max_ev = player_bb["launch_speed"].max() if len(player_bb) > 0 else 0
 
-# League percentiles for contact quality (from cached league data)
-_league_hh_pct = _league_ss_pct = None
-if _league_pcts:
-    _lg_hh = _league_pcts.get("hard_hit_pcts", pd.Series(dtype=float))
-    if not _lg_hh.empty:
-        _league_hh_pct = (_lg_hh < _hard_hit).mean() * 100
-    _lg_ss = _league_pcts.get("sweet_spot_pcts", pd.Series(dtype=float))
-    if not _lg_ss.empty:
-        _league_ss_pct = (_lg_ss < _sweet_spot).mean() * 100
+if _has_bayesian_cq:
+    # Prefer true talent (projection + in-season combined), fall back to posterior
+    _hard_hit = player_ranking.get("true_talent_hard_hit_rate", player_ranking["hard_hit_rate_posterior"]) * 100
+    _sweet_spot = player_ranking.get("true_talent_sweet_spot_rate", player_ranking["sweet_spot_rate_posterior"]) * 100
+    _barrel_display = player_ranking.get("true_talent_barrel_rate", player_ranking["barrel_rate_posterior"]) * 100
+    # Handle NaN true talent (falls back to posterior)
+    if pd.isna(_hard_hit):
+        _hard_hit = player_ranking["hard_hit_rate_posterior"] * 100
+    if pd.isna(_sweet_spot):
+        _sweet_spot = player_ranking["sweet_spot_rate_posterior"] * 100
+    if pd.isna(_barrel_display):
+        _barrel_display = player_ranking["barrel_rate_posterior"] * 100
+
+    # Bayesian percentiles: rank against all players in pa_rankings
+    _league_hh_pct = None
+    _league_ss_pct = None
+    _league_br_pct = None
+    if not pa_rankings.empty:
+        if "hard_hit_rate_posterior" in pa_rankings.columns:
+            _league_hh_pct = (pa_rankings["hard_hit_rate_posterior"].dropna() < player_ranking["hard_hit_rate_posterior"]).mean() * 100
+        if "sweet_spot_rate_posterior" in pa_rankings.columns:
+            _league_ss_pct = (pa_rankings["sweet_spot_rate_posterior"].dropna() < player_ranking["sweet_spot_rate_posterior"]).mean() * 100
+        if "barrel_rate_posterior" in pa_rankings.columns:
+            _league_br_pct = (pa_rankings["barrel_rate_posterior"].dropna() < player_ranking["barrel_rate_posterior"]).mean() * 100
+else:
+    _hard_hit = _hard_hit_raw
+    _sweet_spot = _sweet_spot_raw
+    _barrel_display = barrel_rate_raw
+
+    # Raw percentiles from league data
+    _league_hh_pct = _league_ss_pct = _league_br_pct = None
+    if _league_pcts:
+        _lg_hh = _league_pcts.get("hard_hit_pcts", pd.Series(dtype=float))
+        if not _lg_hh.empty:
+            _league_hh_pct = (_lg_hh < _hard_hit).mean() * 100
+        _lg_ss = _league_pcts.get("sweet_spot_pcts", pd.Series(dtype=float))
+        if not _lg_ss.empty:
+            _league_ss_pct = (_lg_ss < _sweet_spot).mean() * 100
 
 _cq1, _cq2, _cq3, _cq4 = st.columns(4)
 with _cq1:
     st.metric("Hard Hit %", f"{_hard_hit:.1f}%", help="Exit velocity >= 95 mph")
     if _league_hh_pct is not None:
         render_percentile_bar(_league_hh_pct, container=_cq1)
+    if _has_bayesian_cq and "hard_hit_rate_hdi_low" in player_ranking.index:
+        st.caption(
+            f"89% CI: {player_ranking['hard_hit_rate_hdi_low']*100:.1f}% – "
+            f"{player_ranking['hard_hit_rate_hdi_high']*100:.1f}%"
+        )
 with _cq2:
     st.metric("Sweet Spot %", f"{_sweet_spot:.1f}%", help="Launch angle 8-32 degrees")
     if _league_ss_pct is not None:
         render_percentile_bar(_league_ss_pct, container=_cq2)
+    if _has_bayesian_cq and "sweet_spot_rate_hdi_low" in player_ranking.index:
+        st.caption(
+            f"89% CI: {player_ranking['sweet_spot_rate_hdi_low']*100:.1f}% – "
+            f"{player_ranking['sweet_spot_rate_hdi_high']*100:.1f}%"
+        )
 with _cq3:
-    st.metric("Barrels", f"{_barrel_count}")
+    _br_label = "Barrel Rate" if _has_bayesian_cq else "Barrels"
+    if _has_bayesian_cq:
+        st.metric(_br_label, f"{_barrel_display:.1f}%",
+                  help="Barrel rate adjusted for sample size")
+        if _league_br_pct is not None:
+            render_percentile_bar(_league_br_pct, container=_cq3)
+        if "barrel_rate_hdi_low" in player_ranking.index:
+            st.caption(
+                f"89% CI: {player_ranking['barrel_rate_hdi_low']*100:.1f}% – "
+                f"{player_ranking['barrel_rate_hdi_high']*100:.1f}%"
+            )
+    else:
+        st.metric(_br_label, f"{_barrel_count}")
 with _cq4:
     st.metric("Max EV", f"{_max_ev:.1f} mph")
+    if _has_bayesian_cq:
+        st.caption(f"Based on {n_bb} batted balls")
 
 # Add derived columns (vectorized)
 _la = player_bb["launch_angle"]

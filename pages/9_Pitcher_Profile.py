@@ -222,7 +222,18 @@ avg_eb = pitcher_bb["estimated_bases"].mean()
 avg_ev = pitcher_bb["launch_speed"].mean()
 n_bb = len(pitcher_bb)
 pitcher_bb["is_barrel"] = is_barrel_vectorized(pitcher_bb["launch_speed"], pitcher_bb["launch_angle"])
-barrel_rate = pitcher_bb["is_barrel"].mean() * 100
+barrel_rate_raw = pitcher_bb["is_barrel"].mean() * 100
+
+# Prefer true talent → Bayesian posterior → raw for barrel rate
+barrel_rate = barrel_rate_raw
+_barrel_bayesian = False
+if pitcher_ranking is not None:
+    if "true_talent_barrel_rate" in pitcher_ranking.index and pd.notna(pitcher_ranking.get("true_talent_barrel_rate")):
+        barrel_rate = pitcher_ranking["true_talent_barrel_rate"] * 100
+        _barrel_bayesian = True
+    elif "barrel_rate_posterior" in pitcher_ranking.index and pd.notna(pitcher_ranking.get("barrel_rate_posterior")):
+        barrel_rate = pitcher_ranking["barrel_rate_posterior"] * 100
+        _barrel_bayesian = True
 
 # Hero identity card — stays cohesive on mobile
 pos_str = ""
@@ -283,7 +294,11 @@ league_pcts = compute_league_percentiles(season, "pitcher")
 if league_pcts:
     ev_pct_raw = (league_pcts["ev_by_player"] < avg_ev).mean() * 100
     ev_pct = 100 - ev_pct_raw  # invert: low EV allowed = high percentile
-    barrel_pct_raw = (league_pcts["barrel_rates"] < barrel_rate).mean() * 100
+    # Prefer Bayesian percentile ranking when available (inverted: lower = better)
+    if _barrel_bayesian and not pa_rankings.empty and "barrel_rate_posterior" in pa_rankings.columns:
+        barrel_pct_raw = (pa_rankings["barrel_rate_posterior"].dropna() < pitcher_ranking["barrel_rate_posterior"]).mean() * 100
+    else:
+        barrel_pct_raw = (league_pcts["barrel_rates"] < barrel_rate).mean() * 100
     barrel_pct = 100 - barrel_pct_raw  # invert: low barrel rate = high percentile
 else:
     ev_pct = barrel_pct = 50
@@ -427,11 +442,18 @@ with hero_col1:
         st.markdown(_ev_bar_html, unsafe_allow_html=True)
 
 with hero_col2:
-    st.metric("Barrel Rate Allowed", f"{barrel_rate:.1f}%",
-              help="Barrel rate allowed. Barrels: EV >= 98 mph + launch angle in the sweet spot zone. Lower is better.")
+    _barrel_help = "Barrel rate allowed. Barrels: EV >= 98 mph + launch angle in the sweet spot zone. Lower is better."
+    if _barrel_bayesian:
+        _barrel_help += " Adjusted for sample size using a Bayesian model."
+    st.metric("Barrel Rate Allowed", f"{barrel_rate:.1f}%", help=_barrel_help)
     render_percentile_bar(barrel_pct, label=f"{_ordinal(int(barrel_pct))} pct (fewer barrels = better)")
     if _barrel_bar_html:
         st.markdown(_barrel_bar_html, unsafe_allow_html=True)
+    if _barrel_bayesian and "barrel_rate_hdi_low" in pitcher_ranking.index:
+        st.caption(
+            f"89% CI: {pitcher_ranking['barrel_rate_hdi_low']*100:.1f}% – "
+            f"{pitcher_ranking['barrel_rate_hdi_high']*100:.1f}%"
+        )
 
 with hero_col3:
     if bayesian_eb is not None:

@@ -74,15 +74,19 @@ def compute_hitter_radar_metrics(pa_rankings, bb_df, min_pa=30):
         k_rate = df.get("k_rate_posterior", pd.Series(dtype=float))
         df["contact_rate"] = 1 - k_rate if not k_rate.empty else pd.Series(dtype=float)
 
-    # Hard Hit rate: EV >= 95 mph from batted balls
-    if not bb_df.empty:
+    # Hard Hit rate: prefer Bayesian posterior, fall back to raw from batted balls
+    if "hard_hit_rate_posterior" in df.columns:
+        df["hard_hit_rate"] = df["hard_hit_rate_posterior"]
+        df["hard_hit_rate"] = df["hard_hit_rate"].fillna(df["hard_hit_rate"].median())
+    elif not bb_df.empty:
         bb_df_temp = bb_df.copy()
         bb_df_temp["_is_hard_hit"] = bb_df_temp["launch_speed"] >= 95
         hhr = bb_df_temp.groupby("player")["_is_hard_hit"].mean()
         df["hard_hit_rate"] = df["player"].map(hhr)
+        df["hard_hit_rate"] = df["hard_hit_rate"].fillna(df["hard_hit_rate"].median())
     else:
         df["hard_hit_rate"] = np.nan
-    df["hard_hit_rate"] = df["hard_hit_rate"].fillna(df["hard_hit_rate"].median())
+        df["hard_hit_rate"] = df["hard_hit_rate"].fillna(df["hard_hit_rate"].median())
 
     # Speed: SB per PA
     if "stolen_bases" in df.columns:
