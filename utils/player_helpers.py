@@ -349,6 +349,25 @@ def luck_tier_label(percentile):
         return "Very Lucky"
 
 
+def pqs_tier_label(pqs_value):
+    """Return 5-tier PQS label based on z-score thresholds.
+
+    Lower PQS = better pitcher, so thresholds are inverted vs typical scales.
+    """
+    if pqs_value is None or pd.isna(pqs_value):
+        return None
+    if pqs_value <= -1.5:
+        return "Elite"
+    elif pqs_value <= -0.5:
+        return "Above Avg"
+    elif pqs_value <= 0.5:
+        return "Average"
+    elif pqs_value <= 1.5:
+        return "Below Avg"
+    else:
+        return "Poor"
+
+
 def render_radar_chart(percentiles, primary_color, secondary_color=None):
     """
     Create a Plotly Scatterpolar radar chart from percentile dict.

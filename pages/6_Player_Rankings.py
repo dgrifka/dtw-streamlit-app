@@ -513,10 +513,11 @@ data to trust it.
         has_hr_rate = "hr_rate_posterior" in filtered.columns and filtered["hr_rate_posterior"].notna().any()
         has_pqs = is_pitcher and "pitcher_quality_score" in filtered.columns and filtered["pitcher_quality_score"].notna().any()
 
-        # Sort options
-        sort_options = ["EB/PA" if is_pa_mode else "EB/BB"]
+        # Sort options — PQS first for pitchers when available
+        sort_options = []
         if has_pqs:
             sort_options.append("PQS (lower is better)")
+        sort_options.append("EB/PA" if is_pa_mode else "EB/BB")
         if has_k_rate:
             sort_options.append("K% (low is better)" if not is_pitcher else "K% (high is better)")
         if has_bb_rate:
@@ -572,7 +573,8 @@ data to trust it.
                      "true_talent_hdi_high", "history_weight",
                      "k_rate_hdi_low", "k_rate_hdi_high",
                      "bb_rate_hdi_low", "bb_rate_hdi_high",
-                     "hr_rate_hdi_low", "hr_rate_hdi_high"]
+                     "hr_rate_hdi_low", "hr_rate_hdi_high",
+                     "pqs_hdi_low", "pqs_hdi_high"]
         for col in drop_cols:
             if col in display.columns:
                 display = display.drop(columns=[col])

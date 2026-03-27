@@ -621,6 +621,18 @@ if p1["ranking"] is not None and p2["ranking"] is not None:
                                   "pct1": _rpct1, "pct2": _rpct2, "num1": _r1[_rc], "num2": _r2[_rc],
                                   "higher_better": _higher_better})
 
+# PQS (Pitcher Quality Score) — lower = better
+if p1["ranking"] is not None and p2["ranking"] is not None:
+    _r1, _r2 = p1["ranking"], p2["ranking"]
+    if ("pitcher_quality_score" in _r1.index and "pitcher_quality_score" in _r2.index
+            and pd.notna(_r1.get("pitcher_quality_score")) and pd.notna(_r2.get("pitcher_quality_score"))):
+        _pqs1, _pqs2 = _r1["pitcher_quality_score"], _r2["pitcher_quality_score"]
+        _pqs_pct1 = (pa_rankings["pitcher_quality_score"].dropna() > _pqs1).mean() * 100 if "pitcher_quality_score" in pa_rankings.columns else None
+        _pqs_pct2 = (pa_rankings["pitcher_quality_score"].dropna() > _pqs2).mean() * 100 if "pitcher_quality_score" in pa_rankings.columns else None
+        _h2h_metrics.append({"label": "PQS", "v1": f"{_pqs1:.3f}", "v2": f"{_pqs2:.3f}",
+                              "pct1": _pqs_pct1, "pct2": _pqs_pct2, "num1": _pqs1, "num2": _pqs2,
+                              "higher_better": False})
+
 # Traditional stats — no percentile bars, just values with winner bolded
 if p1["ranking"] is not None and p2["ranking"] is not None:
     _r1, _r2 = p1["ranking"], p2["ranking"]
