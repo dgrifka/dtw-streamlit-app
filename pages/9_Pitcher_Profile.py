@@ -1396,6 +1396,23 @@ if _k_rate_bayesian_p or _bb_rate_bayesian_p or _hr_rate_bayesian_p:
                     f"89% CI: {pitcher_ranking['hr_rate_hdi_low']*100:.1f}% – {pitcher_ranking['hr_rate_hdi_high']*100:.1f}%"
                 )
 
+    # PQS (Pitcher Quality Score) — composite of K% + contact quality
+    if "pitcher_quality_score" in pitcher_ranking.index and not pd.isna(pitcher_ranking.get("pitcher_quality_score", float("nan"))):
+        _pqs_val = pitcher_ranking["pitcher_quality_score"]
+        _pqs_col1, _pqs_col2 = st.columns([1, 2])
+        with _pqs_col1:
+            st.metric(
+                "PQS", f"{_pqs_val:.3f}",
+                help="Pitcher Quality Score (70% K% + 30% contact quality). **Lower is better.** "
+                     "Combines strikeout ability and batted ball quality into a single composite. "
+                     "Validated at r=0.45 predicting next-year wOBA allowed.",
+            )
+            if not pa_rankings.empty and "pitcher_quality_score" in pa_rankings.columns:
+                # PQS: lower is better for pitchers, so invert percentile
+                _pqs_pct = (pa_rankings["pitcher_quality_score"].dropna() > _pqs_val).mean() * 100
+                render_percentile_bar(_pqs_pct, container=_pqs_col1)
+                st.caption("↓ Lower is better")
+
 
 # =============================================================================
 # CONTACT QUALITY ALLOWED

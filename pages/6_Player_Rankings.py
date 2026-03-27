@@ -511,9 +511,12 @@ data to trust it.
         has_k_rate = "k_rate_posterior" in filtered.columns and filtered["k_rate_posterior"].notna().any()
         has_bb_rate = "bb_rate_posterior" in filtered.columns and filtered["bb_rate_posterior"].notna().any()
         has_hr_rate = "hr_rate_posterior" in filtered.columns and filtered["hr_rate_posterior"].notna().any()
+        has_pqs = is_pitcher and "pitcher_quality_score" in filtered.columns and filtered["pitcher_quality_score"].notna().any()
 
         # Sort options
         sort_options = ["EB/PA" if is_pa_mode else "EB/BB"]
+        if has_pqs:
+            sort_options.append("PQS (lower is better)")
         if has_k_rate:
             sort_options.append("K% (low is better)" if not is_pitcher else "K% (high is better)")
         if has_bb_rate:
@@ -526,7 +529,10 @@ data to trust it.
         else:
             sort_by = sort_options[0]
 
-        if sort_by.startswith("K%"):
+        if sort_by.startswith("PQS"):
+            sort_col = "pitcher_quality_score"
+            sort_asc = True  # Lower PQS = better pitcher
+        elif sort_by.startswith("K%"):
             sort_col = "k_rate_posterior"
             # For hitters, low K% is good (ascending); for pitchers, high K% is good (descending)
             sort_asc = not is_pitcher
@@ -596,6 +602,8 @@ data to trust it.
             rename_map["true_talent_eb_pa"] = "True Talent EB/PA"
             rename_map["deviation"] = "Deviation"
             rename_map["preseason_eb_pa"] = "Preseason Proj."
+        if has_pqs:
+            rename_map["pitcher_quality_score"] = "PQS"
         if has_k_rate:
             rename_map["k_rate_posterior"] = "K%"
             rename_map["k_rate_raw"] = "K% (Raw)"
@@ -630,13 +638,13 @@ data to trust it.
             table_cols = [
                 "Player", "Team", "Pos", "Archetype", "True Talent EB/PA", "Est. Bases (Season)",
                 "Preseason Proj.", "Deviation",
-                "K%", "BB%", "HR%",
+                "K%", "BB%", "HR%", "PQS",
                 n_col_name,
             ]
         else:
             table_cols = [
                 "Player", "Team", "Pos", "Archetype", "Est. Bases (Season)", "Est. Bases (Raw)",
-                "K%", "BB%", "HR%",
+                "K%", "BB%", "HR%", "PQS",
                 "Adjustment", n_col_name,
             ]
         # Insert traditional stats before Profile link
@@ -684,6 +692,12 @@ data to trust it.
             "HR%": st.column_config.NumberColumn(
                 format="%.1f%%",
                 help="Bayesian home run rate — percentage of plate appearances resulting in a home run. Adjusted for sample size.",
+            ),
+            "PQS": st.column_config.NumberColumn(
+                format="%.3f",
+                help="Pitcher Quality Score (70% K% + 30% contact quality). Lower is better. "
+                     "Combines strikeout ability and batted ball quality into a single composite metric. "
+                     "Validated at r=0.45 predicting next-year wOBA allowed.",
             ),
             n_col_name: st.column_config.NumberColumn(format="%d"),
             "Pos": st.column_config.TextColumn(width="small"),

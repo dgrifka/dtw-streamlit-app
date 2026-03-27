@@ -197,6 +197,21 @@ def load_player_evaluations_pa(season: int, player_type: str = "hitter") -> pd.D
     url = f"{S3_BASE_URL}/player-evaluations/{season}/latest/{player_type}_pa_rankings.parquet"
     try:
         df = pd.read_parquet(url)
+        # Compute PQS client-side if not in parquet yet (pre-pipeline-update fallback)
+        if (
+            player_type == "pitcher"
+            and "pitcher_quality_score" not in df.columns
+            and "k_rate_posterior" in df.columns
+            and "posterior_mean" in df.columns
+        ):
+            k = df["k_rate_posterior"]
+            eb = df["posterior_mean"]
+            k_std, eb_std = k.std(), eb.std()
+            if k_std > 0 and eb_std > 0:
+                df["pitcher_quality_score"] = (
+                    0.7 * (-(k - k.mean()) / k_std)
+                    + 0.3 * ((eb - eb.mean()) / eb_std)
+                )
         return df
     except Exception:
         return pd.DataFrame()
