@@ -5,6 +5,7 @@ Bayesian hierarchical rankings of MLB hitters and pitchers by estimated
 bases, with credible intervals and shrinkage for small sample sizes.
 """
 
+import contextlib
 import unicodedata
 import urllib.parse
 
@@ -26,6 +27,7 @@ from utils.data_loader import (
     load_player_metadata,
     load_player_projections,
     load_batted_balls,
+    load_pa_counts,
     get_player_evaluation_image_url,
     get_player_evaluation_team_image_url,
     get_available_player_evaluation_seasons,
@@ -184,6 +186,94 @@ def _build_forest_plot(plot_df, color, label, metric_short="EB/PA",
     return fig
 
 
+def _build_contributors_chart(contrib_df, title="", subtitle=""):
+    """Build a Plotly stacked horizontal bar chart of total offensive contributions."""
+    contrib_df = contrib_df.sort_values("total_bases", ascending=True).copy()
+    n = len(contrib_df)
+
+    # Team-colored batted ball bars, blue walk bars
+    bb_colors = [
+        TEAM_COLORS.get(row["team"], ("#333333", "#666666"))[0]
+        for _, row in contrib_df.iterrows()
+    ]
+
+    display_names = (contrib_df["player"] + "  (" + contrib_df["team"] + ")").tolist()
+
+    fig = go.Figure()
+
+    # Batted ball bases segment
+    fig.add_trace(go.Bar(
+        x=contrib_df["batted_ball_bases"].values,
+        y=display_names,
+        orientation="h",
+        name="Batted Ball Bases",
+        marker=dict(color=bb_colors),
+        customdata=contrib_df[["player", "team", "batted_ball_bases", "walk_bases", "total_bases"]].values,
+        hovertemplate=(
+            "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
+            "Batted Ball: %{customdata[2]:.1f}<br>"
+            "Walks: %{customdata[3]:.0f}<br>"
+            "Total: %{customdata[4]:.1f}<extra></extra>"
+        ),
+    ))
+
+    # Walk bases segment
+    fig.add_trace(go.Bar(
+        x=contrib_df["walk_bases"].values,
+        y=display_names,
+        orientation="h",
+        name="Walk Bases",
+        marker=dict(color="#4169E1"),
+        hovertemplate=(
+            "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
+            "Batted Ball: %{customdata[2]:.1f}<br>"
+            "Walks: %{customdata[3]:.0f}<br>"
+            "Total: %{customdata[4]:.1f}<extra></extra>"
+        ),
+        customdata=contrib_df[["player", "team", "batted_ball_bases", "walk_bases", "total_bases"]].values,
+    ))
+
+    # Total labels at end of bars
+    fig.add_trace(go.Scatter(
+        x=contrib_df["total_bases"].values + (contrib_df["total_bases"].max() * 0.02),
+        y=display_names,
+        mode="text",
+        text=[f"{v:.0f}" for v in contrib_df["total_bases"].values],
+        textposition="middle right",
+        textfont=dict(size=11, color="#555"),
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+
+    # Build title with optional subtitle
+    title_text = title
+    if subtitle:
+        title_text += f"<br><span style='font-size:12px;color:#888'>{subtitle}</span>"
+
+    top_margin = 60 if title else 10
+    fig.update_layout(
+        barmode="stack",
+        template="plotly_white",
+        title=dict(
+            text=title_text, font=dict(size=15, color="#1a1a1a"),
+            x=0.5, xanchor="center", y=0.98,
+        ) if title else None,
+        height=max(400, n * 28 + top_margin),
+        margin=dict(l=10, r=50, t=top_margin, b=40),
+        xaxis=dict(
+            title="Total Estimated Bases",
+            gridcolor="rgba(0,0,0,0.08)",
+        ),
+        yaxis=dict(tickfont=dict(size=11), automargin=True),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.02,
+            xanchor="right", x=1,
+        ),
+    )
+
+    return fig
+
+
 # =============================================================================
 # CONTROLS (top-level — these affect the chart image)
 # =============================================================================
@@ -320,8 +410,8 @@ if show_tabs:
     else:
         tab_projections, tab_rankings = st.tabs(["Preseason Projections", "Season Rankings"])
 else:
-    # No projections — everything renders at top level
-    tab_rankings = st
+    # No projections — everything renders at top level (nullcontext for `with` block)
+    tab_rankings = contextlib.nullcontext()
     tab_projections = None
 
 
@@ -1040,6 +1130,169 @@ data to trust it.
                                 "Profile": st.column_config.LinkColumn(display_text="View"),
                             },
                         )
+
+        # SECTION 6: TOTAL OFFENSIVE CONTRIBUTIONS (PA-mode hitters only)
+        if is_pa_mode and type_key == "hitter":
+            st.divider()
+            st.subheader("Total offensive contributions")
+
+            with st.expander("How does this work?"):
+                st.markdown("""
+This chart shows **cumulative** estimated bases produced by each hitter — not per-plate-appearance
+rates. It answers: "Who has contributed the most total offense?"
+
+- **Batted Ball Bases** (team-colored) — the sum of estimated bases from all batted ball outcomes,
+  based on exit velocity, launch angle, and spray angle
+- **Walk Bases** (blue) — each walk counts as 1 base (reaching first)
+
+A hitter with a modest EB/PA rate but lots of plate appearances can out-produce a high-rate
+hitter with fewer opportunities. This complements the per-PA rankings above by showing volume.
+""")
+
+            # Load data early so we can set date picker bounds
+            contrib_bb = load_batted_balls(season)
+
+            if contrib_bb.empty:
+                st.info(f"No batted ball data available for {season}.")
+            else:
+                contrib_pa = load_pa_counts(season)
+
+                # Parse dates for PA counts
+                if not contrib_pa.empty and "date" in contrib_pa.columns:
+                    contrib_pa["date_parsed"] = pd.to_datetime(
+                        contrib_pa["date"], format="%m/%d/%Y", errors="coerce"
+                    )
+
+                data_min_date = contrib_bb["date_parsed"].min().date()
+                data_max_date = contrib_bb["date_parsed"].max().date()
+
+                col_date_preset, col_top_n = st.columns([2, 1])
+                with col_date_preset:
+                    date_preset = st.radio(
+                        "Date range",
+                        ["Full Season", "Last 30 Days", "Last 14 Days", "Last 7 Days", "Custom"],
+                        horizontal=True,
+                        key="contrib_date_preset",
+                    )
+                with col_top_n:
+                    contrib_top_n = st.slider(
+                        "Top N players", 10, 50, 20, step=5, key="contrib_top_n"
+                    )
+
+                # Resolve date range
+                if date_preset == "Custom":
+                    custom_range = st.date_input(
+                        "Select date range",
+                        value=(data_min_date, data_max_date),
+                        min_value=data_min_date,
+                        max_value=data_max_date,
+                        key="contrib_custom_dates",
+                    )
+                    if isinstance(custom_range, tuple) and len(custom_range) == 2:
+                        min_date = pd.Timestamp(custom_range[0])
+                        max_date = pd.Timestamp(custom_range[1])
+                    else:
+                        st.info("Select both a start and end date.")
+                        st.stop()
+                elif date_preset == "Last 30 Days":
+                    max_date = pd.Timestamp(data_max_date)
+                    min_date = max_date - pd.Timedelta(days=29)
+                elif date_preset == "Last 14 Days":
+                    max_date = pd.Timestamp(data_max_date)
+                    min_date = max_date - pd.Timedelta(days=13)
+                elif date_preset == "Last 7 Days":
+                    max_date = pd.Timestamp(data_max_date)
+                    min_date = max_date - pd.Timedelta(days=6)
+                else:
+                    min_date = pd.Timestamp(data_min_date)
+                    max_date = pd.Timestamp(data_max_date)
+
+                bb_filtered = contrib_bb[
+                    (contrib_bb["date_parsed"] >= min_date)
+                    & (contrib_bb["date_parsed"] <= max_date)
+                ]
+                pa_filtered = pd.DataFrame()
+                if not contrib_pa.empty and "date_parsed" in contrib_pa.columns:
+                    pa_filtered = contrib_pa[
+                        (contrib_pa["date_parsed"] >= min_date)
+                        & (contrib_pa["date_parsed"] <= max_date)
+                    ]
+
+                # Apply team filter
+                if selected_team != "All Teams":
+                    bb_filtered = bb_filtered[bb_filtered["team"] == selected_team]
+                    if not pa_filtered.empty:
+                        pa_filtered = pa_filtered[pa_filtered["team"] == selected_team]
+
+                if bb_filtered.empty:
+                    st.info("No batted ball data for the selected filters.")
+                else:
+                    # Aggregate batted ball bases
+                    bb_agg = (
+                        bb_filtered.groupby(["player", "team"])
+                        .agg(batted_ball_bases=("estimated_bases", "sum"))
+                        .reset_index()
+                    )
+
+                    # Aggregate walk bases
+                    if not pa_filtered.empty and "walks" in pa_filtered.columns:
+                        pa_agg = (
+                            pa_filtered.groupby(["player", "team"])
+                            .agg(walk_bases=("walks", "sum"))
+                            .reset_index()
+                        )
+                    else:
+                        pa_agg = pd.DataFrame(columns=["player", "team", "walk_bases"])
+
+                    # Merge
+                    merged = bb_agg.merge(pa_agg, on=["player", "team"], how="outer")
+                    merged["batted_ball_bases"] = pd.to_numeric(
+                        merged["batted_ball_bases"].fillna(0)
+                    )
+                    merged["walk_bases"] = pd.to_numeric(
+                        merged["walk_bases"].fillna(0)
+                    )
+                    merged["total_bases"] = (
+                        merged["batted_ball_bases"] + merged["walk_bases"]
+                    )
+
+                    # Sort and take top N
+                    merged = (
+                        merged.sort_values("total_bases", ascending=False)
+                        .head(contrib_top_n)
+                        .reset_index(drop=True)
+                    )
+
+                    # Build title and subtitle for screenshot context
+                    date_fmt = "%b %d"
+                    date_range_str = (
+                        f"{min_date.strftime(date_fmt)} - "
+                        f"{max_date.strftime(f'{date_fmt}, %Y')}"
+                    )
+                    team_label = selected_team if selected_team != "All Teams" else "MLB"
+                    chart_title = f"Top {len(merged)} offensive contributors"
+                    chart_subtitle = (
+                        f"{team_label} · {date_range_str} · "
+                        f"Batted ball estimated bases + walks"
+                    )
+
+                    fig_contrib = _build_contributors_chart(
+                        merged, title=chart_title, subtitle=chart_subtitle,
+                    )
+                    st.plotly_chart(
+                        fig_contrib,
+                        use_container_width=True,
+                        config=PLOTLY_CONFIG_FOREST,
+                        theme=None,
+                    )
+
+                    walk_note = ""
+                    if pa_agg.empty:
+                        walk_note = " · Walk data not yet available"
+                    st.caption(
+                        f"Batted ball bases from exit velocity, launch angle, and spray "
+                        f"angle model. Walks count as 1 base each.{walk_note}"
+                    )
 
 
 # =============================================================================
