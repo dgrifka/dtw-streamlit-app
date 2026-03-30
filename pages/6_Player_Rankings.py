@@ -9,6 +9,7 @@ import contextlib
 import unicodedata
 import urllib.parse
 
+import requests
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -49,6 +50,18 @@ st.markdown(
     "Players with small samples get pulled toward the league average; "
     "players with lots of data keep estimates close to their raw numbers."
 )
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_image_bytes(url: str) -> bytes | None:
+    """Fetch image bytes from URL, returning None on 404/error."""
+    try:
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 200:
+            return resp.content
+        return None
+    except Exception:
+        return None
 
 
 def _normalize(text):
@@ -191,11 +204,8 @@ def _build_contributors_chart(contrib_df, title="", subtitle=""):
     contrib_df = contrib_df.sort_values("total_bases", ascending=True).copy()
     n = len(contrib_df)
 
-    # Team-colored batted ball bars, blue walk bars
-    bb_colors = [
-        TEAM_COLORS.get(row["team"], ("#333333", "#666666"))[0]
-        for _, row in contrib_df.iterrows()
-    ]
+    # Flat green batted ball bars — matches weekly contributors social post
+    bb_color = "#2E8B57"
 
     display_names = (contrib_df["player"] + "  (" + contrib_df["team"] + ")").tolist()
 
@@ -207,7 +217,7 @@ def _build_contributors_chart(contrib_df, title="", subtitle=""):
         y=display_names,
         orientation="h",
         name="Batted Ball Bases",
-        marker=dict(color=bb_colors),
+        marker=dict(color=bb_color),
         customdata=contrib_df[["player", "team", "batted_ball_bases", "walk_bases", "total_bases"]].values,
         hovertemplate=(
             "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
@@ -222,7 +232,7 @@ def _build_contributors_chart(contrib_df, title="", subtitle=""):
         x=contrib_df["walk_bases"].values,
         y=display_names,
         orientation="h",
-        name="Walk Bases",
+        name="Walks",
         marker=dict(color="#4169E1"),
         hovertemplate=(
             "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
@@ -517,20 +527,19 @@ data to trust it.
             chart_url = get_player_evaluation_image_url(season, chart_name)
 
         _chart_loaded = False
-        try:
-            st.image(chart_url, width="stretch")
+        _chart_bytes = _fetch_image_bytes(chart_url)
+
+        if _chart_bytes is None and selected_team != "All Teams":
+            fallback_url = get_player_evaluation_image_url(season, chart_name)
+            _chart_bytes = _fetch_image_bytes(fallback_url)
+            if _chart_bytes is not None:
+                chart_url = fallback_url
+
+        if _chart_bytes is not None:
+            st.image(_chart_bytes, use_container_width=True)
             _chart_loaded = True
-        except Exception:
-            if selected_team != "All Teams":
-                fallback_url = get_player_evaluation_image_url(season, chart_name)
-                try:
-                    st.image(fallback_url, width="stretch")
-                    chart_url = fallback_url
-                    _chart_loaded = True
-                except Exception:
-                    st.warning(f"Chart image not available for {season}.")
-            else:
-                st.warning(f"Chart image not available for {season}.")
+        else:
+            st.info(f"Chart not yet available for {season}. Check back as more games are played.")
 
         if _chart_loaded:
             st.markdown(
@@ -1141,9 +1150,9 @@ data to trust it.
 This chart shows **cumulative** estimated bases produced by each hitter — not per-plate-appearance
 rates. It answers: "Who has contributed the most total offense?"
 
-- **Batted Ball Bases** (team-colored) — the sum of estimated bases from all batted ball outcomes,
+- **Batted Ball Bases** (green) — the sum of estimated bases from all batted ball outcomes,
   based on exit velocity, launch angle, and spray angle
-- **Walk Bases** (blue) — each walk counts as 1 base (reaching first)
+- **Walks** (blue) — each walk counts as 1 base (reaching first)
 
 A hitter with a modest EB/PA rate but lots of plate appearances can out-produce a high-rate
 hitter with fewer opportunities. This complements the per-PA rankings above by showing volume.
