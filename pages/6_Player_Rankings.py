@@ -76,7 +76,9 @@ def _build_forest_plot(plot_df, color, label, metric_short="EB/PA",
                        high_50_col="hdi_50_high", count_col="n_batted_balls",
                        count_label="PA", sort_ascending=True,
                        use_team_colors=False, league_mean=None,
-                       title=None):
+                       title=None, secondary_col=None,
+                       secondary_name=None, secondary_color="#f59e0b",
+                       secondary_symbol="diamond", secondary_size=7):
     """Build a Plotly forest plot showing credible intervals."""
     plot_df = plot_df.sort_values(mean_col, ascending=sort_ascending).copy()
 
@@ -161,10 +163,40 @@ def _build_forest_plot(plot_df, color, label, metric_short="EB/PA",
         ),
     ))
 
-    # Compute x-axis range from HDI bounds with padding
-    # Expand range to always include the league mean line if provided
-    x_min = plot_df[low_col].min()
-    x_max = plot_df[high_col].max()
+    # Optional secondary markers (e.g. current EB/PA alongside projected)
+    _has_secondary = (
+        secondary_col is not None
+        and secondary_col in plot_df.columns
+        and plot_df[secondary_col].notna().any()
+    )
+    if _has_secondary:
+        _sec_name = secondary_name or secondary_col
+        fig.add_trace(go.Scatter(
+            x=plot_df[secondary_col],
+            y=plot_df["_display_name"],
+            mode="markers",
+            marker=dict(symbol=secondary_symbol, size=secondary_size,
+                        color=secondary_color,
+                        line=dict(width=1, color="#92400e")),
+            name=_sec_name,
+            hovertemplate=(
+                "<b>%{y}</b><br>"
+                f"{_sec_name}: " + "%{x:.3f}<extra></extra>"
+            ),
+        ))
+
+    # Compute x-axis range from all plotted values with padding
+    _range_vals = pd.concat([
+        plot_df[low_col].dropna(),
+        plot_df[high_col].dropna(),
+        plot_df[mean_col].dropna(),
+    ])
+    if _has_secondary:
+        _range_vals = pd.concat([_range_vals, plot_df[secondary_col].dropna()])
+    if has_50_hdi and plot_df[low_50_col].notna().any():
+        _range_vals = pd.concat([_range_vals, plot_df[low_50_col].dropna(), plot_df[high_50_col].dropna()])
+    x_min = _range_vals.min()
+    x_max = _range_vals.max()
     if league_mean is not None:
         x_min = min(x_min, league_mean)
         x_max = max(x_max, league_mean)
@@ -176,14 +208,19 @@ def _build_forest_plot(plot_df, color, label, metric_short="EB/PA",
         gridwidth=1,
     )
 
-    _top_margin = 40 if title else 25
+    _show_legend = bool(_has_secondary)
+    _top_margin = 50 if (_has_secondary and title) else 40 if title else 25
     fig.update_layout(
         template="plotly_white",
         title=dict(text=title, font=dict(size=15, color="#1a1a1a"), x=0.5, xanchor="center") if title else None,
         xaxis_title=f"Est. Bases / {metric_short.split('/')[-1]}",
         height=max(300, len(plot_df) * 30),
         margin=dict(l=10, r=20, t=_top_margin, b=40),
-        showlegend=False,
+        showlegend=_show_legend,
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.02,
+            xanchor="right", x=1, font=dict(size=11),
+        ) if _show_legend else None,
         yaxis=dict(tickfont=dict(size=12), automargin=True),
         xaxis=_xaxis_cfg,
     )
@@ -888,48 +925,171 @@ data to trust it.
                 "appearance outcomes including walks, strikeouts, and batted ball quality."
             )
 
-            # Compute both standout groups
-            standouts_pool = df[df["n_batted_balls"] >= 30].copy()
-            if selected_team != "All Teams":
-                standouts_pool = standouts_pool[standouts_pool["team"] == selected_team]
+            # Check if projections are available for this pool
+            _use_projections = has_true_talent and not proj_df.empty and "projected_eb_pa" in proj_df.columns
 
-            upside = pd.DataFrame()
-            if standouts_pool["hdi_high"].notna().any():
-                elite_threshold = standouts_pool["hdi_high"].quantile(0.80)
-                moderate_threshold = standouts_pool["posterior_mean"].quantile(0.70)
-                upside = standouts_pool[
-                    (standouts_pool["hdi_high"] >= elite_threshold) &
-                    (standouts_pool["posterior_mean"] < moderate_threshold)
-                ].sort_values("hdi_high", ascending=False).head(15)
+            # League average from all players (not filtered subset) for reference line
+            _lg_mean_eb = df["posterior_mean"].mean()
 
-            safe_floor = pd.DataFrame()
-            with_hdi = filtered[filtered["hdi_high"].notna()].copy()
-            if not with_hdi.empty:
-                with_hdi["hdi_width"] = with_hdi["hdi_high"] - with_hdi["hdi_low"]
-                above_avg = with_hdi[
-                    with_hdi["posterior_mean"] >= with_hdi["posterior_mean"].median()
+            if _use_projections:
+                # -- Projection-based spotlight --
+                _min_pa_spotlight = 10  # Projections carry the signal, not in-season HDI
+                standouts_pool = df[df["n_batted_balls"] >= _min_pa_spotlight].copy()
+                if selected_team != "All Teams":
+                    standouts_pool = standouts_pool[standouts_pool["team"] == selected_team]
+
+                # Merge projection columns onto the pool
+                _proj_cols = ["player", "team", "projected_eb_pa", "projected_hdi_low",
+                              "projected_hdi_high", "n_seasons"]
+                _proj_cols = [c for c in _proj_cols if c in proj_df.columns]
+                standouts_pool = standouts_pool.merge(
+                    proj_df[_proj_cols].drop_duplicates(subset=["player", "team"]),
+                    on=["player", "team"], how="left",
+                )
+
+                # Potential Risers: projection above current (positive regression candidates)
+                risers = pd.DataFrame()
+                _with_proj = standouts_pool.dropna(subset=["projected_eb_pa"])
+                if not _with_proj.empty:
+                    _proj_75 = _with_proj["projected_eb_pa"].quantile(0.75)
+                    _curr_60 = _with_proj["posterior_mean"].quantile(0.60)
+                    risers = _with_proj[
+                        (_with_proj["projected_eb_pa"] >= _proj_75) &
+                        (_with_proj["posterior_mean"] < _curr_60)
+                    ].sort_values("projected_eb_pa", ascending=False).head(15)
+
+                # High Upside: small sample players with elite ceiling
+                # Fixed PA ceiling so tab stays useful as the season progresses
+                _pa_ceiling = 75
+                upside = pd.DataFrame()
+                _small_sample = standouts_pool[
+                    standouts_pool["n_batted_balls"] <= _pa_ceiling
                 ]
-                safe_floor = above_avg.nsmallest(15, "hdi_width")
+                if _small_sample["hdi_high"].notna().any():
+                    # Prefer projection-informed ceiling when available
+                    if "projected_hdi_high" in _small_sample.columns and _small_sample["projected_hdi_high"].notna().any():
+                        _small_proj = _small_sample.dropna(subset=["projected_hdi_high"])
+                        _ceiling_col = "projected_hdi_high"
+                    else:
+                        _small_proj = _small_sample
+                        _ceiling_col = "hdi_high"
+                    _ceil_70 = _small_proj[_ceiling_col].quantile(0.70)
+                    upside = _small_proj[
+                        _small_proj[_ceiling_col] >= _ceil_70
+                    ].sort_values(_ceiling_col, ascending=False).head(15)
+
+                # Reliable Floor: multi-year history, above-median true talent, narrow projection HDI
+                safe_floor = pd.DataFrame()
+                _with_tt = standouts_pool.dropna(subset=["true_talent_eb_pa"])
+                if not _with_tt.empty and "n_seasons" in _with_tt.columns:
+                    _tt_med = _with_tt["true_talent_eb_pa"].median()
+                    _floor_pool = _with_tt[
+                        (_with_tt["true_talent_eb_pa"] >= _tt_med) &
+                        (_with_tt["n_seasons"] >= 2)
+                    ].copy()
+                    if not _floor_pool.empty and "projected_hdi_low" in _floor_pool.columns:
+                        _floor_pool["_proj_hdi_width"] = (
+                            _floor_pool["projected_hdi_high"] - _floor_pool["projected_hdi_low"]
+                        )
+                        safe_floor = _floor_pool.nsmallest(15, "_proj_hdi_width")
+            else:
+                # -- Fallback: HDI-based spotlight (no projections) --
+                risers = pd.DataFrame()  # No projections → can't identify risers
+
+                standouts_pool = df[df["n_batted_balls"] >= 20].copy()
+                if selected_team != "All Teams":
+                    standouts_pool = standouts_pool[standouts_pool["team"] == selected_team]
+
+                upside = pd.DataFrame()
+                if standouts_pool["hdi_high"].notna().any():
+                    elite_threshold = standouts_pool["hdi_high"].quantile(0.80)
+                    moderate_threshold = standouts_pool["posterior_mean"].quantile(0.70)
+                    upside = standouts_pool[
+                        (standouts_pool["hdi_high"] >= elite_threshold) &
+                        (standouts_pool["posterior_mean"] < moderate_threshold)
+                    ].sort_values("hdi_high", ascending=False).head(15)
+
+                safe_floor = pd.DataFrame()
+                with_hdi = filtered[filtered["hdi_high"].notna()].copy()
+                if not with_hdi.empty:
+                    with_hdi["hdi_width"] = with_hdi["hdi_high"] - with_hdi["hdi_low"]
+                    above_avg = with_hdi[
+                        with_hdi["posterior_mean"] >= with_hdi["posterior_mean"].median()
+                    ]
+                    safe_floor = above_avg.nsmallest(15, "hdi_width")
 
             has_50_hdi = "hdi_50_low" in df.columns and "hdi_50_high" in df.columns
 
-            if not upside.empty or not safe_floor.empty:
-                tab_upside, tab_floor = st.tabs(["High Upside (Small Samples)", "Reliable Floor (Established)"])
+            _any_spotlight = not risers.empty or not upside.empty or not safe_floor.empty
+            if _any_spotlight:
+                # Build tab list dynamically based on what data is available
+                _tab_names = []
+                if not risers.empty:
+                    _tab_names.append("Potential Risers")
+                _tab_names.append("High Upside")
+                _tab_names.append("Reliable Floor")
+                _tabs = st.tabs(_tab_names)
+                _tab_idx = 0
 
-                with tab_upside:
+                # -- Potential Risers tab (projection-based only) --
+                if not risers.empty:
+                    with _tabs[_tab_idx]:
+                        st.caption(
+                            "Players whose multi-year projection is well above their current-season "
+                            "production — positive regression candidates likely to improve."
+                        )
+                        fig_risers = _build_forest_plot(
+                            risers, "#2563eb", "Projected EB/PA",
+                            metric_short=metric_short,
+                            mean_col="projected_eb_pa",
+                            low_col="projected_hdi_low",
+                            high_col="projected_hdi_high",
+                            league_mean=_lg_mean_eb,
+                            title=f"Potential Risers — Projected {metric_short}",
+                            secondary_col="posterior_mean",
+                            secondary_name=f"Current {metric_short}",
+                        )
+                        st.plotly_chart(fig_risers, use_container_width=True, config=PLOTLY_CONFIG_FOREST, theme=None)
+
+                        _up_cols = ["player", "team", "projected_eb_pa", "posterior_mean",
+                                    "n_batted_balls"]
+                        if "true_talent_eb_pa" in risers.columns:
+                            _up_cols.insert(4, "true_talent_eb_pa")
+                        up_display = risers[[c for c in _up_cols if c in risers.columns]].copy()
+                        up_display["Profile"] = up_display["player"].apply(
+                            lambda p: f"/Hitter_Profile?player={urllib.parse.quote(p)}"
+                        )
+                        _rename = {
+                            "player": "Player", "team": "Team",
+                            "projected_eb_pa": "Projected EB/PA",
+                            "posterior_mean": f"Current {metric_short}",
+                            "true_talent_eb_pa": "True Talent",
+                            "n_batted_balls": "PA",
+                        }
+                        up_display = up_display.rename(columns=_rename)
+                        st.dataframe(up_display, hide_index=True, use_container_width=True,
+                                     column_config={
+                                         "Projected EB/PA": st.column_config.NumberColumn(format="%.3f"),
+                                         f"Current {metric_short}": st.column_config.NumberColumn(format="%.3f"),
+                                         "True Talent": st.column_config.NumberColumn(format="%.3f"),
+                                         "PA": st.column_config.NumberColumn(format="%d"),
+                                         "Profile": st.column_config.LinkColumn(display_text="View"),
+                                     })
+                        st.caption("Thin lines = projected range, circles = projected EB/PA, diamonds = current season")
+                    _tab_idx += 1
+
+                # -- High Upside tab --
+                with _tabs[_tab_idx]:
                     st.caption(
-                        "Players with limited plate appearances whose ceiling is elite even though "
-                        "their current estimate is moderate. High variability means high risk — "
-                        "but also breakout potential."
+                        "Players with limited plate appearances whose ceiling is elite. "
+                        "High variability means high risk — but also breakout potential."
                     )
                     if not upside.empty:
-                        _lg_mean_eb = filtered["posterior_mean"].mean()
                         fig_upside = _build_forest_plot(upside, "#2563eb", "High Upside",
                                                         metric_short=metric_short,
                                                         league_mean=_lg_mean_eb,
                                                         title=f"High Upside {player_type}s — {metric_short}")
                         st.plotly_chart(fig_upside, use_container_width=True, config=PLOTLY_CONFIG_FOREST, theme=None)
-                        st.caption("Tap the camera icon (top-right) to download a high-res image.")
 
                         up_display = upside[["player", "team", "posterior_mean",
                                               "hdi_low", "hdi_high", "n_batted_balls"]].copy()
@@ -954,47 +1114,96 @@ data to trust it.
                     else:
                         st.info("No high-upside players found with current filters.")
 
-                with tab_floor:
-                    st.caption(
-                        "Above-average players with enough data that the model is confident in their "
-                        "estimate. Narrow ranges mean consistent, predictable production."
-                    )
-                    if not safe_floor.empty:
-                        _lg_mean_eb = filtered["posterior_mean"].mean()
-                        fig_floor = _build_forest_plot(safe_floor, "#16a34a", "Reliable Floor",
-                                                       metric_short=metric_short,
-                                                       league_mean=_lg_mean_eb,
-                                                       title=f"Reliable Floor {player_type}s — {metric_short}")
-                        st.plotly_chart(fig_floor, use_container_width=True, config=PLOTLY_CONFIG_FOREST, theme=None)
-                        st.caption("Tap the camera icon (top-right) to download a high-res image.")
+                    hdi_caption = "Thin lines = possible range, dots = model estimate"
+                    if has_50_hdi:
+                        hdi_caption = "Thin lines = possible range, thick lines = likely range, dots = model estimate"
+                    st.caption(hdi_caption)
+                _tab_idx += 1
 
-                        sf_display = safe_floor[["player", "team", "posterior_mean",
-                                                  "hdi_low", "hdi_high", "n_batted_balls"]].copy()
-                        sf_display["Profile"] = sf_display["player"].apply(
-                            lambda p: f"/Hitter_Profile?player={urllib.parse.quote(p)}"
+                # -- Reliable Floor tab --
+                with _tabs[_tab_idx]:
+                    if _use_projections:
+                        st.caption(
+                            "Above-average players with 2+ years of history and the narrowest projection "
+                            "intervals — the model is most confident in their production level."
                         )
-                        sf_display = sf_display.rename(columns={
-                            "player": "Player", "team": "Team",
-                            "posterior_mean": metric_short, "hdi_low": "Floor",
-                            "hdi_high": "Ceiling", "n_batted_balls": "PA",
-                        })
-                        st.dataframe(
-                            sf_display, hide_index=True, use_container_width=True,
-                            column_config={
-                                metric_short: st.column_config.NumberColumn(format="%.3f"),
-                                "Floor": st.column_config.NumberColumn(format="%.3f"),
-                                "Ceiling": st.column_config.NumberColumn(format="%.3f"),
-                                "PA": st.column_config.NumberColumn(format="%d"),
-                                "Profile": st.column_config.LinkColumn(display_text="View"),
-                            },
+                    else:
+                        st.caption(
+                            "Above-average players with enough data that the model is confident in their "
+                            "estimate. Narrow ranges mean consistent, predictable production."
                         )
+                    if not safe_floor.empty:
+                        if _use_projections:
+                            fig_floor = _build_forest_plot(
+                                safe_floor, "#16a34a", "True Talent EB/PA",
+                                metric_short=metric_short,
+                                mean_col="true_talent_eb_pa",
+                                low_col="projected_hdi_low",
+                                high_col="projected_hdi_high",
+                                league_mean=_lg_mean_eb,
+                                title=f"Reliable Floor {player_type}s — True Talent {metric_short}",
+                            )
+                        else:
+                            fig_floor = _build_forest_plot(safe_floor, "#16a34a", "Reliable Floor",
+                                                           metric_short=metric_short,
+                                                           league_mean=_lg_mean_eb,
+                                                           title=f"Reliable Floor {player_type}s — {metric_short}")
+                        st.plotly_chart(fig_floor, use_container_width=True, config=PLOTLY_CONFIG_FOREST, theme=None)
+
+                        if _use_projections:
+                            _sf_cols = ["player", "team", "true_talent_eb_pa", "projected_eb_pa",
+                                        "n_seasons", "n_batted_balls"]
+                            sf_display = safe_floor[[c for c in _sf_cols if c in safe_floor.columns]].copy()
+                            sf_display["Profile"] = sf_display["player"].apply(
+                                lambda p: f"/Hitter_Profile?player={urllib.parse.quote(p)}"
+                            )
+                            _sf_rename = {
+                                "player": "Player", "team": "Team",
+                                "true_talent_eb_pa": "True Talent",
+                                "projected_eb_pa": "Projected EB/PA",
+                                "n_seasons": "Seasons", "n_batted_balls": "PA",
+                            }
+                            sf_display = sf_display.rename(columns=_sf_rename)
+                            st.dataframe(
+                                sf_display, hide_index=True, use_container_width=True,
+                                column_config={
+                                    "True Talent": st.column_config.NumberColumn(format="%.3f"),
+                                    "Projected EB/PA": st.column_config.NumberColumn(format="%.3f"),
+                                    "Seasons": st.column_config.NumberColumn(format="%d"),
+                                    "PA": st.column_config.NumberColumn(format="%d"),
+                                    "Profile": st.column_config.LinkColumn(display_text="View"),
+                                },
+                            )
+                        else:
+                            sf_display = safe_floor[["player", "team", "posterior_mean",
+                                                      "hdi_low", "hdi_high", "n_batted_balls"]].copy()
+                            sf_display["Profile"] = sf_display["player"].apply(
+                                lambda p: f"/Hitter_Profile?player={urllib.parse.quote(p)}"
+                            )
+                            sf_display = sf_display.rename(columns={
+                                "player": "Player", "team": "Team",
+                                "posterior_mean": metric_short, "hdi_low": "Floor",
+                                "hdi_high": "Ceiling", "n_batted_balls": "PA",
+                            })
+                            st.dataframe(
+                                sf_display, hide_index=True, use_container_width=True,
+                                column_config={
+                                    metric_short: st.column_config.NumberColumn(format="%.3f"),
+                                    "Floor": st.column_config.NumberColumn(format="%.3f"),
+                                    "Ceiling": st.column_config.NumberColumn(format="%.3f"),
+                                    "PA": st.column_config.NumberColumn(format="%d"),
+                                    "Profile": st.column_config.LinkColumn(display_text="View"),
+                                },
+                            )
                     else:
                         st.info("No reliable-floor players found with current filters.")
 
-                hdi_caption = "Thin lines = possible range, dots = model estimate"
-                if has_50_hdi:
-                    hdi_caption = "Thin lines = possible range, thick lines = likely range, dots = model estimate"
-                st.caption(hdi_caption)
+                    _floor_caption = "Thin lines = possible range, dots = model estimate"
+                    if _use_projections:
+                        _floor_caption = "Thin lines = projected range, dots = true talent estimate"
+                    elif has_50_hdi:
+                        _floor_caption = "Thin lines = possible range, thick lines = likely range, dots = model estimate"
+                    st.caption(_floor_caption)
             else:
                 st.info("Bayesian ranking data not available.")
 
@@ -1012,8 +1221,18 @@ data to trust it.
             if bb_df.empty:
                 st.info(f"No batted ball data available for {season}.")
             elif metadata_df.empty:
-                st.info("Player metadata not available (need pitcher throw hand).")
+                st.info("Pitcher metadata not available — needed to determine throw hand for platoon splits.")
             else:
+                # Adaptive slider defaults based on season progress
+                _bb_dates = pd.to_datetime(bb_df["date"], format="mixed", errors="coerce")
+                _season_days = max(1, (_bb_dates.max() - _bb_dates.min()).days) if not _bb_dates.isna().all() else 0
+                if _season_days <= 14:
+                    _plat_min, _plat_default, _plat_step = 3, 5, 1
+                elif _season_days <= 30:
+                    _plat_min, _plat_default, _plat_step = 5, 10, 5
+                else:
+                    _plat_min, _plat_default, _plat_step = 10, 15, 5
+
                 col_plat_pos, col_plat_min = st.columns([1, 1])
                 with col_plat_pos:
                     plat_pos = st.selectbox(
@@ -1023,13 +1242,25 @@ data to trust it.
                     )
                 with col_plat_min:
                     plat_min_bb = st.slider(
-                        "Min BB per side", 10, 50, 15, step=5, key="platoon_min"
+                        "Min BB per side", _plat_min, 50, _plat_default, step=_plat_step, key="platoon_min"
+                    )
+
+                if plat_min_bb < 10:
+                    st.caption(
+                        ":orange[Small sample warning:] platoon splits with fewer than 10 batted balls "
+                        "per side are noisy. Use these as directional signals only."
                     )
 
                 platoon_df = compute_platoon_splits(bb_df, metadata_df, min_bb=plat_min_bb)
 
                 if platoon_df.empty:
-                    st.info("Platoon data not available (need pitcher metadata for throw hand).")
+                    if _season_days <= 14:
+                        st.info(
+                            f"Not enough data yet — only {_season_days} days into the season. "
+                            f"Try lowering the minimum BB threshold or check back as more games are played."
+                        )
+                    else:
+                        st.info("No players have enough batted balls per pitcher hand to compute platoon splits.")
                 else:
                     if plat_pos != "All" and not metadata_df.empty:
                         pos_players = metadata_df[

@@ -4,11 +4,18 @@ Player analytics helper functions.
 Pure computation — no Streamlit calls. Reuses existing data loaded by data_loader.py.
 """
 
+import unicodedata
+
 import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
 
 from .player_helpers import is_barrel_vectorized, TB_MAP
+
+
+def _normalize_name(name):
+    """Strip Unicode accents for fuzzy name matching."""
+    return unicodedata.normalize("NFKD", str(name)).encode("ascii", "ignore").decode("ascii")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -503,9 +510,20 @@ def compute_platoon_splits(bb_df, metadata_df, min_bb=15):
 
     bb = bb_df.copy()
 
-    # Map pitcher name to throw hand via metadata
+    # Map pitcher name to throw hand via metadata — try exact match first,
+    # then fall back to accent-normalized matching for Unicode mismatches
     throw_hand_map = metadata_df.set_index("player_name")["throw_hand"].to_dict()
     bb["pitcher_hand"] = bb["pitcher"].map(throw_hand_map)
+
+    # Fallback: normalized name matching for unmatched rows
+    unmatched_mask = bb["pitcher_hand"].isna()
+    if unmatched_mask.any():
+        norm_map = {_normalize_name(k): v for k, v in throw_hand_map.items()}
+        bb.loc[unmatched_mask, "pitcher_hand"] = (
+            bb.loc[unmatched_mask, "pitcher"]
+            .apply(lambda n: norm_map.get(_normalize_name(n)))
+        )
+
     bb = bb.dropna(subset=["pitcher_hand"])
     bb["is_barrel"] = is_barrel_vectorized(bb["launch_speed"], bb["launch_angle"])
 
