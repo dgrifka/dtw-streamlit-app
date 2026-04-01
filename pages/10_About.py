@@ -83,6 +83,13 @@ THREADS = [
         "description": "How multi-year Bayesian models handle aging, uncertainty, and small samples.",
         "url": "https://x.com/mlb_simulator/status/2035401562906894794",
     },
+    {
+        "tag": "Small Samples",
+        "tag_color": "#7C3AED",
+        "title": "How Much Should You Trust the First Week?",
+        "description": "Why 5 games tells you almost nothing — and when Bayesian estimates start to converge.",
+        "url": "https://x.com/mlb_simulator/status/2039329274251886936",
+    },
 ]
 
 cols = st.columns(len(THREADS))
