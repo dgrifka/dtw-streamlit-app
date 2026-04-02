@@ -728,3 +728,198 @@ def generate_player_highlights(
         })
 
     return highlights[:4]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Projected radar from preseason projections
+# ─────────────────────────────────────────────────────────────────────────────
+
+def compute_hitter_radar_from_projections(projection_dfs, prior_season_radar_df, prior_season_bb_df):
+    """Build projected radar DataFrame for hitters using preseason projections.
+
+    Parameters
+    ----------
+    projection_dfs : dict
+        Keys: 'eb_pa', 'k_rate', 'bb_rate', 'hr_rate', 'hard_hit_rate'.
+        Values: DataFrames from load_player_projections / load_rate_stat_projections.
+    prior_season_radar_df : DataFrame
+        Actual radar data from the prior season (used as reference population for percentiles
+        and as fallback for the Speed axis).
+    prior_season_bb_df : DataFrame
+        Batted ball data from the prior season (used for Speed fallback computation).
+
+    Returns
+    -------
+    DataFrame with radar metric columns, percentile columns, and 'archetype' column.
+    """
+    eb_df = projection_dfs.get("eb_pa", pd.DataFrame())
+    if eb_df.empty or "projected_eb_pa" not in eb_df.columns:
+        return pd.DataFrame()
+
+    # Build base DataFrame from EB/PA projection (all players with a projection)
+    df = eb_df[["player_id", "player", "team", "projected_eb_pa"]].copy()
+    df = df.rename(columns={"projected_eb_pa": "eb_pa"})
+
+    # Merge rate stat projections
+    for rate_type, radar_col, transform in [
+        ("hr_rate", "power", None),
+        ("bb_rate", "discipline", None),
+        ("k_rate", "contact_rate", lambda x: 1 - x),
+        ("hard_hit_rate", "hard_hit_rate", None),
+    ]:
+        rate_df = projection_dfs.get(rate_type, pd.DataFrame())
+        proj_col = f"projected_{rate_type}"
+        if not rate_df.empty and proj_col in rate_df.columns:
+            merge_cols = ["player_id", proj_col] if "player_id" in rate_df.columns else ["player", proj_col]
+            merge_on = "player_id" if "player_id" in rate_df.columns else "player"
+            merged = df.merge(rate_df[merge_cols].drop_duplicates(subset=[merge_on]), on=merge_on, how="left")
+            vals = merged[proj_col]
+            if transform:
+                vals = transform(vals)
+            df[radar_col] = vals.values
+        else:
+            df[radar_col] = np.nan
+
+    # Speed: use prior season actual value, fallback to 50th percentile
+    if not prior_season_radar_df.empty and "speed" in prior_season_radar_df.columns:
+        prior_speed = prior_season_radar_df.set_index("player")["speed"]
+        df["speed"] = df["player"].map(prior_speed)
+        median_speed = prior_speed.median() if not prior_speed.empty else 0.0
+    elif not prior_season_bb_df.empty and "player" in prior_season_bb_df.columns:
+        # Compute speed from prior season batted balls (SB/BB proxy)
+        median_speed = 0.0
+        df["speed"] = 0.0
+    else:
+        median_speed = 0.0
+        df["speed"] = 0.0
+    df["speed"] = df["speed"].fillna(median_speed)
+
+    # Drop rows missing core metrics (eb_pa is always present; others may be missing)
+    core_cols = ["eb_pa", "power", "discipline", "contact_rate", "hard_hit_rate"]
+    df = df.dropna(subset=core_cols)
+    if df.empty:
+        return pd.DataFrame()
+
+    # Compute percentiles against prior season's actual population (stable reference)
+    if not prior_season_radar_df.empty:
+        for _, col in HITTER_RADAR_AXES:
+            if col in prior_season_radar_df.columns:
+                ref_vals = prior_season_radar_df[col].dropna().values
+                if len(ref_vals) > 0:
+                    df[f"{col}_pct"] = df[col].apply(
+                        lambda x, rv=ref_vals: (rv < x).mean() * 100
+                    )
+                else:
+                    df[f"{col}_pct"] = df[col].rank(pct=True) * 100
+            else:
+                df[f"{col}_pct"] = df[col].rank(pct=True) * 100
+    else:
+        for _, col in HITTER_RADAR_AXES:
+            df[f"{col}_pct"] = df[col].rank(pct=True) * 100
+
+    # Cluster into archetypes
+    df = cluster_player_archetypes(df, player_type="hitter")
+    return df
+
+
+def compute_pitcher_radar_from_projections(projection_dfs, prior_season_radar_df, prior_season_bb_df):
+    """Build projected radar DataFrame for pitchers using preseason projections.
+
+    Parameters
+    ----------
+    projection_dfs : dict
+        Keys: 'eb_pa', 'k_rate', 'bb_rate', 'hr_rate', 'hard_hit_rate'.
+        Values: DataFrames from load_player_projections / load_rate_stat_projections.
+    prior_season_radar_df : DataFrame
+        Actual radar data from the prior season (used as reference population for percentiles
+        and as fallback for the Ground Balls axis).
+    prior_season_bb_df : DataFrame
+        Batted ball data from the prior season (used for GB rate fallback computation).
+
+    Returns
+    -------
+    DataFrame with radar metric columns, percentile columns, and 'archetype' column.
+    """
+    eb_df = projection_dfs.get("eb_pa", pd.DataFrame())
+    if eb_df.empty or "projected_eb_pa" not in eb_df.columns:
+        return pd.DataFrame()
+
+    df = eb_df[["player_id", "player", "team", "projected_eb_pa"]].copy()
+    df = df.rename(columns={"projected_eb_pa": "run_prevention"})
+
+    # Merge rate stat projections
+    for rate_type, radar_col, transform in [
+        ("k_rate", "k_ability", None),
+        ("bb_rate", "command", lambda x: 1 - x),
+        ("hr_rate", "hr_prevention", lambda x: 1 - x),
+        ("hard_hit_rate", "weak_contact", lambda x: 1 - x),
+    ]:
+        rate_df = projection_dfs.get(rate_type, pd.DataFrame())
+        proj_col = f"projected_{rate_type}"
+        if not rate_df.empty and proj_col in rate_df.columns:
+            merge_cols = ["player_id", proj_col] if "player_id" in rate_df.columns else ["player", proj_col]
+            merge_on = "player_id" if "player_id" in rate_df.columns else "player"
+            merged = df.merge(rate_df[merge_cols].drop_duplicates(subset=[merge_on]), on=merge_on, how="left")
+            vals = merged[proj_col]
+            if transform:
+                vals = transform(vals)
+            df[radar_col] = vals.values
+        else:
+            df[radar_col] = np.nan
+
+    # Ground Ball rate: use prior season actual value, fallback to 50th percentile
+    if not prior_season_radar_df.empty and "gb_rate" in prior_season_radar_df.columns:
+        prior_gb = prior_season_radar_df.set_index("player")["gb_rate"]
+        df["gb_rate"] = df["player"].map(prior_gb)
+        median_gb = prior_gb.median() if not prior_gb.empty else 0.5
+    elif not prior_season_bb_df.empty and "pitcher" in prior_season_bb_df.columns:
+        # Compute GB rate from prior season
+        bb_temp = prior_season_bb_df.copy()
+        bb_temp["_is_gb"] = bb_temp["launch_angle"] < 10
+        gbr = bb_temp.groupby("pitcher")["_is_gb"].mean()
+        df["gb_rate"] = df["player"].map(gbr)
+        median_gb = gbr.median() if not gbr.empty else 0.5
+    else:
+        median_gb = 0.5
+        df["gb_rate"] = np.nan
+    df["gb_rate"] = df["gb_rate"].fillna(median_gb)
+
+    # Drop rows missing core metrics
+    core_cols = ["run_prevention", "k_ability", "command", "hr_prevention", "weak_contact"]
+    df = df.dropna(subset=core_cols)
+    if df.empty:
+        return pd.DataFrame()
+
+    # Compute percentiles against prior season's actual population
+    if not prior_season_radar_df.empty:
+        for _, col in PITCHER_RADAR_AXES:
+            if col in prior_season_radar_df.columns:
+                ref_vals = prior_season_radar_df[col].dropna().values
+                if len(ref_vals) > 0:
+                    if col == "run_prevention":
+                        # Inverted: lower EB/PA = higher percentile
+                        df[f"{col}_pct"] = df[col].apply(
+                            lambda x, rv=ref_vals: (rv > x).mean() * 100
+                        )
+                    else:
+                        df[f"{col}_pct"] = df[col].apply(
+                            lambda x, rv=ref_vals: (rv < x).mean() * 100
+                        )
+                else:
+                    if col == "run_prevention":
+                        df[f"{col}_pct"] = (1 - df[col].rank(pct=True)) * 100
+                    else:
+                        df[f"{col}_pct"] = df[col].rank(pct=True) * 100
+            else:
+                if col == "run_prevention":
+                    df[f"{col}_pct"] = (1 - df[col].rank(pct=True)) * 100
+                else:
+                    df[f"{col}_pct"] = df[col].rank(pct=True) * 100
+    else:
+        df["run_prevention_pct"] = (1 - df["run_prevention"].rank(pct=True)) * 100
+        for _, col in PITCHER_RADAR_AXES:
+            if col != "run_prevention":
+                df[f"{col}_pct"] = df[col].rank(pct=True) * 100
+
+    df = cluster_player_archetypes(df, player_type="pitcher")
+    return df

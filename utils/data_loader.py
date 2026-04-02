@@ -487,6 +487,43 @@ def get_cached_radar_data(season: int, player_type: str = "hitter", min_pa: int 
     return radar_df
 
 
+@st.cache_data(ttl=3600)
+def get_cached_projected_radar_data(season: int, player_type: str = "hitter") -> pd.DataFrame:
+    """Build projected radar from preseason projections (cached 1h).
+
+    Uses projection parquets (EB/PA, K%, BB%, HR%, Hard Hit%) and prior season's
+    actual radar data as the reference population for percentiles.
+    Falls back to prior season actuals for missing axes (Speed / Ground Balls).
+
+    Returns DataFrame with radar metric columns, percentile columns, and 'archetype' column.
+    Returns empty DataFrame if projection data is unavailable.
+    """
+    from .player_analytics import (
+        compute_hitter_radar_from_projections,
+        compute_pitcher_radar_from_projections,
+    )
+
+    # Load projection parquets for the current season
+    projection_dfs = {
+        "eb_pa": load_player_projections(season, player_type),
+    }
+    for rate_type in ["k_rate", "bb_rate", "hr_rate", "hard_hit_rate"]:
+        projection_dfs[rate_type] = load_rate_stat_projections(season, player_type, rate_type)
+
+    if projection_dfs["eb_pa"].empty:
+        return pd.DataFrame()
+
+    # Load prior season's actual radar data as reference population
+    prior_season = season - 1
+    prior_radar_df = get_cached_radar_data(prior_season, player_type, min_pa=30)
+    prior_bb_df = load_batted_balls(prior_season)
+
+    if player_type == "hitter":
+        return compute_hitter_radar_from_projections(projection_dfs, prior_radar_df, prior_bb_df)
+    else:
+        return compute_pitcher_radar_from_projections(projection_dfs, prior_radar_df, prior_bb_df)
+
+
 def filter_games(
     df: pd.DataFrame,
     teams: list = None,

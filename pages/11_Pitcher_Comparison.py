@@ -88,10 +88,19 @@ all_season_pa_rankings = load_all_season_pa_rankings("pitcher")
 
 # Compute archetypes for hero badge display (cached)
 _cmp_archetype_map = {}
-_cmp_radar_df = get_cached_radar_data(season, player_type="pitcher", min_pa=30)
+_cmp_radar_df = get_cached_radar_data(season, player_type="pitcher", min_pa=100)
 if not _cmp_radar_df.empty:
     for _, row in _cmp_radar_df[["player", "team", "archetype"]].iterrows():
         _cmp_archetype_map[f"{row['player']}|{row['team']}"] = row["archetype"]
+
+# Projected radar fallback for early-season
+from utils.data_loader import get_cached_projected_radar_data
+_cmp_proj_radar_df = get_cached_projected_radar_data(season, player_type="pitcher")
+if not _cmp_proj_radar_df.empty:
+    for _, row in _cmp_proj_radar_df[["player", "team", "archetype"]].iterrows():
+        key = f"{row['player']}|{row['team']}"
+        if key not in _cmp_archetype_map:
+            _cmp_archetype_map[key] = f"{row['archetype']} (Projected)"
 
 st.title("Pitcher Comparison")
 
@@ -341,9 +350,14 @@ render_sticky_comparison_bar(
 # OVERLAPPING RADAR CHART
 # =============================================================================
 
-if not _cmp_radar_df.empty:
-    _radar_pcts_1 = get_player_radar_percentiles(_cmp_radar_df, p1["name"], p1["team"], "pitcher")
-    _radar_pcts_2 = get_player_radar_percentiles(_cmp_radar_df, p2["name"], p2["team"], "pitcher")
+if not _cmp_radar_df.empty or not _cmp_proj_radar_df.empty:
+    _radar_pcts_1 = get_player_radar_percentiles(_cmp_radar_df, p1["name"], p1["team"], "pitcher") if not _cmp_radar_df.empty else None
+    _radar_pcts_2 = get_player_radar_percentiles(_cmp_radar_df, p2["name"], p2["team"], "pitcher") if not _cmp_radar_df.empty else None
+    # Fall back to projected radar for players below threshold
+    if _radar_pcts_1 is None and not _cmp_proj_radar_df.empty:
+        _radar_pcts_1 = get_player_radar_percentiles(_cmp_proj_radar_df, p1["name"], p1["team"], "pitcher")
+    if _radar_pcts_2 is None and not _cmp_proj_radar_df.empty:
+        _radar_pcts_2 = get_player_radar_percentiles(_cmp_proj_radar_df, p2["name"], p2["team"], "pitcher")
 
     if _radar_pcts_1 and _radar_pcts_2:
         st.divider()
@@ -372,7 +386,7 @@ if not _cmp_radar_df.empty:
                 f"- **{name}**: {desc}" for name, desc in PITCHER_ARCHETYPE_DESC.items()
             )
             st.markdown(
-                "**Radar Chart:** Shows how each pitcher compares to every pitcher with 30+ batters faced "
+                "**Radar Chart:** Shows how each pitcher compares to every pitcher with 100+ batters faced "
                 "this season. Each spoke is a different skill, measured as a percentile (0 to 100). All axes "
                 "are oriented so that bigger = better (e.g., \"Command\" = low walk rate, \"HR Prevention\" = "
                 "low HR rate).\n\n"

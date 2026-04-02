@@ -483,12 +483,23 @@ from utils.player_helpers import (
     render_snapshot_section, render_highlights,
 )
 
-_radar_df = get_cached_radar_data(season, player_type="pitcher", min_pa=30)
+_radar_df = get_cached_radar_data(season, player_type="pitcher", min_pa=100)
+_using_projected_radar = False
 
 if not _radar_df.empty:
     _player_pcts = get_player_radar_percentiles(_radar_df, selected_pitcher, pitcher_team_short, "pitcher")
 else:
     _player_pcts = None
+
+# Fall back to projected radar if player not in actual radar_df
+if _player_pcts is None:
+    from utils.data_loader import get_cached_projected_radar_data
+    _proj_radar_df = get_cached_projected_radar_data(season, player_type="pitcher")
+    if not _proj_radar_df.empty:
+        _player_pcts = get_player_radar_percentiles(_proj_radar_df, selected_pitcher, pitcher_team_short, "pitcher")
+        if _player_pcts is not None:
+            _using_projected_radar = True
+            _radar_df = _proj_radar_df
 
 # Look up archetype for this pitcher
 _archetype = "Unknown"
@@ -501,7 +512,8 @@ if _player_pcts is not None and not _radar_df.empty:
         _player_match = _radar_df[_radar_df["player"] == selected_pitcher]
     if not _player_match.empty:
         _archetype = _player_match.iloc[0]["archetype"]
-        _arch_desc = PITCHER_ARCHETYPE_DESC.get(_archetype, "")
+        _arch_base = _archetype.replace(" II", "") if _archetype.endswith(" II") else _archetype
+        _arch_desc = PITCHER_ARCHETYPE_DESC.get(_archetype, PITCHER_ARCHETYPE_DESC.get(_arch_base, ""))
 
 # Compute Quick Stats (luck, trend, platoon)
 _pitcher_luck = pitcher_bb["estimated_bases"].sum() - pitcher_bb["actual_tb"].sum()
@@ -744,11 +756,14 @@ if _player_pcts is not None:
         _slug = _player_filename_slug(selected_pitcher)
         st.plotly_chart(_radar_fig, use_container_width=True, config=plotly_download_config(f"{_slug}_radar_{season}", width=800, height=800))
         st.caption("Tap the camera icon above any chart to save as PNG.")
-        if n_bb < 50:
+        if _using_projected_radar:
+            st.caption(f"Based on preseason projections ({n_bb} batters faced so far). Will update to actual data at 100+ batters faced.")
+        elif n_bb < 50:
             st.caption(f"Based on {n_bb} batted balls faced — profile may shift as more data accumulates.")
 
     with _col_info:
-        st.markdown(render_archetype_badge(_archetype, _arch_desc, primary_color), unsafe_allow_html=True)
+        _archetype_display = f"{_archetype} (Projected)" if _using_projected_radar and _archetype != "Unknown" else _archetype
+        st.markdown(render_archetype_badge(_archetype_display, _arch_desc, primary_color), unsafe_allow_html=True)
 
         st.markdown('<div style="font-weight:600; margin-top:16px; margin-bottom:6px; font-size:0.85rem; color:#718096; text-transform:uppercase; letter-spacing:0.5px;">Similar Pitchers</div>', unsafe_allow_html=True)
         _similar = find_similar_players(_radar_df, selected_pitcher, pitcher_team_short, "pitcher", n=5)
@@ -758,7 +773,7 @@ if _player_pcts is not None:
 
     with st.expander("How does this work?"):
         st.markdown(
-            "**Radar Chart:** Shows how this pitcher compares to every pitcher with 30+ batters faced this season. "
+            "**Radar Chart:** Shows how this pitcher compares to every pitcher with 100+ batters faced this season. "
             "Each spoke is a different skill, measured as a percentile (0 to 100). All axes are oriented so that bigger = better "
             "(e.g., \"Command\" = low walk rate, \"HR Prevention\" = low HR rate).\n\n"
             "**Archetype:** Pitchers are grouped by their radar shape using a clustering algorithm (K-Means). "
@@ -1013,23 +1028,33 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                     ),
                 ))
 
-            # True talent reference line
+            # Adjusted projection diamond marker for rate stats
             tt_col = f"true_talent_{rate_prefix}"
             if (pitcher_ranking is not None
                     and tt_col in pitcher_ranking.index
                     and pd.notna(pitcher_ranking.get(tt_col))):
                 tt_val = pitcher_ranking[tt_col] * 100
-                fig.add_hline(
-                    y=tt_val, line_dash="dash",
-                    line_color="rgba(124, 58, 237, 0.5)", line_width=1.5,
-                )
-                fig.add_annotation(
-                    x=max_actual_s, y=tt_val,
-                    text=f"True Talent: {tt_val:.1f}%",
-                    showarrow=False, xshift=8, yshift=12,
-                    font=dict(size=11, color="rgba(124, 58, 237, 0.8)"),
-                    xanchor="left",
-                )
+                _hw_r = pitcher_ranking.get(f"{rate_prefix}_history_weight")
+                if pd.isna(_hw_r):
+                    _hw_r = pitcher_ranking.get("history_weight")
+                _dev_r = pitcher_ranking.get(f"{rate_prefix}_deviation")
+                c = primary_color.lstrip("#")
+                _r, _g, _b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+                _hover_parts = [f"Adjusted Projection {max_actual_s}", f"{y_label}: {tt_val:.1f}%"]
+                if pd.notna(_hw_r):
+                    _hover_parts.append(f"Prior weight: {_hw_r * 100:.0f}%")
+                if pd.notna(_dev_r):
+                    _hover_parts.append(f"vs Observed: {_dev_r * 100:+.1f}%")
+                fig.add_trace(go.Scatter(
+                    x=[max_actual_s + 0.2], y=[tt_val],
+                    mode="markers", name="Adjusted Projection",
+                    marker=dict(
+                        symbol="diamond-open", size=12,
+                        color=f"rgba({_r},{_g},{_b},0.6)",
+                        line=dict(width=2.5, color=f"rgba({_r},{_g},{_b},0.6)"),
+                    ),
+                    hovertemplate="<br>".join(_hover_parts) + "<extra></extra>",
+                ))
 
             x_max = max(rp_seasons) if rate_proj_points else max_actual_s
             all_tick_s = list(range(int(vals["season"].min()), x_max + 1))
@@ -1211,6 +1236,31 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                                 line=dict(width=2.5, color=primary_color)),
                     customdata=[[p.get("aging_effect", 0), p["projected_hdi_low"], p["projected_hdi_high"]] for p in proj_points],
                     hovertemplate="Projection %{x}<br>EB/PA Allowed: %{y:.3f}<br>89% HDI: [%{customdata[1]:.3f}, %{customdata[2]:.3f}]<br>Aging effect: %{customdata[0]:+.3f}<extra></extra>",
+                ))
+
+            # Adjusted projection diamond marker (preseason + in-season combined)
+            if (pitcher_ranking is not None
+                    and "true_talent_eb_pa" in pitcher_ranking.index
+                    and pd.notna(pitcher_ranking.get("true_talent_eb_pa"))):
+                tt_val = pitcher_ranking["true_talent_eb_pa"]
+                hw = pitcher_ranking.get("history_weight")
+                dev = pitcher_ranking.get("deviation")
+                c = primary_color.lstrip("#")
+                _r, _g, _b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+                _hover_parts = [f"Adjusted Projection {max_s}", f"EB/PA Allowed: {tt_val:.3f}"]
+                if pd.notna(hw):
+                    _hover_parts.append(f"Prior weight: {hw * 100:.0f}%")
+                if pd.notna(dev):
+                    _hover_parts.append(f"vs Observed: {dev:+.3f}")
+                fig_timeline.add_trace(go.Scatter(
+                    x=[max_s + 0.2], y=[tt_val],
+                    mode="markers", name="Adjusted Projection",
+                    marker=dict(
+                        symbol="diamond-open", size=12,
+                        color=f"rgba({_r},{_g},{_b},0.6)",
+                        line=dict(width=2.5, color=f"rgba({_r},{_g},{_b},0.6)"),
+                    ),
+                    hovertemplate="<br>".join(_hover_parts) + "<extra></extra>",
                 ))
 
             x_max = max(proj_seasons) if proj_points else max_s
