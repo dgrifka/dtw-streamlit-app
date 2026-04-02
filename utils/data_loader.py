@@ -40,8 +40,8 @@ def build_image_url(row: pd.Series, chart_type: str) -> str:
 
 
 def get_game_images(row: pd.Series) -> dict:
-    """Get all 4 visualization URLs for a game."""
-    chart_types = ['spray', 'rd', 'estimated_bases', 'player_contributions']
+    """Get visualization URLs for a game (includes luck_ledger with fallback)."""
+    chart_types = ['spray', 'rd', 'luck_ledger', 'estimated_bases', 'player_contributions']
     return {ct: build_image_url(row, ct) for ct in chart_types}
 
 
