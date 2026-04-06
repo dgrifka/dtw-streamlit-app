@@ -76,7 +76,11 @@ def main():
         game_pk = params.get("gamePk", None)
         if game_pk is not None:
             game_pk = int(game_pk)
-    
+
+    # Update URL bar so the link is shareable
+    if game_pk is not None:
+        st.query_params["gamePk"] = str(game_pk)
+
     # Load all games
     df = load_game_summaries()
     
