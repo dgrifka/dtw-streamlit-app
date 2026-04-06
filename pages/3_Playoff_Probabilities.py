@@ -166,6 +166,28 @@ else:
 
 
 # -----------------------------------------------------------------------------
+# PROJECTED WIN TOTALS
+# -----------------------------------------------------------------------------
+
+proj_wins_url = f"{S3_PLAYOFF_URL}/{selected_season}/latest/projected_wins.png?v={_cache_version}"
+has_proj_wins = _image_exists(proj_wins_url)
+has_proj_data = has_data and 'Projected Wins' in results_df.columns
+
+if has_proj_wins or has_proj_data:
+    st.divider()
+    st.subheader("Projected Win Totals")
+    st.caption(
+        "How many games is each team projected to win? "
+        "Thick bars show the likely range (50% CI); thin bars show wider uncertainty (90% CI)."
+    )
+
+    if has_proj_wins:
+        st.image(proj_wins_url, width="stretch")
+    else:
+        st.info("Projected win totals chart not yet available for this season.")
+
+
+# -----------------------------------------------------------------------------
 # ROOTING GUIDE (game days only)
 # -----------------------------------------------------------------------------
 
@@ -254,6 +276,14 @@ if has_data:
                 'Div Win %', format="%.1f%%", width='small'),
             'Bye %': st.column_config.NumberColumn(
                 'Bye %', format="%.1f%%", width='small'),
+            'Projected Wins': st.column_config.NumberColumn(
+                'Proj W', format="%.1f", width='small'),
+            'Win 5th': st.column_config.NumberColumn(
+                'Low', format="%.0f", width='small',
+                help="5th percentile — worst-case projected wins"),
+            'Win 95th': st.column_config.NumberColumn(
+                'High', format="%.0f", width='small',
+                help="95th percentile — best-case projected wins"),
         },
     )
 
@@ -292,6 +322,12 @@ These numbers reflect overall deserve-to-win performance (batted ball quality, w
 strikeouts, baserunning), not just wins and losses. A 45-40 team that's been crushing
 the ball and drawing walks will project better than a 47-38 team running on fumes and
 lucky bounces.
+
+**Projected win totals** come from the same 50,000 simulated seasons. Each simulation
+plays out every remaining game using the Bayesian team strength model, then counts total
+wins. The "Proj W" column shows the average across all simulations, while "Low" and "High"
+(5th and 95th percentiles) capture the range of plausible outcomes. There's roughly a 90%
+chance each team's final win total lands in that range.
     """)
 
 render_home_link()
