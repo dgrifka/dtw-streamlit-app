@@ -350,19 +350,19 @@ def luck_tier_label(percentile):
 
 
 def pqs_tier_label(pqs_value):
-    """Return 5-tier PQS label based on z-score thresholds.
+    """Return 5-tier PQS label based on 100-index scale thresholds.
 
-    Lower PQS = better pitcher, so thresholds are inverted vs typical scales.
+    Higher PQS+ = better pitcher. 100 = league average.
     """
     if pqs_value is None or pd.isna(pqs_value):
         return None
-    if pqs_value <= -1.5:
+    if pqs_value >= 123:
         return "Elite"
-    elif pqs_value <= -0.5:
+    elif pqs_value >= 108:
         return "Above Avg"
-    elif pqs_value <= 0.5:
+    elif pqs_value >= 92:
         return "Average"
-    elif pqs_value <= 1.5:
+    elif pqs_value >= 77:
         return "Below Avg"
     else:
         return "Poor"

@@ -652,7 +652,7 @@ data to trust it.
         # Sort options — PQS first for pitchers when available
         sort_options = []
         if has_pqs:
-            sort_options.append("PQS (lower is better)")
+            sort_options.append("PQS+ (higher is better)")
         sort_options.append("EB/PA" if is_pa_mode else "EB/BB")
         if has_k_rate:
             sort_options.append("K% (low is better)" if not is_pitcher else "K% (high is better)")
@@ -668,7 +668,7 @@ data to trust it.
 
         if sort_by.startswith("PQS"):
             sort_col = "pitcher_quality_score"
-            sort_asc = True  # Lower PQS = better pitcher
+            sort_asc = False  # Higher PQS+ = better pitcher
         elif sort_by.startswith("K%"):
             sort_col = "k_rate_posterior"
             # For hitters, low K% is good (ascending); for pitchers, high K% is good (descending)
@@ -741,7 +741,7 @@ data to trust it.
             rename_map["deviation"] = "Deviation"
             rename_map["preseason_eb_pa"] = "Preseason Proj."
         if has_pqs:
-            rename_map["pitcher_quality_score"] = "PQS"
+            rename_map["pitcher_quality_score"] = "PQS+"
         if has_k_rate:
             rename_map["k_rate_posterior"] = "K%"
             rename_map["k_rate_raw"] = "K% (Raw)"
@@ -776,13 +776,13 @@ data to trust it.
             table_cols = [
                 "Player", "Team", "Pos", "Archetype", "True Talent EB/PA", "Est. Bases (Season)",
                 "Preseason Proj.", "Deviation",
-                "K%", "BB%", "HR%", "PQS",
+                "K%", "BB%", "HR%", "PQS+",
                 n_col_name,
             ]
         else:
             table_cols = [
                 "Player", "Team", "Pos", "Archetype", "Est. Bases (Season)", "Est. Bases (Raw)",
-                "K%", "BB%", "HR%", "PQS",
+                "K%", "BB%", "HR%", "PQS+",
                 "Adjustment", n_col_name,
             ]
         # Insert traditional stats before Profile link
@@ -831,10 +831,10 @@ data to trust it.
                 format="%.1f%%",
                 help="Bayesian home run rate — percentage of plate appearances resulting in a home run. Adjusted for sample size.",
             ),
-            "PQS": st.column_config.NumberColumn(
-                format="%.3f",
-                help="Pitcher Quality Score (70% K% + 30% contact quality). Lower is better. "
-                     "Combines strikeout ability and batted ball quality into a single composite metric. "
+            "PQS+": st.column_config.NumberColumn(
+                format="%.0f",
+                help="Pitcher Quality Score (70% K% + 30% contact quality). Higher is better. "
+                     "100 = league average. Combines strikeout ability and batted ball quality. "
                      "Validated at r=0.45 predicting next-year wOBA allowed.",
             ),
             n_col_name: st.column_config.NumberColumn(format="%d"),

@@ -30,7 +30,7 @@ from utils.player_helpers import (
     normalize_name, build_headshot_url, categorize_launch_angle,
     is_barrel, is_barrel_vectorized,
     _ordinal, _percentile_color, render_percentile_bar, render_comparison_metric,
-    luck_tier_label, safe_html, render_comparison_radar_chart,
+    luck_tier_label, pqs_tier_label, safe_html, render_comparison_radar_chart,
     render_sticky_comparison_bar,
     render_comparison_grades, render_comparison_bars,
     TB_MAP, PLOTLY_CONFIG, PLOTLY_CONFIG_STATIC,
@@ -586,21 +586,59 @@ if _score_1 is not None and _score_2 is not None:
     if _grade_caption:
         st.caption(_grade_caption)
 
-# --- Build comparison bar metrics ---
+# --- PQS+ highlight (side-by-side summary above detailed bars) ---
+_cmp_has_pqs = (
+    p1["ranking"] is not None and p2["ranking"] is not None
+    and "pitcher_quality_score" in p1["ranking"].index
+    and "pitcher_quality_score" in p2["ranking"].index
+    and pd.notna(p1["ranking"].get("pitcher_quality_score"))
+    and pd.notna(p2["ranking"].get("pitcher_quality_score"))
+)
+if _cmp_has_pqs:
+    _pqs1 = p1["ranking"]["pitcher_quality_score"]
+    _pqs2 = p2["ranking"]["pitcher_quality_score"]
+    _pqs_pct1 = (pa_rankings["pitcher_quality_score"].dropna() < _pqs1).mean() * 100 if "pitcher_quality_score" in pa_rankings.columns else 50
+    _pqs_pct2 = (pa_rankings["pitcher_quality_score"].dropna() < _pqs2).mean() * 100 if "pitcher_quality_score" in pa_rankings.columns else 50
+    _tier1 = pqs_tier_label(_pqs1)
+    _tier2 = pqs_tier_label(_pqs2)
+
+    _pqs_h1, _pqs_h2 = st.columns(2)
+    _tc1 = "green" if _tier1 in ("Elite", "Above Avg") else "orange" if _tier1 == "Below Avg" else "red" if _tier1 == "Poor" else "gray"
+    _tc2 = "green" if _tier2 in ("Elite", "Above Avg") else "orange" if _tier2 == "Below Avg" else "red" if _tier2 == "Poor" else "gray"
+    with _pqs_h1:
+        st.metric("PQS+", f"{_pqs1:.0f}",
+                  help="Pitcher Quality Score. 100 = league avg, higher = better.")
+        st.caption(f"{_ordinal(int(_pqs_pct1))} percentile" + (f" — **:{_tc1}[{_tier1}]**" if _tier1 else ""))
+    with _pqs_h2:
+        st.metric("PQS+", f"{_pqs2:.0f}",
+                  help="Pitcher Quality Score. 100 = league avg, higher = better.")
+        st.caption(f"{_ordinal(int(_pqs_pct2))} percentile" + (f" — **:{_tc2}[{_tier2}]**" if _tier2 else ""))
+
+# --- Build comparison bar metrics (grouped logically) ---
 _h2h_metrics = []
 
-# Season actuals — for pitchers, lower = better, percentiles are already inverted above
-_h2h_metrics.append({"label": "EV Allowed", "v1": f"{p1['avg_ev']:.1f} mph", "v2": f"{p2['avg_ev']:.1f} mph",
-                      "pct1": ev_pct_1, "pct2": ev_pct_2, "num1": p1["avg_ev"], "num2": p2["avg_ev"],
-                      "higher_better": False})
-_h2h_metrics.append({"label": "Barrel Rate", "v1": f"{p1['barrel_rate']:.1f}%", "v2": f"{p2['barrel_rate']:.1f}%",
-                      "pct1": barrel_pct_1, "pct2": barrel_pct_2, "num1": p1["barrel_rate"], "num2": p2["barrel_rate"],
-                      "higher_better": False})
-_h2h_metrics.append({"label": "Avg EB/BB Allowed", "v1": f"{p1['avg_eb']:.3f}", "v2": f"{p2['avg_eb']:.3f}",
-                      "pct1": avg_eb_pct_1, "pct2": avg_eb_pct_2, "num1": p1["avg_eb"], "num2": p2["avg_eb"],
-                      "higher_better": False})
+# 1. Overall quality: PQS+
+if _cmp_has_pqs:
+    _h2h_metrics.append({"label": "PQS+", "v1": f"{_pqs1:.0f}", "v2": f"{_pqs2:.0f}",
+                          "pct1": _pqs_pct1, "pct2": _pqs_pct2, "num1": _pqs1, "num2": _pqs2,
+                          "higher_better": True})
 
-# EB/PA (Bayesian or projected) — lower = better for pitchers
+# 2. Pitching command: K%, BB%, HR%
+if p1["ranking"] is not None and p2["ranking"] is not None:
+    _r1, _r2 = p1["ranking"], p2["ranking"]
+    for _rc, _rlabel, _higher_better in [("k_rate_posterior", "K Rate", True), ("bb_rate_posterior", "BB Rate", False), ("hr_rate_posterior", "HR Rate", False)]:
+        if _rc in _r1.index and _rc in _r2.index and pd.notna(_r1.get(_rc)) and pd.notna(_r2.get(_rc)):
+            if _higher_better:
+                _rpct1 = (_r1[_rc] > pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
+                _rpct2 = (_r2[_rc] > pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
+            else:
+                _rpct1 = (_r1[_rc] < pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
+                _rpct2 = (_r2[_rc] < pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
+            _h2h_metrics.append({"label": _rlabel, "v1": f"{_r1[_rc]*100:.1f}%", "v2": f"{_r2[_rc]*100:.1f}%",
+                                  "pct1": _rpct1, "pct2": _rpct2, "num1": _r1[_rc], "num2": _r2[_rc],
+                                  "higher_better": _higher_better})
+
+# 3. Contact quality: EB/PA, EV Allowed, Barrel Rate
 if _sel_eb1 is not None and _sel_eb2 is not None:
     _ebpa_label = f"EB/PA ({_ebpa_year})" if _ebpa_year != season else "EB/PA Allowed"
     if _ebpa_is_proj:
@@ -609,45 +647,14 @@ if _sel_eb1 is not None and _sel_eb2 is not None:
                           "pct1": _sel_pct1, "pct2": _sel_pct2, "num1": _sel_eb1, "num2": _sel_eb2,
                           "higher_better": False})
 
-# True talent
-if p1["ranking"] is not None and p2["ranking"] is not None:
-    _tt1 = p1["ranking"].get("true_talent_eb_pa") if "true_talent_eb_pa" in p1["ranking"].index else None
-    _tt2 = p2["ranking"].get("true_talent_eb_pa") if "true_talent_eb_pa" in p2["ranking"].index else None
-    if _tt1 is not None and _tt2 is not None and pd.notna(_tt1) and pd.notna(_tt2):
-        _h2h_metrics.append({"label": "True Talent EB/PA", "v1": f"{_tt1:.3f}", "v2": f"{_tt2:.3f}",
-                              "pct1": None, "pct2": None, "num1": _tt1, "num2": _tt2,
-                              "higher_better": False})
+_h2h_metrics.append({"label": "EV Allowed", "v1": f"{p1['avg_ev']:.1f} mph", "v2": f"{p2['avg_ev']:.1f} mph",
+                      "pct1": ev_pct_1, "pct2": ev_pct_2, "num1": p1["avg_ev"], "num2": p2["avg_ev"],
+                      "higher_better": False})
+_h2h_metrics.append({"label": "Barrel Rate", "v1": f"{p1['barrel_rate']:.1f}%", "v2": f"{p2['barrel_rate']:.1f}%",
+                      "pct1": barrel_pct_1, "pct2": barrel_pct_2, "num1": p1["barrel_rate"], "num2": p2["barrel_rate"],
+                      "higher_better": False})
 
-# Rate stats (K%, BB%, HR%) — pitchers: K% higher = better, BB% lower = better, HR% lower = better
-if p1["ranking"] is not None and p2["ranking"] is not None:
-    _r1, _r2 = p1["ranking"], p2["ranking"]
-    for _rc, _rlabel, _higher_better in [("k_rate_posterior", "K Rate", True), ("bb_rate_posterior", "BB Rate", False), ("hr_rate_posterior", "HR Rate", False)]:
-        if _rc in _r1.index and _rc in _r2.index and pd.notna(_r1.get(_rc)) and pd.notna(_r2.get(_rc)):
-            if _higher_better:
-                # K%: higher = better for pitchers
-                _rpct1 = (_r1[_rc] > pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
-                _rpct2 = (_r2[_rc] > pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
-            else:
-                # BB%, HR%: lower = better for pitchers, invert percentile
-                _rpct1 = (_r1[_rc] < pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
-                _rpct2 = (_r2[_rc] < pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
-            _h2h_metrics.append({"label": _rlabel, "v1": f"{_r1[_rc]*100:.1f}%", "v2": f"{_r2[_rc]*100:.1f}%",
-                                  "pct1": _rpct1, "pct2": _rpct2, "num1": _r1[_rc], "num2": _r2[_rc],
-                                  "higher_better": _higher_better})
-
-# PQS (Pitcher Quality Score) — lower = better
-if p1["ranking"] is not None and p2["ranking"] is not None:
-    _r1, _r2 = p1["ranking"], p2["ranking"]
-    if ("pitcher_quality_score" in _r1.index and "pitcher_quality_score" in _r2.index
-            and pd.notna(_r1.get("pitcher_quality_score")) and pd.notna(_r2.get("pitcher_quality_score"))):
-        _pqs1, _pqs2 = _r1["pitcher_quality_score"], _r2["pitcher_quality_score"]
-        _pqs_pct1 = (pa_rankings["pitcher_quality_score"].dropna() > _pqs1).mean() * 100 if "pitcher_quality_score" in pa_rankings.columns else None
-        _pqs_pct2 = (pa_rankings["pitcher_quality_score"].dropna() > _pqs2).mean() * 100 if "pitcher_quality_score" in pa_rankings.columns else None
-        _h2h_metrics.append({"label": "PQS", "v1": f"{_pqs1:.3f}", "v2": f"{_pqs2:.3f}",
-                              "pct1": _pqs_pct1, "pct2": _pqs_pct2, "num1": _pqs1, "num2": _pqs2,
-                              "higher_better": False})
-
-# Traditional stats — no percentile bars, just values with winner bolded
+# 4. Traditional stats: ERA, WHIP, IP
 if p1["ranking"] is not None and p2["ranking"] is not None:
     _r1, _r2 = p1["ranking"], p2["ranking"]
     trad_stats = [
@@ -891,16 +898,18 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                     "season": s, "value": row["posterior_mean"],
                     "hdi_low": row["hdi_low"], "hdi_high": row["hdi_high"],
                 })
-                # Rate stats
+                # Rate stats + PQS+
                 _rate_row = {"season": s}
                 for _rc in ["k_rate_posterior", "k_rate_hdi_low", "k_rate_hdi_high",
                              "bb_rate_posterior", "bb_rate_hdi_low", "bb_rate_hdi_high",
-                             "hr_rate_posterior", "hr_rate_hdi_low", "hr_rate_hdi_high"]:
+                             "hr_rate_posterior", "hr_rate_hdi_low", "hr_rate_hdi_high",
+                             "pitcher_quality_score", "pqs_hdi_low", "pqs_hdi_high"]:
                     if _rc in row.index and pd.notna(row.get(_rc)):
                         _rate_row[_rc] = row[_rc]
                 rate_tl_data[pnum].append(_rate_row)
 
     _has_rate_timeline = any("k_rate_posterior" in t for t in rate_tl_data[1]) or any("k_rate_posterior" in t for t in rate_tl_data[2])
+    _has_pqs_timeline = any("pitcher_quality_score" in t for t in rate_tl_data[1]) or any("pitcher_quality_score" in t for t in rate_tl_data[2])
 
     if tl_data[1] or tl_data[2]:
         st.divider()
@@ -1146,9 +1155,16 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
             return fig
 
         # --- Lazy tab rendering via segmented control ---
+        _cmp_history_options = []
+        if _has_pqs_timeline:
+            _cmp_history_options.append("PQS+")
+        _cmp_history_options.append("EB/PA")
         if _has_rate_timeline:
+            _cmp_history_options += ["K%", "BB%", "HR%"]
+        _cmp_default = "PQS+" if _has_pqs_timeline else "EB/PA"
+        if len(_cmp_history_options) > 1:
             _history_view = st.segmented_control(
-                "View", ["EB/PA", "K%", "BB%", "HR%"], default="EB/PA",
+                "View", _cmp_history_options, default=_cmp_default,
                 key="pcmp_history_view",
             )
         else:
@@ -1353,6 +1369,98 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
             _fig_hr = _build_comparison_rate_chart("hr_rate", "HR%", higher_is_better=False)
             if _fig_hr:
                 st.plotly_chart(_fig_hr, width="stretch", config=PLOTLY_CONFIG)
+
+        # --- PQS+ comparison timeline ---
+        if _has_pqs_timeline and _history_view == "PQS+":
+            st.caption("Pitcher Quality Score (70% K% + 30% contact quality) — 100 = league avg, higher = better")
+            _pqs_col = "pitcher_quality_score"
+            _pqs_lo = "pqs_hdi_low"
+            _pqs_hi = "pqs_hdi_high"
+
+            fig_pqs_cmp = go.Figure()
+
+            # League average reference line at 100
+            fig_pqs_cmp.add_hline(y=100, line_dash="dot",
+                                  line_color="rgba(160,160,160,0.6)", line_width=1.5)
+            fig_pqs_cmp.add_annotation(
+                x=0.99, y=100, xref="paper",
+                text="Lg Avg (100)", showarrow=False,
+                font=dict(size=11, color="rgba(160,160,160,0.8)"),
+                xanchor="right", yshift=12,
+            )
+
+            _anno_pts_pqs = []
+            for pnum, pdata, color in [(1, p1, p1_color), (2, p2, p2_color)]:
+                rtl = [t for t in rate_tl_data[pnum] if _pqs_col in t]
+                if not rtl:
+                    continue
+                vals = pd.DataFrame(rtl)
+                c = color.lstrip("#")
+                r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+
+                if len(vals) == 1:
+                    row_p = vals.iloc[0]
+                    err_hi = [row_p[_pqs_hi] - row_p[_pqs_col]] if _pqs_hi in row_p.index and pd.notna(row_p.get(_pqs_hi)) else None
+                    err_lo = [row_p[_pqs_col] - row_p[_pqs_lo]] if _pqs_lo in row_p.index and pd.notna(row_p.get(_pqs_lo)) else None
+                    fig_pqs_cmp.add_trace(go.Scatter(
+                        x=vals["season"], y=vals[_pqs_col],
+                        mode="markers", name=pdata["name"],
+                        marker=dict(color=color, size=12),
+                        error_y=dict(
+                            type="data", array=err_hi, arrayminus=err_lo,
+                            color=f"rgba({r},{g},{b},0.5)", thickness=2, width=6,
+                        ) if err_hi else None,
+                        hovertemplate="Season: %{x}<br>PQS+: %{y:.0f}<extra></extra>",
+                    ))
+                else:
+                    if _pqs_hi in vals.columns and _pqs_lo in vals.columns:
+                        fig_pqs_cmp.add_trace(go.Scatter(
+                            x=vals["season"], y=vals[_pqs_hi],
+                            mode="lines", line=dict(width=0),
+                            showlegend=False, hoverinfo="skip",
+                        ))
+                        fig_pqs_cmp.add_trace(go.Scatter(
+                            x=vals["season"], y=vals[_pqs_lo],
+                            mode="lines", line=dict(width=0),
+                            fill="tonexty", fillcolor=f"rgba({r},{g},{b},0.15)",
+                            showlegend=False, hoverinfo="skip",
+                        ))
+                    fig_pqs_cmp.add_trace(go.Scatter(
+                        x=vals["season"], y=vals[_pqs_col],
+                        mode="lines+markers", name=pdata["name"],
+                        line=dict(color=color, width=2.5),
+                        marker=dict(color=color, size=12),
+                        hovertemplate="Season: %{x}<br>PQS+: %{y:.0f}<extra></extra>",
+                    ))
+
+                _anno_pts_pqs.append({
+                    "x": vals["season"].iloc[-1], "y": vals[_pqs_col].iloc[-1],
+                    "name": pdata["name"], "color": color,
+                })
+
+            _add_player_annotations(fig_pqs_cmp, _anno_pts_pqs)
+
+            all_pqs_seasons = [d["season"] for d in rate_tl_data[1] if _pqs_col in d] + \
+                              [d["season"] for d in rate_tl_data[2] if _pqs_col in d]
+            if all_pqs_seasons:
+                _pqs_ticks = list(range(min(all_pqs_seasons), max(all_pqs_seasons) + 1))
+                fig_pqs_cmp.update_layout(
+                    xaxis=dict(title="Season", tickvals=_pqs_ticks, ticktext=[str(s) for s in _pqs_ticks],
+                               range=[min(_pqs_ticks) - 0.5, max(_pqs_ticks) + 0.5],
+                               title_font_size=14, tickfont_size=13),
+                    yaxis=dict(title="PQS+ (higher is better)", title_font_size=14, tickfont_size=13),
+                    height=400, template="plotly_white",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=13)),
+                    dragmode=False,
+                )
+                fig_pqs_cmp.add_annotation(
+                    x=0.01, y=0.98, xref="paper", yref="paper",
+                    text="↑ Higher = Better", showarrow=False,
+                    font=dict(size=12, color="rgba(60, 140, 60, 0.7)"),
+                    xanchor="left", yanchor="top",
+                    bgcolor="rgba(255,255,255,0.7)",
+                )
+                st.plotly_chart(fig_pqs_cmp, width="stretch", config=PLOTLY_CONFIG)
 
 
 # =============================================================================

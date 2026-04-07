@@ -401,7 +401,7 @@ if bayesian_eb is None and not _proj_active.empty:
         hdi_low = _p["projected_hdi_low"]
         hdi_high = _p["projected_hdi_high"]
         eb_pct = 100 - (_proj_active["projected_eb_pa"] < bayesian_eb).mean() * 100  # inverted
-        _best_idx = _proj_active["projected_eb_pa"].idxmin()  # lowest = best pitcher
+        _best_idx = _proj_active["projected_eb_pa"].idxmin()
         _best_proj = _proj_active.loc[_best_idx]
         _best_name = _best_proj["player"]
         _best_team = _best_proj.get("team", "")
@@ -456,7 +456,47 @@ with hero_col2:
         )
 
 with hero_col3:
-    if bayesian_eb is not None:
+    _hero_has_k = (
+        pitcher_ranking is not None
+        and "k_rate_posterior" in pitcher_ranking.index
+        and pd.notna(pitcher_ranking.get("k_rate_posterior"))
+    )
+    if _hero_has_k:
+        _hero_k = pitcher_ranking["k_rate_posterior"]
+        st.metric(
+            "K%", f"{_hero_k * 100:.1f}%",
+            help="Bayesian strikeout rate per batter faced. **Higher is better** for pitchers — "
+                 "more strikeouts means more missed bats. Adjusted for sample size.",
+        )
+        if not pa_rankings.empty and "k_rate_posterior" in pa_rankings.columns:
+            _hero_k_pct = (pa_rankings["k_rate_posterior"].dropna() < _hero_k).mean() * 100
+            render_percentile_bar(_hero_k_pct, label=f"{_ordinal(int(_hero_k_pct))} pct (higher K% = better)")
+        # Comparison bar vs best + league avg
+        if not pa_rankings.empty and "k_rate_posterior" in pa_rankings.columns:
+            _k_pop = pa_rankings["k_rate_posterior"].dropna()
+            _best_k_idx = _k_pop.idxmax()  # highest K% = best pitcher
+            _best_k_row = pa_rankings.loc[_best_k_idx]
+            _best_k_name = _best_k_row["player"]
+            _best_k_team = _best_k_row.get("team", "")
+            _best_k_color, _ = get_team_color(_best_k_team) if _best_k_team else ("#DAA520", "#DAA520")
+            _k_hdi_lo = pitcher_ranking.get("k_rate_hdi_low", _hero_k)
+            _k_hdi_hi = pitcher_ranking.get("k_rate_hdi_high", _hero_k)
+            _best_k_hdi_lo = _best_k_row.get("k_rate_hdi_low", _best_k_row["k_rate_posterior"])
+            _best_k_hdi_hi = _best_k_row.get("k_rate_hdi_high", _best_k_row["k_rate_posterior"])
+            _k_bar_html = render_comparison_bar_html(
+                selected_pitcher, _hero_k, _k_hdi_lo, _k_hdi_hi, primary_color,
+                _best_k_name, _best_k_row["k_rate_posterior"], _best_k_hdi_lo, _best_k_hdi_hi, _best_k_color,
+                _k_pop.mean(), _k_pop.std(),
+                caption="higher = better",
+            )
+            if _k_bar_html:
+                st.markdown(_k_bar_html, unsafe_allow_html=True)
+        if "k_rate_hdi_low" in pitcher_ranking.index and pd.notna(pitcher_ranking.get("k_rate_hdi_low")):
+            st.caption(
+                f"89% CI: {pitcher_ranking['k_rate_hdi_low']*100:.1f}% – "
+                f"{pitcher_ranking['k_rate_hdi_high']*100:.1f}%"
+            )
+    elif bayesian_eb is not None:
         st.metric(_eb_label, f"{bayesian_eb:.3f}", help=_eb_help)
         render_percentile_bar(eb_pct, label=f"{_ordinal(int(eb_pct))} pct (lower EB/PA = better)")
         if _eb_bar_html:
@@ -464,6 +504,35 @@ with hero_col3:
     else:
         st.metric("Avg Est. Bases Allowed/BB", f"{avg_eb:.3f}")
         st.caption("Full ranking not available (need player evaluation data)")
+
+# PQS+ highlight below hero
+if (pitcher_ranking is not None
+        and "pitcher_quality_score" in pitcher_ranking.index
+        and not pd.isna(pitcher_ranking.get("pitcher_quality_score", float("nan")))):
+    _hero_pqs = pitcher_ranking["pitcher_quality_score"]
+    _pqs_hero_col1, _pqs_hero_col2 = st.columns([1, 3])
+    with _pqs_hero_col1:
+        st.metric(
+            "PQS+", f"{_hero_pqs:.0f}",
+            help="Pitcher Quality Score (70% K% + 30% contact quality). **Higher is better.** "
+                 "100 = league average. Every 15 points is roughly one standard deviation.",
+        )
+        if not pa_rankings.empty and "pitcher_quality_score" in pa_rankings.columns:
+            _hero_pqs_pct = (pa_rankings["pitcher_quality_score"].dropna() < _hero_pqs).mean() * 100
+            render_percentile_bar(_hero_pqs_pct, label=f"{_ordinal(int(_hero_pqs_pct))} pct (higher PQS+ = better)")
+        _hero_pqs_has_hdi = (
+            "pqs_hdi_low" in pitcher_ranking.index and pd.notna(pitcher_ranking.get("pqs_hdi_low"))
+            and "pqs_hdi_high" in pitcher_ranking.index and pd.notna(pitcher_ranking.get("pqs_hdi_high"))
+        )
+        if _hero_pqs_has_hdi:
+            st.caption(f"89% CI: {pitcher_ranking['pqs_hdi_low']:.0f} – {pitcher_ranking['pqs_hdi_high']:.0f}")
+        _hero_tier = pqs_tier_label(_hero_pqs)
+        if _hero_tier:
+            _hero_tier_color = {
+                "Elite": "green", "Above Avg": "green",
+                "Average": "gray", "Below Avg": "orange", "Poor": "red",
+            }.get(_hero_tier, "gray")
+            st.caption(f"**:{_hero_tier_color}[{_hero_tier}]**")
 
 # Pre-compute actual_tb (used by Quick Stats and Luck Report)
 pitcher_bb["actual_tb"] = pitcher_bb["actual_result"].map(TB_MAP).fillna(0)
@@ -1092,11 +1161,11 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
         # --- Lazy tab rendering via segmented control ---
         _history_options = []
         if _has_pqs_timeline:
-            _history_options.append("PQS")
+            _history_options.append("PQS+")
         _history_options.append("EB/PA")
         if _has_rate_timeline:
             _history_options += ["K%", "BB%", "HR%"]
-        _history_default = "PQS" if _has_pqs_timeline else "EB/PA"
+        _history_default = "PQS+" if _has_pqs_timeline else "EB/PA"
         if len(_history_options) > 1:
             _history_view = st.segmented_control(
                 "View", _history_options, default=_history_default,
@@ -1303,9 +1372,9 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
             if _fig_hr:
                 st.plotly_chart(_fig_hr, width="stretch", config=PLOTLY_CONFIG)
 
-        # --- PQS trajectory (not a rate — raw z-score units, not percentage) ---
-        if _has_pqs_timeline and _history_view == "PQS":
-            st.caption("Pitcher Quality Score (70% K% + 30% contact quality) with 89% credible interval")
+        # --- PQS+ trajectory (100-index scale, higher = better) ---
+        if _has_pqs_timeline and _history_view == "PQS+":
+            st.caption("Pitcher Quality Score (70% K% + 30% contact quality) with 89% credible interval — 100 = league avg, higher = better")
             pqs_col = "pitcher_quality_score"
             pqs_lo_col = "pqs_hdi_low"
             pqs_hi_col = "pqs_hdi_high"
@@ -1315,14 +1384,14 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                 c = primary_color.lstrip("#")
                 r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
 
-                # League average reference line at PQS = 0
+                # League average reference line at PQS+ = 100
                 fig_pqs.add_hline(
-                    y=0, line_dash="dot",
+                    y=100, line_dash="dot",
                     line_color="rgba(160,160,160,0.6)", line_width=1.5,
                 )
                 fig_pqs.add_annotation(
-                    x=0.99, y=0, xref="paper",
-                    text="Lg Avg (0.0)", showarrow=False,
+                    x=0.99, y=100, xref="paper",
+                    text="Lg Avg (100)", showarrow=False,
                     font=dict(size=11, color="rgba(160,160,160,0.8)"),
                     xanchor="right", yshift=12,
                 )
@@ -1339,7 +1408,7 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                             type="data", array=err_hi, arrayminus=err_lo,
                             color=f"rgba({r},{g},{b},0.5)", thickness=2, width=8,
                         ) if err_hi else None,
-                        hovertemplate="Season: %{x}<br>PQS: %{y:.3f}<extra></extra>",
+                        hovertemplate="Season: %{x}<br>PQS+: %{y:.0f}<extra></extra>",
                     ))
                 else:
                     if pqs_hi_col in pqs_vals.columns and pqs_lo_col in pqs_vals.columns:
@@ -1357,7 +1426,7 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                         mode="lines+markers", name=selected_pitcher,
                         line=dict(color=primary_color, width=2.5),
                         marker=dict(color=primary_color, size=12),
-                        hovertemplate="Season: %{x}<br>PQS: %{y:.3f}<extra></extra>",
+                        hovertemplate="Season: %{x}<br>PQS+: %{y:.0f}<extra></extra>",
                     ))
 
                 # PQS projections
@@ -1424,8 +1493,8 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                         ],
                         hovertemplate=(
                             "Projection %{x}<br>"
-                            "PQS: %{y:.3f}<br>"
-                            "89% HDI: [%{customdata[0]:.3f}, %{customdata[1]:.3f}]"
+                            "PQS+: %{y:.0f}<br>"
+                            "89% HDI: [%{customdata[0]:.0f}, %{customdata[1]:.0f}]"
                             "<extra></extra>"
                         ),
                     ))
@@ -1436,7 +1505,7 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                     xaxis=dict(title="Season", title_font_size=14, tickfont_size=13,
                                tickvals=all_tick_pqs, ticktext=[str(s) for s in all_tick_pqs],
                                range=[min(all_tick_pqs) - 0.5, max(all_tick_pqs) + 0.5]),
-                    yaxis=dict(title="PQS (lower is better)", title_font_size=14, tickfont_size=13),
+                    yaxis=dict(title="PQS+ (higher is better)", title_font_size=14, tickfont_size=13),
                     height=400, template="plotly_white",
                     legend=dict(orientation="h", yanchor="bottom", y=1.02,
                                 xanchor="center", x=0.5, font=dict(size=13)),
@@ -1444,8 +1513,8 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                 )
                 fig_pqs.add_annotation(
                     x=0.01, y=0.98, xref="paper", yref="paper",
-                    text="↓ Lower = Better", showarrow=False,
-                    font=dict(size=12, color="rgba(180, 60, 60, 0.7)"),
+                    text="↑ Higher = Better", showarrow=False,
+                    font=dict(size=12, color="rgba(60, 140, 60, 0.7)"),
                     xanchor="left", yanchor="top",
                     bgcolor="rgba(255,255,255,0.7)",
                 )
@@ -1603,90 +1672,98 @@ if _k_rate_bayesian_p or _bb_rate_bayesian_p or _hr_rate_bayesian_p:
                     f"89% CI: {pitcher_ranking['hr_rate_hdi_low']*100:.1f}% – {pitcher_ranking['hr_rate_hdi_high']*100:.1f}%"
                 )
 
-    # PQS (Pitcher Quality Score) — composite of K% + contact quality
-    if "pitcher_quality_score" in pitcher_ranking.index and not pd.isna(pitcher_ranking.get("pitcher_quality_score", float("nan"))):
-        _pqs_val = pitcher_ranking["pitcher_quality_score"]
-        _pqs_col1, _pqs_col2 = st.columns([1, 2])
-        with _pqs_col1:
-            st.metric(
-                "PQS", f"{_pqs_val:.3f}",
-                help="Pitcher Quality Score (70% K% + 30% contact quality). **Lower is better.** "
-                     "Combines strikeout ability and batted ball quality into a single composite. "
-                     "Validated at r=0.45 predicting next-year wOBA allowed.",
+    # PQS+ distribution chart — capstone after K%/BB%/HR% rate stats
+    if (not pa_rankings.empty and "pitcher_quality_score" in pa_rankings.columns
+            and "pitcher_quality_score" in pitcher_ranking.index
+            and not pd.isna(pitcher_ranking.get("pitcher_quality_score", float("nan")))):
+        _pqs_pop = pa_rankings["pitcher_quality_score"].dropna()
+        if len(_pqs_pop) > 10:
+            _pqs_val_dist = pitcher_ranking["pitcher_quality_score"]
+            _pqs_pct_dist = (_pqs_pop < _pqs_val_dist).mean() * 100
+
+            fig_dist = go.Figure()
+
+            # Tier shading bands
+            _x_lo = max(40, _pqs_pop.min() - 5)
+            _x_hi = min(170, _pqs_pop.max() + 5)
+            for _t_lo, _t_hi, _t_color in [
+                (123, _x_hi, "rgba(40,167,69,0.07)"),
+                (108, 123, "rgba(40,167,69,0.035)"),
+                (77, 92, "rgba(255,165,0,0.04)"),
+                (_x_lo, 77, "rgba(220,53,69,0.06)"),
+            ]:
+                fig_dist.add_vrect(x0=_t_lo, x1=_t_hi, fillcolor=_t_color,
+                                   line_width=0, layer="below")
+
+            # League distribution
+            fig_dist.add_trace(go.Histogram(
+                x=_pqs_pop, nbinsx=30, histnorm="probability density",
+                marker_color="rgba(160,160,160,0.45)", name="All Pitchers",
+                hoverinfo="skip", showlegend=False,
+            ))
+
+            # League average reference
+            fig_dist.add_vline(x=100, line_dash="dot",
+                               line_color="rgba(140,140,140,0.6)", line_width=1.5)
+            fig_dist.add_annotation(
+                x=100, y=1.0, yref="paper", yanchor="bottom",
+                text="Lg Avg", showarrow=False,
+                font=dict(size=10, color="rgba(140,140,140,0.8)"), yshift=2,
             )
-            if not pa_rankings.empty and "pitcher_quality_score" in pa_rankings.columns:
-                # PQS: lower is better for pitchers, so invert percentile
-                _pqs_pct = (pa_rankings["pitcher_quality_score"].dropna() > _pqs_val).mean() * 100
-                render_percentile_bar(_pqs_pct, container=_pqs_col1)
-                st.caption("↓ Lower is better")
-            # HDI range
-            _pqs_has_hdi = ("pqs_hdi_low" in pitcher_ranking.index
-                            and pd.notna(pitcher_ranking.get("pqs_hdi_low"))
-                            and "pqs_hdi_high" in pitcher_ranking.index
-                            and pd.notna(pitcher_ranking.get("pqs_hdi_high")))
-            if _pqs_has_hdi:
-                st.caption(
-                    f"89% CI: {pitcher_ranking['pqs_hdi_low']:.3f} – {pitcher_ranking['pqs_hdi_high']:.3f}"
+
+            # Player marker
+            fig_dist.add_vline(x=_pqs_val_dist, line_color=primary_color, line_width=2.5)
+            _arrow_side = "left" if _pqs_val_dist > 110 else "right"
+            fig_dist.add_annotation(
+                x=_pqs_val_dist, y=0.92, yref="paper",
+                text=f"<b>{selected_pitcher}</b><br>PQS+ {_pqs_val_dist:.0f} ({_pqs_pct_dist:.0f}th pct)",
+                showarrow=True, arrowhead=0, arrowwidth=1.5,
+                arrowcolor=primary_color,
+                ax=-80 if _arrow_side == "left" else 80, ay=-25,
+                font=dict(size=12, color=primary_color),
+                bgcolor="rgba(255,255,255,0.85)", borderpad=4,
+                xanchor="right" if _arrow_side == "left" else "left",
+            )
+
+            # Tier labels at top
+            for _lbl, _lx in [("Poor", (_x_lo + 77) / 2), ("Below\nAvg", 84.5),
+                               ("Avg", 100), ("Above\nAvg", 115.5), ("Elite", min((_x_hi + 123) / 2, 140))]:
+                fig_dist.add_annotation(
+                    x=_lx, y=1.0, yref="paper", yanchor="bottom",
+                    text=f"<span style='color:rgba(120,120,120,0.6)'>{_lbl}</span>",
+                    showarrow=False, font=dict(size=9), yshift=14,
                 )
-            _tier = pqs_tier_label(_pqs_val)
-            if _tier:
-                _tier_color = {
-                    "Elite": "green", "Above Avg": "green",
-                    "Average": "gray", "Below Avg": "orange", "Poor": "red",
-                }.get(_tier, "gray")
-                st.caption(f"**:{_tier_color}[{_tier}]**")
-        with _pqs_col2:
-            # Component breakdown: show K% and EB/PA z-score contributions
-            _has_k = "k_rate_posterior" in pitcher_ranking.index and pd.notna(pitcher_ranking.get("k_rate_posterior"))
-            _has_eb = "posterior_mean" in pitcher_ranking.index and pd.notna(pitcher_ranking.get("posterior_mean"))
-            if _has_k and _has_eb and not pa_rankings.empty:
-                _k_pop = pa_rankings["k_rate_posterior"].dropna()
-                _eb_pop = pa_rankings["posterior_mean"].dropna()
-                _k_std_pop = _k_pop.std()
-                _eb_std_pop = _eb_pop.std()
-                if _k_std_pop > 0 and _eb_std_pop > 0:
-                    _k_z = (pitcher_ranking["k_rate_posterior"] - _k_pop.mean()) / _k_std_pop
-                    _eb_z = (pitcher_ranking["posterior_mean"] - _eb_pop.mean()) / _eb_std_pop
-                    _k_contrib = 0.7 * (-_k_z)  # negated: higher K% = better
-                    _eb_contrib = 0.3 * _eb_z
-                    st.markdown("**Component Breakdown**")
-                    _bc1, _bc2 = st.columns(2)
-                    with _bc1:
-                        _k_dir = "elite" if _k_contrib < -0.3 else ("above avg" if _k_contrib < 0 else "below avg")
-                        st.metric(
-                            "K% Component",
-                            f"{_k_contrib:+.3f}",
-                            delta=_k_dir,
-                            delta_color="inverse",
-                            help="70% weight. Negative = good (high strikeout rate).",
-                        )
-                    with _bc2:
-                        _eb_dir = "elite" if _eb_contrib < -0.3 else ("above avg" if _eb_contrib < 0 else "below avg")
-                        st.metric(
-                            "EB/PA Component",
-                            f"{_eb_contrib:+.3f}",
-                            delta=_eb_dir,
-                            delta_color="inverse",
-                            help="30% weight. Negative = good (limits hard contact).",
-                        )
 
-    with st.expander("What is PQS?"):
+            fig_dist.update_layout(
+                xaxis=dict(title="PQS+", range=[_x_lo, _x_hi], title_font_size=13, tickfont_size=12),
+                yaxis=dict(showticklabels=False, showgrid=False, zeroline=False, title=""),
+                height=250, template="plotly_white",
+                margin=dict(t=40, b=40, l=20, r=20),
+                dragmode=False,
+            )
+            st.plotly_chart(fig_dist, width="stretch", config=PLOTLY_CONFIG)
+
+    with st.expander("What is PQS+?"):
         st.markdown("""
-**Pitcher Quality Score (PQS)** is a composite metric that combines a pitcher's
-strikeout ability (K%) with their batted ball quality allowed (EB/PA) into a single number.
+**Pitcher Quality Score (PQS+)** is a composite metric that combines a pitcher's
+strikeout ability (K%) with their batted ball quality allowed (EB/PA) into a single number
+on a 100-index scale.
 
-**How to read it:** PQS is a z-score — **lower is better**. A PQS of 0 is league average,
-negative values are above average, and positive values are below average.
+**How to read it:** 100 is league average, **higher is better**. Think of it like Stuff+:
+every 15 points is roughly one standard deviation. A PQS+ of 115 means the pitcher is
+about one standard deviation above average, not "15% better" (that's how OPS+/ERA+ work,
+which are ratio-based). PQS+ is z-score-based, so the numbers represent distance from
+the pack rather than a percentage difference.
 
-**Formula:** 70% K% (z-scored, negated) + 30% EB/PA (z-scored)
+**Formula:** 70% K% + 30% EB/PA (z-scored, then scaled to 100-index)
 
-| PQS Range | Tier |
-|-----------|------|
-| ≤ -1.5 | Elite |
-| -1.5 to -0.5 | Above Avg |
-| -0.5 to +0.5 | Average |
-| +0.5 to +1.5 | Below Avg |
-| > +1.5 | Poor |
+| PQS+ Range | Tier |
+|------------|------|
+| 123+ | Elite |
+| 108 to 123 | Above Avg |
+| 92 to 108 | Average |
+| 77 to 92 | Below Avg |
+| Below 77 | Poor |
 
 **Why these weights?** K% gets 70% because strikeouts are the most stable and
 predictive pitcher skill. Contact quality (EB/PA) gets 30% — it matters, but is noisier.
@@ -2148,8 +2225,9 @@ degrees, expanding with higher EV). Barrels produce the highest expected bases.
 **Contact types**: Ground Ball (LA < 10°), Line Drive (10-25°), Fly Ball (25-50°),
 Pop Up (50°+).
 
-**Pitcher Quality Score (PQS)** combines 70% K% and 30% EB/PA (both z-scored) into a single
-composite metric. Lower is better. Validated at r=0.45 predicting next-year wOBA allowed.
+**Pitcher Quality Score (PQS+)** combines 70% K% and 30% EB/PA into a single composite on a
+100-index scale (100 = league average, higher = better). Like Stuff+, every 15 points is roughly
+one standard deviation. Validated at r=0.45 predicting next-year wOBA allowed.
 
 **vs LHH / vs RHH**: Splits based on batter handedness — how the pitcher performs against
 left-handed hitters vs. right-handed hitters.
