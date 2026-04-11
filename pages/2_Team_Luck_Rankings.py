@@ -178,12 +178,12 @@ with luck_tab_wp:
         st.info("Charts are generated during the MLB season. Check back when games are being played.")
 
 st.divider()
-st.subheader("Lucky Wins vs Unlucky Losses")
-st.caption("Lucky win = won when underdog (<50% win prob). Unlucky loss = lost when favorite (>50% win prob).")
+st.subheader("Actual Wins vs Expected Wins")
+st.caption("Teams above the diagonal have won more than expected (lucky); teams below have won fewer (unlucky).")
 
-lucky_unlucky_url = f"{S3_CHARTS_URL}/{selected_season}/lucky_vs_unlucky{chart_suffix}.png"
-if _image_exists(lucky_unlucky_url):
-    st.image(lucky_unlucky_url, width="stretch")
+wins_xwins_url = f"{S3_CHARTS_URL}/{selected_season}/wins_vs_xwins{chart_suffix}.png"
+if _image_exists(wins_xwins_url):
+    st.image(wins_xwins_url, width="stretch")
 else:
     st.info("Charts are generated during the MLB season. Check back when games are being played.")
 
