@@ -32,6 +32,7 @@ from utils.player_helpers import (
     _ordinal, _percentile_color, render_percentile_bar, render_comparison_metric,
     luck_tier_label, safe_html, render_comparison_radar_chart,
     render_sticky_comparison_bar,
+    plotly_download_config, _player_filename_slug,
     TB_MAP, PLOTLY_CONFIG, PLOTLY_CONFIG_STATIC,
 )
 from utils.player_analytics import (
@@ -191,30 +192,42 @@ def resolve_player_data(display_label):
     pbb = pbb.sort_values("date_parsed")
     team_short = pbb["team"].iloc[-1]
 
-    # Metadata
+    # Resolve player_id first — PA rankings use short team names so matching is reliable
+    pid = resolve_player_id(name, metadata_df, pa_rankings, team_short)
+    if pid is None and team and team != team_short:
+        pid = resolve_player_id(name, metadata_df, pa_rankings, team)
+
+    # Metadata — match by player_id when available (avoids full vs short team name mismatch)
     meta = None
     if not metadata_df.empty:
-        match = metadata_df[(metadata_df["player_name"] == name) & (metadata_df["team"] == team_short)]
+        match = pd.DataFrame()
+        if pid is not None and "player_id" in metadata_df.columns:
+            match = metadata_df[metadata_df["player_id"] == pid]
         if match.empty:
+            match = metadata_df[(metadata_df["player_name"] == name) & (metadata_df["team"] == team_short)]
+        if match.empty and name not in multi_id_names:
             match = metadata_df[metadata_df["player_name"] == name]
         if match.empty:
             pn = normalize_name(name)
-            match = metadata_df[metadata_df["player_name"].apply(normalize_name).str.contains(pn)]
+            candidates = metadata_df[metadata_df["player_name"].apply(normalize_name).str.contains(pn)]
+            if not candidates.empty and name not in multi_id_names:
+                match = candidates
         if not match.empty:
             meta = match.iloc[0]
 
-    # Player ID
-    pid = None
-    if meta is not None and "player_id" in meta.index:
+    # Update pid from metadata if we didn't find one yet
+    if pid is None and meta is not None and "player_id" in meta.index:
         pid = int(meta["player_id"])
-    if pid is None:
-        pid = resolve_player_id(name, metadata_df, pa_rankings)
 
-    # PA ranking
+    # PA ranking — match by player_id first, fallback to name+team
     ranking = None
     if not pa_rankings.empty:
-        rmatch = pa_rankings[(pa_rankings["player"] == name) & (pa_rankings["team"] == team_short)]
+        rmatch = pd.DataFrame()
+        if pid is not None and "player_id" in pa_rankings.columns:
+            rmatch = pa_rankings[pa_rankings["player_id"] == pid]
         if rmatch.empty:
+            rmatch = pa_rankings[(pa_rankings["player"] == name) & (pa_rankings["team"] == team_short)]
+        if rmatch.empty and name not in multi_id_names:
             rmatch = pa_rankings[pa_rankings["player"] == name]
         if not rmatch.empty:
             ranking = rmatch.iloc[0]
@@ -260,6 +273,53 @@ if p1["team"] == p2["team"]:
         p2_color = "#E67E22"
 p1_color = p1["primary_color"]
 
+# Filename slug for chart downloads
+_cmp_slug = f"{_player_filename_slug(p1['name'])}_vs_{_player_filename_slug(p2['name'])}"
+
+
+# =============================================================================
+# COMPUTE GRADES (needed for hero cards)
+# =============================================================================
+
+from utils.player_helpers import _score_letter_grade
+
+_score_1 = _score_2 = None
+_grade_caption = None
+
+# Preseason detection: evaluation season < current year and projections exist
+_current_year = pd.Timestamp.now().year
+_cmp_proj_df = load_player_projections(season + 1, "hitter") if season < _current_year else pd.DataFrame()
+_cmp_proj_active = _cmp_proj_df[_cmp_proj_df["p_active_next_season"] > 0.3] if not _cmp_proj_df.empty and "p_active_next_season" in _cmp_proj_df.columns else _cmp_proj_df
+_cmp_is_preseason = season < _current_year and not _cmp_proj_active.empty
+
+if _cmp_is_preseason:
+    _pg1 = compute_projected_grade(p1["name"], p1["team"], _cmp_proj_active, player_type="hitter")
+    _pg2 = compute_projected_grade(p2["name"], p2["team"], _cmp_proj_active, player_type="hitter")
+    if _pg1 is not None:
+        _score_1 = _pg1
+    if _pg2 is not None:
+        _score_2 = _pg2
+    if _pg1 is not None or _pg2 is not None:
+        _target_season = int(_cmp_proj_df["target_season"].iloc[0]) if "target_season" in _cmp_proj_df.columns else _current_year
+        _grade_caption = f"Grades based on {_target_season} projections"
+
+# Fill any missing scores from radar percentiles (actual, then projected fallback)
+for _rdf in [_cmp_radar_df, _cmp_proj_radar_df]:
+    if _rdf.empty:
+        continue
+    if _score_1 is None:
+        _rp1 = get_player_radar_percentiles(_rdf, p1["name"], p1["team"], "hitter")
+        if _rp1:
+            _score_1 = compute_player_grade(_rp1, player_type="hitter")
+            if _score_1 is None and _rp1:
+                _score_1 = sum(_rp1.values()) / len(_rp1)
+    if _score_2 is None:
+        _rp2 = get_player_radar_percentiles(_rdf, p2["name"], p2["team"], "hitter")
+        if _rp2:
+            _score_2 = compute_player_grade(_rp2, player_type="hitter")
+            if _score_2 is None and _rp2:
+                _score_2 = sum(_rp2.values()) / len(_rp2)
+
 
 # =============================================================================
 # HEAD-TO-HEAD HERO
@@ -275,7 +335,7 @@ hero1, hero2 = st.columns(2)
 # Track headshot URLs for the sticky bar
 _hero_headshots = {}
 
-for col, p, color in [(hero1, p1, p1_color), (hero2, p2, p2_color)]:
+for col, p, color, score in [(hero1, p1, p1_color, _score_1), (hero2, p2, p2_color, _score_2)]:
     with col:
         # Build info strings
         pos_str = ""
@@ -312,6 +372,22 @@ for col, p, color in [(hero1, p1, p1_color), (hero2, p2, p2_color)]:
                 f'</div>'
             )
 
+        # Grade badge HTML (right-aligned in hero card)
+        grade_html = ""
+        if score is not None:
+            s = int(round(score))
+            grade = _score_letter_grade(score)
+            grade_html = (
+                f'<div style="margin-left:auto; display:flex; flex-direction:column; align-items:center; flex-shrink:0;">'
+                f'<div style="width:56px; height:56px; border-radius:50%; border:3px solid {color}; '
+                f'display:flex; align-items:center; justify-content:center; background:white; '
+                f'box-shadow:0 2px 6px rgba(0,0,0,0.06);">'
+                f'<span style="font-size:1.2rem; font-weight:800; color:#1a1a1a;">{s}</span>'
+                f'</div>'
+                f'<div style="margin-top:2px; font-size:0.85rem; font-weight:700; color:{color};">{grade}</div>'
+                f'</div>'
+            )
+
         # Headshot URL
         img_url = ""
         if p["player_id"]:
@@ -333,11 +409,11 @@ for col, p, color in [(hero1, p1, p1_color), (hero2, p2, p2_color)]:
             f'background:#f8f9fa; border-radius:10px; padding:16px; '
             f'border-left:4px solid {color};">'
             f'{img_html}'
-            f'<div>'
+            f'<div style="flex:1;">'
             f'<div style="font-size:1.3rem; font-weight:700; margin-bottom:2px;">{safe_html(p["name"])}</div>'
             f'<div style="color:#4A5568; font-size:0.95rem;"><b>{safe_html(p["team"])}</b>{pos_str}{age_str}{bats_str}{pa_str}</div>'
             f'{arch_html}'
-            f'</div></div>',
+            f'</div>{grade_html}</div>',
             unsafe_allow_html=True,
         )
 
@@ -369,19 +445,19 @@ if not _cmp_radar_df.empty or not _cmp_proj_radar_df.empty:
             p1["name"], p2["name"],
             p1_color, p2_color,
         )
-        st.plotly_chart(_radar_fig, width="stretch", config=PLOTLY_CONFIG)
+        st.plotly_chart(_radar_fig, width="stretch", config=plotly_download_config(f"{_cmp_slug}_radar_{season}", width=800, height=800))
     elif _radar_pcts_1:
         st.divider()
         from utils.player_helpers import render_radar_chart
         st.caption(f"Only {p1['name']} has enough data for the radar chart.")
         _radar_fig = render_radar_chart(_radar_pcts_1, p1_color)
-        st.plotly_chart(_radar_fig, width="stretch", config=PLOTLY_CONFIG)
+        st.plotly_chart(_radar_fig, width="stretch", config=plotly_download_config(f"{_cmp_slug}_radar_{season}", width=800, height=800))
     elif _radar_pcts_2:
         st.divider()
         from utils.player_helpers import render_radar_chart
         st.caption(f"Only {p2['name']} has enough data for the radar chart.")
         _radar_fig = render_radar_chart(_radar_pcts_2, p2_color)
-        st.plotly_chart(_radar_fig, width="stretch", config=PLOTLY_CONFIG)
+        st.plotly_chart(_radar_fig, width="stretch", config=plotly_download_config(f"{_cmp_slug}_radar_{season}", width=800, height=800))
 
     if _radar_pcts_1 or _radar_pcts_2:
         with st.expander("How does this work?"):
@@ -465,7 +541,7 @@ for _s in sorted(all_season_pa_rankings.keys(), reverse=True):
 
 st.markdown("#### Head-to-Head")
 
-from utils.player_helpers import render_comparison_grades, render_comparison_bars
+from utils.player_helpers import render_comparison_bars
 
 # Season/projection selector — shared between Head-to-Head EB/PA row and bar chart
 if len(_ebpa_options) > 1:
@@ -544,50 +620,6 @@ if len(bb_df) > 1000:
         actual_pct_2 = (player_luck["actual"] < p2["total_actual_tb"]).mean() * 100
         expected_pct_2 = (player_luck["expected"] < p2["total_expected_tb"]).mean() * 100
 
-# --- Grade badges ---
-_score_1 = _score_2 = None
-_arch_1 = p1.get("archetype", "Unknown") or "Unknown"
-_arch_2 = p2.get("archetype", "Unknown") or "Unknown"
-_grade_caption = None
-
-# Preseason detection: evaluation season < current year and projections exist
-_current_year = pd.Timestamp.now().year
-_cmp_proj_df = load_player_projections(season + 1, "hitter") if season < _current_year else pd.DataFrame()
-_cmp_proj_active = _cmp_proj_df[_cmp_proj_df["p_active_next_season"] > 0.3] if not _cmp_proj_df.empty and "p_active_next_season" in _cmp_proj_df.columns else _cmp_proj_df
-_cmp_is_preseason = season < _current_year and not _cmp_proj_active.empty
-
-if _cmp_is_preseason:
-    _pg1 = compute_projected_grade(p1["name"], p1["team"], _cmp_proj_active, player_type="hitter")
-    _pg2 = compute_projected_grade(p2["name"], p2["team"], _cmp_proj_active, player_type="hitter")
-    if _pg1 is not None:
-        _score_1 = _pg1
-    if _pg2 is not None:
-        _score_2 = _pg2
-    if _pg1 is not None or _pg2 is not None:
-        _target_season = int(_cmp_proj_df["target_season"].iloc[0]) if "target_season" in _cmp_proj_df.columns else _current_year
-        _grade_caption = f"Grades based on {_target_season} projections"
-
-# Fill any missing scores from radar percentiles
-if not _cmp_radar_df.empty:
-    _rp1 = get_player_radar_percentiles(_cmp_radar_df, p1["name"], p1["team"], "hitter")
-    _rp2 = get_player_radar_percentiles(_cmp_radar_df, p2["name"], p2["team"], "hitter")
-    if _score_1 is None and _rp1:
-        _score_1 = compute_player_grade(_rp1, player_type="hitter")
-        if _score_1 is None:
-            _score_1 = sum(_rp1.values()) / len(_rp1)
-    if _score_2 is None and _rp2:
-        _score_2 = compute_player_grade(_rp2, player_type="hitter")
-        if _score_2 is None:
-            _score_2 = sum(_rp2.values()) / len(_rp2)
-
-if _score_1 is not None and _score_2 is not None:
-    render_comparison_grades(
-        p1["name"], _score_1, _arch_1, p1_color,
-        p2["name"], _score_2, _arch_2, p2_color,
-    )
-    if _grade_caption:
-        st.caption(_grade_caption)
-
 # --- Build comparison bar metrics ---
 _h2h_metrics = []
 
@@ -607,19 +639,19 @@ if _sel_eb1 is not None and _sel_eb2 is not None:
     _h2h_metrics.append({"label": _ebpa_label, "v1": f"{_sel_eb1:.3f}", "v2": f"{_sel_eb2:.3f}",
                           "pct1": _sel_pct1, "pct2": _sel_pct2, "num1": _sel_eb1, "num2": _sel_eb2})
 
-# True talent
+# True talent (projection-blended estimate of current season ability)
 if p1["ranking"] is not None and p2["ranking"] is not None:
-    _tt1 = p1["ranking"].get("true_talent_eb_pa") if "true_talent_eb_pa" in p1["ranking"].index else None
-    _tt2 = p2["ranking"].get("true_talent_eb_pa") if "true_talent_eb_pa" in p2["ranking"].index else None
-    if _tt1 is not None and _tt2 is not None and pd.notna(_tt1) and pd.notna(_tt2):
-        _h2h_metrics.append({"label": "True Talent EB/PA", "v1": f"{_tt1:.3f}", "v2": f"{_tt2:.3f}",
+    _tt1 = p1["ranking"]["true_talent_eb_pa"] if "true_talent_eb_pa" in p1["ranking"].index and pd.notna(p1["ranking"]["true_talent_eb_pa"]) else None
+    _tt2 = p2["ranking"]["true_talent_eb_pa"] if "true_talent_eb_pa" in p2["ranking"].index and pd.notna(p2["ranking"]["true_talent_eb_pa"]) else None
+    if _tt1 is not None and _tt2 is not None:
+        _h2h_metrics.append({"label": "Proj. True Talent EB/PA", "v1": f"{_tt1:.3f}", "v2": f"{_tt2:.3f}",
                               "pct1": None, "pct2": None, "num1": _tt1, "num2": _tt2})
 
 # Rate stats (K%, BB%, HR%)
 if p1["ranking"] is not None and p2["ranking"] is not None:
     _r1, _r2 = p1["ranking"], p2["ranking"]
     for _rc, _rlabel, _higher_is_better in [("k_rate_posterior", "K Rate", False), ("bb_rate_posterior", "BB Rate", True), ("hr_rate_posterior", "HR Rate", True)]:
-        if _rc in _r1.index and _rc in _r2.index and pd.notna(_r1.get(_rc)) and pd.notna(_r2.get(_rc)):
+        if _rc in _r1.index and _rc in _r2.index and pd.notna(_r1[_rc]) and pd.notna(_r2[_rc]):
             _rpct1 = (_r1[_rc] > pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
             _rpct2 = (_r2[_rc] > pa_rankings[_rc].dropna()).mean() * 100 if _rc in pa_rankings.columns else None
             # For K%, lower is better — invert percentile so high pct = low K%
@@ -821,13 +853,16 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
         pa_df = all_season_pa_rankings[s]
 
         lg_mean_s = pa_df["posterior_mean"].mean()
-        league_avg_data.append({"season": s, "value": lg_mean_s})
+        lg_sd_s = pa_df["posterior_mean"].std()
+        league_avg_data.append({"season": s, "value": lg_mean_s, "sd": lg_sd_s})
 
         # Rate stat league averages
         _rate_lg = {"season": s}
         for _rc in ["k_rate_posterior", "bb_rate_posterior", "hr_rate_posterior"]:
             if _rc in pa_df.columns:
-                _rate_lg[_rc] = pa_df[_rc].dropna().mean()
+                _vals = pa_df[_rc].dropna()
+                _rate_lg[_rc] = _vals.mean()
+                _rate_lg[f"{_rc}_sd"] = _vals.std()
         rate_league_avg.append(_rate_lg)
 
         best_idx_s = pa_df["posterior_mean"].idxmax()
@@ -847,9 +882,11 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                 match = pa_df[pa_df["player"] == pdata["name"]]
             if not match.empty:
                 row = match.iloc[0]
+                n_pa_val = int(row["n_batted_balls"]) if "n_batted_balls" in row.index else None
                 tl_data[pnum].append({
                     "season": s, "value": row["posterior_mean"],
                     "hdi_low": row["hdi_low"], "hdi_high": row["hdi_high"],
+                    "n_pa": n_pa_val,
                 })
                 # Rate stats
                 _rate_row = {"season": s}
@@ -912,15 +949,25 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
 
             fig = go.Figure()
 
-            # League average markers
+            # League average markers with ±1 SD
             if not rate_lg_df.empty and mean_col in rate_lg_df.columns:
                 lg_vals = rate_lg_df.dropna(subset=[mean_col])
                 if not lg_vals.empty:
+                    sd_col = f"{mean_col}_sd"
+                    _sd_arr = (lg_vals[sd_col] * 100).tolist() if sd_col in lg_vals.columns else [0] * len(lg_vals)
                     fig.add_trace(go.Scatter(
-                        x=lg_vals["season"], y=lg_vals[mean_col] * 100,
+                        x=lg_vals["season"] + 0.15, y=lg_vals[mean_col] * 100,
                         mode="markers", name="Lg Avg",
                         marker=dict(color="rgba(160,160,160,0.8)", size=11),
-                        hovertemplate="Season: %{x}<br>Lg Avg: %{y:.1f}%<extra></extra>",
+                        error_y=dict(
+                            type="data",
+                            array=_sd_arr,
+                            arrayminus=_sd_arr,
+                            color="rgba(160,160,160,0.4)",
+                            thickness=1.5,
+                            width=4,
+                        ),
+                        hovertemplate="Season: %{x:.0f}<br>Lg Avg: %{y:.1f}%<br>±1 SD: %{error_y.array:.1f}%<extra></extra>",
                     ))
 
             # Player lines with HDI
@@ -1105,12 +1152,20 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
 
             fig_tl = go.Figure()
 
-            # League average
+            # League average with ±1 SD error bars
             fig_tl.add_trace(go.Scatter(
-                x=lg_df["season"], y=lg_df["value"],
+                x=lg_df["season"] + 0.15, y=lg_df["value"],
                 mode="markers", name="Lg Avg",
                 marker=dict(color="rgba(160,160,160,0.8)", size=11),
-                hovertemplate="Season: %{x}<br>Lg Avg: %{y:.3f}<extra></extra>",
+                error_y=dict(
+                    type="data",
+                    array=lg_df["sd"].tolist(),
+                    arrayminus=lg_df["sd"].tolist(),
+                    color="rgba(160,160,160,0.4)",
+                    thickness=1.5,
+                    width=4,
+                ),
+                hovertemplate="Season: %{x:.0f}<br>Lg Avg: %{y:.3f}<br>±1 SD: %{error_y.array:.3f}<extra></extra>",
             ))
 
             # Best player — gold diamonds per season
@@ -1252,6 +1307,35 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                         ),
                     ))
 
+            # Adjusted Projection (true talent) diamonds for each player
+            for pnum, pdata, color, x_offset in [(1, p1, p1_color, 0.2), (2, p2, p2_color, 0.35)]:
+                ranking = pdata.get("ranking")
+                if (ranking is not None
+                        and "true_talent_eb_pa" in ranking.index
+                        and pd.notna(ranking.get("true_talent_eb_pa"))):
+                    tt_val = ranking["true_talent_eb_pa"]
+                    hw = ranking.get("history_weight")
+                    dev = ranking.get("deviation")
+                    c = color.lstrip("#")
+                    _r, _g, _b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+                    _hover_parts = [f"{pdata['name']}", f"Adjusted Projection {max_s}", f"EB/PA: {tt_val:.3f}"]
+                    if pd.notna(hw):
+                        _hover_parts.append(f"Prior weight: {hw * 100:.0f}%")
+                    if pd.notna(dev):
+                        _hover_parts.append(f"vs Observed: {dev:+.3f}")
+                    fig_tl.add_trace(go.Scatter(
+                        x=[max_s + x_offset], y=[tt_val],
+                        mode="markers",
+                        name="Adjusted Proj." if pnum == 1 else None,
+                        showlegend=(pnum == 1),
+                        marker=dict(
+                            symbol="diamond-open", size=12,
+                            color=f"rgba({_r},{_g},{_b},0.6)",
+                            line=dict(width=2.5, color=f"rgba({_r},{_g},{_b},0.6)"),
+                        ),
+                        hovertemplate="<br>".join(_hover_parts) + "<extra></extra>",
+                    ))
+
             # Player name annotations — prefer projection endpoint, fallback to last actual
             anno_pts = []
             for pnum, pdata, color in [(1, p1, p1_color), (2, p2, p2_color)]:
@@ -1266,34 +1350,54 @@ if len(all_season_pa_rankings) > 0 and (p1["player_id"] is not None or p2["playe
                                      "y": last_pt["value"], "color": color})
             _add_player_annotations(fig_tl, anno_pts)
 
+            # Build custom tick labels with PA counts for both players
+            all_tick_seasons = list(range(min_s, x_max + 1))
+            pa_by_season_p1 = {d["season"]: d["n_pa"] for d in tl_data[1] if d.get("n_pa") is not None}
+            pa_by_season_p2 = {d["season"]: d["n_pa"] for d in tl_data[2] if d.get("n_pa") is not None}
+            p1_last = p1["name"].split()[-1]
+            p2_last = p2["name"].split()[-1]
+            tick_labels = []
+            for s in all_tick_seasons:
+                pa1 = pa_by_season_p1.get(s)
+                pa2 = pa_by_season_p2.get(s)
+                if pa1 is not None and pa2 is not None:
+                    tick_labels.append(f"{s}<br><sub>{p1_last}: {pa1:,} | {p2_last}: {pa2:,}</sub>")
+                elif pa1 is not None:
+                    tick_labels.append(f"{s}<br><sub>{pa1:,} PA</sub>")
+                elif pa2 is not None:
+                    tick_labels.append(f"{s}<br><sub>{pa2:,} PA</sub>")
+                else:
+                    tick_labels.append(str(s))
+
             fig_tl.update_layout(
-                xaxis=dict(title="Season", title_font_size=14, tickfont_size=13, dtick=1, tickformat="d",
+                xaxis=dict(title="Season", title_font_size=14, tickfont_size=13,
+                           tickvals=all_tick_seasons, ticktext=tick_labels,
                            range=[min_s - 0.5, x_max + 0.5]),
                 yaxis=dict(title="Est. Bases per PA", title_font_size=14, tickfont_size=13),
                 height=400, template="plotly_white",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=13)),
                 dragmode=False,
             )
-            st.plotly_chart(fig_tl, width="stretch", config=PLOTLY_CONFIG)
+            st.plotly_chart(fig_tl, width="stretch", config=plotly_download_config(f"{_cmp_slug}_timeline_{season}", height=600))
 
         # --- Rate stat views (lazy — only rendered when selected) ---
         if _has_rate_timeline and _history_view == "K%":
             st.caption("Bayesian strikeout rate with 89% credible interval and projections")
             _fig_k = _build_comparison_rate_chart("k_rate", "K%", higher_is_better=False)
             if _fig_k:
-                st.plotly_chart(_fig_k, width="stretch", config=PLOTLY_CONFIG)
+                st.plotly_chart(_fig_k, width="stretch", config=plotly_download_config(f"{_cmp_slug}_k_rate_{season}", height=600))
 
         if _has_rate_timeline and _history_view == "BB%":
             st.caption("Bayesian walk rate with 89% credible interval and projections")
             _fig_bb = _build_comparison_rate_chart("bb_rate", "BB%", higher_is_better=True)
             if _fig_bb:
-                st.plotly_chart(_fig_bb, width="stretch", config=PLOTLY_CONFIG)
+                st.plotly_chart(_fig_bb, width="stretch", config=plotly_download_config(f"{_cmp_slug}_bb_rate_{season}", height=600))
 
         if _has_rate_timeline and _history_view == "HR%":
             st.caption("Bayesian home run rate with 89% credible interval and projections")
             _fig_hr = _build_comparison_rate_chart("hr_rate", "HR%", higher_is_better=True)
             if _fig_hr:
-                st.plotly_chart(_fig_hr, width="stretch", config=PLOTLY_CONFIG)
+                st.plotly_chart(_fig_hr, width="stretch", config=plotly_download_config(f"{_cmp_slug}_hr_rate_{season}", height=600))
 
 
 # =============================================================================
@@ -1333,7 +1437,7 @@ with col_ev:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
         dragmode=False,
     )
-    st.plotly_chart(fig_ev, width="stretch", config=PLOTLY_CONFIG)
+    st.plotly_chart(fig_ev, width="stretch", config=plotly_download_config(f"{_cmp_slug}_ev_{season}"))
 
 with col_la:
     st.markdown("#### Launch Angle")
@@ -1352,7 +1456,7 @@ with col_la:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
         dragmode=False,
     )
-    st.plotly_chart(fig_la, width="stretch", config=PLOTLY_CONFIG)
+    st.plotly_chart(fig_la, width="stretch", config=plotly_download_config(f"{_cmp_slug}_la_{season}"))
 
 with col_eb:
     st.markdown("#### Estimated Bases")
@@ -1371,7 +1475,7 @@ with col_eb:
         legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
         margin=dict(t=30), dragmode=False,
     )
-    st.plotly_chart(fig_eb, width="stretch", config=PLOTLY_CONFIG)
+    st.plotly_chart(fig_eb, width="stretch", config=plotly_download_config(f"{_cmp_slug}_eb_{season}"))
 
 
 # =============================================================================
@@ -1447,7 +1551,7 @@ if "coord_x" in p1["bb"].columns and "coord_x" in p2["bb"].columns:
                     yaxis=dict(visible=False, autorange="reversed"),
                     dragmode=False,
                 )
-                st.plotly_chart(fig_spray, width="stretch", config=PLOTLY_CONFIG_STATIC)
+                st.plotly_chart(fig_spray, width="stretch", config=plotly_download_config(f"{_player_filename_slug(p['name'])}_spray_{season}", width=800, height=800))
 
                 # Spray direction breakdown
                 if "spray_direction" in spray_data.columns:
@@ -1579,7 +1683,7 @@ fig_luck.update_layout(
     legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
     dragmode=False,
 )
-st.plotly_chart(fig_luck, width="stretch", config=PLOTLY_CONFIG)
+st.plotly_chart(fig_luck, width="stretch", config=plotly_download_config(f"{_cmp_slug}_luck_{season}", height=600))
 
 
 # =============================================================================

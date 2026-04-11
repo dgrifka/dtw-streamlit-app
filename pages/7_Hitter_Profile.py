@@ -200,7 +200,7 @@ player_id = None
 if player_meta is not None and "player_id" in player_meta.index:
     player_id = int(player_meta["player_id"])
 if player_id is None:
-    player_id = resolve_player_id(selected_player, metadata_df, pa_rankings)
+    player_id = resolve_player_id(selected_player, metadata_df, pa_rankings, player_team_short)
 
 # Look up Bayesian ranking (filter by name + team to disambiguate)
 player_ranking = None

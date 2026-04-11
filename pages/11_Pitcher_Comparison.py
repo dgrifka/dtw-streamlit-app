@@ -211,7 +211,7 @@ def resolve_player_data(display_label):
     if meta is not None and "player_id" in meta.index:
         pid = int(meta["player_id"])
     if pid is None:
-        pid = resolve_player_id(name, metadata_df, pa_rankings)
+        pid = resolve_player_id(name, metadata_df, pa_rankings, team)
 
     # PA ranking
     ranking = None

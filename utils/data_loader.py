@@ -309,28 +309,54 @@ def build_player_display_list(
     return display_list_sorted, display_to_name, display_to_team, multi_id_names
 
 
-def resolve_player_id(player_name: str, metadata_df: pd.DataFrame, pa_rankings: pd.DataFrame) -> int | None:
+def resolve_player_id(player_name: str, metadata_df: pd.DataFrame, pa_rankings: pd.DataFrame,
+                      team: str | None = None) -> int | None:
     """Resolve a player_id from metadata or PA rankings parquet.
 
-    Checks metadata first, then falls back to player_id column in rankings
-    (available when rankings were generated with PA mode).
+    Checks rankings first (short team names match callers), then falls back
+    to metadata (which may use full team names like 'Los Angeles Dodgers').
+
+    Args:
+        player_name: Player name to look up.
+        metadata_df: Player metadata DataFrame.
+        pa_rankings: PA rankings DataFrame.
+        team: Optional team short name to disambiguate same-name players.
 
     Returns:
         int player_id, or None if not found.
     """
-    # Try metadata first
-    if not metadata_df.empty:
-        match = metadata_df[metadata_df["player_name"] == player_name]
-        if not match.empty:
-            return int(match.iloc[0]["player_id"])
-
-    # Fallback: player_id from rankings parquet (PA mode includes it)
+    # Try rankings first — uses short team names that match the rest of the app
     if not pa_rankings.empty and "player_id" in pa_rankings.columns:
-        match = pa_rankings[pa_rankings["player"] == player_name]
+        match = pd.DataFrame()
+        if team:
+            match = pa_rankings[(pa_rankings["player"] == player_name) &
+                                (pa_rankings["team"] == team)]
+        if match.empty and not team:
+            # Name-only lookup only when no team context was provided
+            name_matches = pa_rankings[pa_rankings["player"] == player_name]
+            if len(name_matches) == 1:
+                match = name_matches
         if not match.empty:
             pid = match.iloc[0]["player_id"]
             if pd.notna(pid):
                 return int(pid)
+
+    # Fallback: metadata (team column may use full names like 'Los Angeles Dodgers')
+    if not metadata_df.empty:
+        match = pd.DataFrame()
+        if team:
+            # Exact match first, then substring (short name inside full name)
+            match = metadata_df[(metadata_df["player_name"] == player_name) &
+                                (metadata_df["team"] == team)]
+            if match.empty:
+                match = metadata_df[(metadata_df["player_name"] == player_name) &
+                                    (metadata_df["team"].str.contains(team, na=False))]
+        if match.empty and not team:
+            name_matches = metadata_df[metadata_df["player_name"] == player_name]
+            if len(name_matches) == 1:
+                match = name_matches
+        if not match.empty:
+            return int(match.iloc[0]["player_id"])
 
     return None
 

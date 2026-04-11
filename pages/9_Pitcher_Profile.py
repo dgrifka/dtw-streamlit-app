@@ -200,7 +200,7 @@ player_id = None
 if pitcher_meta is not None and "player_id" in pitcher_meta.index:
     player_id = int(pitcher_meta["player_id"])
 if player_id is None:
-    player_id = resolve_player_id(selected_pitcher, metadata_df, pa_rankings)
+    player_id = resolve_player_id(selected_pitcher, metadata_df, pa_rankings, pitcher_team_short)
 
 # Look up Bayesian ranking
 pitcher_ranking = None
