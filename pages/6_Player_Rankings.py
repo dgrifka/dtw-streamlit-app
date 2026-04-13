@@ -547,42 +547,51 @@ data to trust it.
         # Logo badge floated over chart top-right (no extra whitespace)
         _logo_url = get_team_logo_url(selected_team) if selected_team != "All Teams" else MLB_LOGO_URL
         _logo_label = selected_team if selected_team != "All Teams" else "MLB"
-        st.markdown(
-            f'<div style="position:relative;height:0;overflow:visible;z-index:1;">'
-            f'<img src="{_logo_url}" alt="{_logo_label}" '
-            f'style="position:absolute;right:8px;top:0;height:64px;width:64px;object-fit:contain;" '
-            f'onerror="this.style.display=\'none\'">'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+
+        # Helper to display a chart image from S3
+        def _show_chart_image(chart_name_key):
+            st.markdown(
+                f'<div style="position:relative;height:0;overflow:visible;z-index:1;">'
+                f'<img src="{_logo_url}" alt="{_logo_label}" '
+                f'style="position:absolute;right:8px;top:0;height:64px;width:64px;object-fit:contain;" '
+                f'onerror="this.style.display=\'none\'">'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            if selected_team != "All Teams":
+                _url = get_player_evaluation_team_image_url(season, selected_team, chart_name_key)
+            else:
+                _url = get_player_evaluation_image_url(season, chart_name_key)
+
+            _bytes = _fetch_image_bytes(_url)
+            if _bytes is None and selected_team != "All Teams":
+                _fb_url = get_player_evaluation_image_url(season, chart_name_key)
+                _bytes = _fetch_image_bytes(_fb_url)
+                if _bytes is not None:
+                    _url = _fb_url
+
+            if _bytes is not None:
+                st.image(_bytes, use_container_width=True)
+                st.markdown(
+                    f"[Download chart image]({_url})",
+                    help="Right-click the link or the image above to save/copy.",
+                )
+            else:
+                st.info(f"Chart not yet available for {season}. Check back as more games are played.")
 
         chart_name = f"top_{type_key}s_pa" if is_pa_mode else f"top_{type_key}s"
 
-        if selected_team != "All Teams":
-            chart_url = get_player_evaluation_team_image_url(season, selected_team, chart_name)
+        # Sub-tabs for performance vs projections (hitter PA mode with true talent data)
+        if has_true_talent_data and is_pa_mode and type_key == "hitter":
+            sub_performance, sub_projections = st.tabs([
+                f"{season} Performance", "End-of-Season Projections",
+            ])
+            with sub_performance:
+                _show_chart_image(chart_name)
+            with sub_projections:
+                _show_chart_image(f"top_{type_key}s_pa_projections")
         else:
-            chart_url = get_player_evaluation_image_url(season, chart_name)
-
-        _chart_loaded = False
-        _chart_bytes = _fetch_image_bytes(chart_url)
-
-        if _chart_bytes is None and selected_team != "All Teams":
-            fallback_url = get_player_evaluation_image_url(season, chart_name)
-            _chart_bytes = _fetch_image_bytes(fallback_url)
-            if _chart_bytes is not None:
-                chart_url = fallback_url
-
-        if _chart_bytes is not None:
-            st.image(_chart_bytes, use_container_width=True)
-            _chart_loaded = True
-        else:
-            st.info(f"Chart not yet available for {season}. Check back as more games are played.")
-
-        if _chart_loaded:
-            st.markdown(
-                f"[Download chart image]({chart_url})",
-                help="Right-click the link or the image above to save/copy.",
-            )
+            _show_chart_image(chart_name)
 
         # SECTION 3: RANKINGS TABLE
         st.divider()
