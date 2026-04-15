@@ -188,6 +188,103 @@ if has_proj_wins or has_proj_data:
 
 
 # -----------------------------------------------------------------------------
+# PROBABILITY TIMELINES
+# -----------------------------------------------------------------------------
+
+timeline_mlb_url = f"{S3_PLAYOFF_URL}/{selected_season}/latest/timeline_playoff_mlb.png?v={_cache_version}"
+has_timeline = _image_exists(timeline_mlb_url)
+
+if has_timeline:
+    st.divider()
+    st.subheader("Playoff Probability Timeline")
+    st.caption(
+        "How have playoff odds changed over the season? "
+        "Division charts include simulation confidence intervals."
+    )
+
+    _timeline_tab_names = [
+        "All MLB", "AL East", "AL Central", "AL West",
+        "NL East", "NL Central", "NL West",
+    ]
+    _timeline_filenames = [
+        "timeline_playoff_mlb",
+        "timeline_playoff_al_east",
+        "timeline_playoff_al_central",
+        "timeline_playoff_al_west",
+        "timeline_playoff_nl_east",
+        "timeline_playoff_nl_central",
+        "timeline_playoff_nl_west",
+    ]
+
+    timeline_tabs = st.tabs(_timeline_tab_names)
+    for tab, label, filename in zip(timeline_tabs, _timeline_tab_names, _timeline_filenames):
+        with tab:
+            url = f"{S3_PLAYOFF_URL}/{selected_season}/latest/{filename}.png?v={_cache_version}"
+            if _image_exists(url):
+                st.image(url, width="stretch")
+            else:
+                st.info(f"Timeline chart not yet available for {label}.")
+
+
+# -----------------------------------------------------------------------------
+# PROJECTED WINS TIMELINES
+# -----------------------------------------------------------------------------
+
+wins_timeline_url = f"{S3_PLAYOFF_URL}/{selected_season}/latest/timeline_wins_mlb.png?v={_cache_version}"
+has_wins_timeline = _image_exists(wins_timeline_url)
+
+if has_wins_timeline:
+    st.divider()
+    st.subheader("Projected Wins Timeline")
+    st.caption(
+        "How have projected win totals changed over the season? "
+        "Division charts include 25% credible intervals."
+    )
+
+    _wins_tab_names = [
+        "All MLB", "AL East", "AL Central", "AL West",
+        "NL East", "NL Central", "NL West",
+    ]
+    _wins_filenames = [
+        "timeline_wins_mlb",
+        "timeline_wins_al_east",
+        "timeline_wins_al_central",
+        "timeline_wins_al_west",
+        "timeline_wins_nl_east",
+        "timeline_wins_nl_central",
+        "timeline_wins_nl_west",
+    ]
+
+    wins_tabs = st.tabs(_wins_tab_names)
+    for tab, label, filename in zip(wins_tabs, _wins_tab_names, _wins_filenames):
+        with tab:
+            url = f"{S3_PLAYOFF_URL}/{selected_season}/latest/{filename}.png?v={_cache_version}"
+            if _image_exists(url):
+                st.image(url, width="stretch")
+            else:
+                st.info(f"Timeline chart not yet available for {label}.")
+
+    with st.expander("About the timeline charts"):
+        st.markdown("""
+The timeline charts track how each team's playoff probability and projected wins
+have evolved day by day since the model started running for this season.
+
+**Playoff probability timelines** show the estimated chance of making the
+playoffs based on 50,000 simulated remaining seasons. Shaded bands on the
+division charts represent simulation sampling uncertainty (the Monte Carlo
+error from running a finite number of simulations).
+
+**Projected wins timelines** show each team's expected final win total.
+Shaded bands on the division charts represent the 25% credible interval,
+meaning there's a 25% chance the team's actual win total lands within
+the shaded region. Think of it as the "most likely" range.
+
+Teams that are faded on the all-MLB charts have low current probabilities
+or projections.
+        """)
+
+
+# -----------------------------------------------------------------------------
 # ROOTING GUIDE (game days only)
 # -----------------------------------------------------------------------------
 
