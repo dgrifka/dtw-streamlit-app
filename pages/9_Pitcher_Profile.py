@@ -1672,6 +1672,92 @@ if _k_rate_bayesian_p or _bb_rate_bayesian_p or _hr_rate_bayesian_p:
                     f"89% CI: {pitcher_ranking['hr_rate_hdi_low']*100:.1f}% – {pitcher_ranking['hr_rate_hdi_high']*100:.1f}%"
                 )
 
+    # xEB/PA composite breakdown — 4-bar component chart
+    _has_xeb = (pitcher_ranking is not None
+                and "xeb_pa" in pitcher_ranking.index
+                and pd.notna(pitcher_ranking.get("xeb_pa", float("nan"))))
+    if _has_xeb and not pa_rankings.empty and "xeb_pa" in pa_rankings.columns:
+        st.markdown("##### xEB/PA Composite")
+        st.caption(
+            "Expected bases per PA, decomposed: **(1 − K% − BB% − HBP%) × EB-per-BIP + BB% + HBP%**. "
+            "Lower is better. Each bar shows the pitcher's percentile vs the league for that component."
+        )
+
+        _xeb_val = float(pitcher_ranking["xeb_pa"])
+        _xeb_pop = pa_rankings["xeb_pa"].dropna()
+        _xeb_pct = float((_xeb_pop > _xeb_val).mean() * 100)  # lower xEB/PA = better
+
+        _xeb_col1, _xeb_col2 = st.columns([1, 3])
+        with _xeb_col1:
+            st.metric(
+                "xEB/PA", f"{_xeb_val:.3f}",
+                help="Expected bases per PA — Bayesian composite of K%, BB%, HBP%, and EB-per-BIP. "
+                     "Lower is better. Validated to tie PQS+ on next-year predictive r.",
+            )
+            render_percentile_bar(_xeb_pct, label=f"{_ordinal(int(_xeb_pct))} pct (lower xEB/PA = better)")
+            if ("xeb_pa_hdi_low" in pitcher_ranking.index
+                    and pd.notna(pitcher_ranking.get("xeb_pa_hdi_low"))):
+                st.caption(
+                    f"89% CI: {pitcher_ranking['xeb_pa_hdi_low']:.3f} – {pitcher_ranking['xeb_pa_hdi_high']:.3f}"
+                )
+
+        with _xeb_col2:
+            # 4 horizontal bars: K%, BB%, HBP%, EB-per-BIP
+            # Higher K% = better (positive direction); lower BB%/HBP%/EB-per-BIP = better
+            _components = []
+            if "k_rate_posterior" in pitcher_ranking.index and pd.notna(pitcher_ranking.get("k_rate_posterior")):
+                _k = float(pitcher_ranking["k_rate_posterior"])
+                _k_pct = float((pa_rankings["k_rate_posterior"].dropna() < _k).mean() * 100)
+                _components.append(("K%", f"{_k*100:.1f}%", _k_pct, "higher"))
+            if "bb_rate_posterior" in pitcher_ranking.index and pd.notna(pitcher_ranking.get("bb_rate_posterior")):
+                _bb = float(pitcher_ranking["bb_rate_posterior"])
+                _bb_pct_b = float((pa_rankings["bb_rate_posterior"].dropna() > _bb).mean() * 100)
+                _components.append(("BB%", f"{_bb*100:.1f}%", _bb_pct_b, "lower"))
+            if ("hbp_rate_posterior" in pa_rankings.columns
+                    and "hbp_rate_posterior" in pitcher_ranking.index
+                    and pd.notna(pitcher_ranking.get("hbp_rate_posterior"))):
+                _hbp = float(pitcher_ranking["hbp_rate_posterior"])
+                _hbp_pct = float((pa_rankings["hbp_rate_posterior"].dropna() > _hbp).mean() * 100)
+                _components.append(("HBP%", f"{_hbp*100:.2f}%", _hbp_pct, "lower"))
+            if ("eb_bip_posterior" in pa_rankings.columns
+                    and "eb_bip_posterior" in pitcher_ranking.index
+                    and pd.notna(pitcher_ranking.get("eb_bip_posterior"))):
+                _bip = float(pitcher_ranking["eb_bip_posterior"])
+                _bip_pct = float((pa_rankings["eb_bip_posterior"].dropna() > _bip).mean() * 100)
+                _components.append(("EB-per-BIP", f"{_bip:.3f}", _bip_pct, "lower"))
+
+            if _components:
+                _labels = [c[0] for c in _components]
+                _vals = [c[1] for c in _components]
+                _pcts = [c[2] for c in _components]
+                _dir = [c[3] for c in _components]
+                _colors = ["rgba(40,167,69,0.85)" if p >= 60 else
+                           "rgba(220,53,69,0.85)" if p < 30 else
+                           "rgba(140,140,140,0.7)"
+                           for p in _pcts]
+                fig_xeb = go.Figure()
+                fig_xeb.add_trace(go.Bar(
+                    x=_pcts, y=_labels, orientation="h",
+                    marker_color=_colors,
+                    text=[f"{v} ({_ordinal(int(p))} pct, {d} = better)"
+                          for v, p, d in zip(_vals, _pcts, _dir)],
+                    textposition="outside",
+                    hovertemplate="%{y}: %{x:.0f} pct<extra></extra>",
+                    showlegend=False,
+                ))
+                # League-mean reference at 50th pct
+                fig_xeb.add_vline(x=50, line_dash="dot",
+                                  line_color="rgba(140,140,140,0.55)", line_width=1.2)
+                fig_xeb.update_xaxes(range=[0, 115], showticklabels=False, fixedrange=True)
+                fig_xeb.update_yaxes(autorange="reversed", fixedrange=True,
+                                     title=None, tickfont=dict(size=12))
+                fig_xeb.update_layout(
+                    height=180, margin=dict(l=10, r=10, t=10, b=10),
+                    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                )
+                st.plotly_chart(fig_xeb, use_container_width=True,
+                                config={"displayModeBar": False})
+
     # PQS+ distribution chart — capstone after K%/BB%/HR% rate stats
     if (not pa_rankings.empty and "pitcher_quality_score" in pa_rankings.columns
             and "pitcher_quality_score" in pitcher_ranking.index
