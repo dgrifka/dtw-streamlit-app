@@ -751,6 +751,8 @@ data to trust it.
             rename_map["preseason_eb_pa"] = "Preseason Proj."
         if has_pqs:
             rename_map["pitcher_quality_score"] = "PQS+"
+        if is_pitcher and "xeb_pa" in display.columns:
+            rename_map["xeb_pa"] = "xEB/PA"
         if has_k_rate:
             rename_map["k_rate_posterior"] = "K%"
             rename_map["k_rate_raw"] = "K% (Raw)"
@@ -788,12 +790,16 @@ data to trust it.
                 "K%", "BB%", "HR%", "PQS+",
                 n_col_name,
             ]
+            if is_pitcher and "xEB/PA" in display.columns:
+                table_cols.insert(table_cols.index("Est. Bases (Season)") + 1, "xEB/PA")
         else:
             table_cols = [
                 "Player", "Team", "Pos", "Archetype", "Est. Bases (Season)", "Est. Bases (Raw)",
                 "K%", "BB%", "HR%", "PQS+",
                 "Adjustment", n_col_name,
             ]
+            if is_pitcher and "xEB/PA" in display.columns:
+                table_cols.insert(table_cols.index("Est. Bases (Season)") + 1, "xEB/PA")
         # Insert traditional stats before Profile link
         if has_trad_stats:
             if not is_pitcher:
@@ -845,6 +851,12 @@ data to trust it.
                 help="Pitcher Quality Score (70% K% + 30% contact quality). Higher is better. "
                      "100 = league average. Combines strikeout ability and batted ball quality. "
                      "Validated at r=0.45 predicting next-year wOBA allowed.",
+            ),
+            "xEB/PA": st.column_config.NumberColumn(
+                format="%.4f",
+                help="Expected bases per PA — composite of K%, BB%, HBP%, and EB-per-BIP "
+                     "posteriors. (1 − K% − BB% − HBP%) × EB_per_BIP + BB% + HBP%. "
+                     "Lower is better. Validated to tie PQS+ on next-year predictive r.",
             ),
             n_col_name: st.column_config.NumberColumn(format="%d"),
             "Pos": st.column_config.TextColumn(width="small"),
