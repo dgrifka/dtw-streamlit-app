@@ -437,6 +437,28 @@ def load_pqs_projections(target_season: int) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def load_xeb_pa_projections(target_season: int) -> pd.DataFrame:
+    """Load derived xEB/PA projections from S3 (1-hour cache).
+
+    xEB/PA is a derived per-PA-bases composite of K%, BB%, HBP%, and EB-per-BIP
+    projections — same load-and-compose pattern as PQS+. Lower is better.
+
+    Args:
+        target_season: Season being projected (e.g. 2027)
+
+    Returns:
+        DataFrame with columns: player_id, player, team, [age_at_projection,]
+        projected_xeb_pa, projected_xeb_pa_hdi_low, projected_xeb_pa_hdi_high.
+    """
+    url = f"{S3_BASE_URL}/player-projections/{target_season}/latest/pitcher_xeb_pa_projections.parquet"
+    try:
+        df = pd.read_parquet(url)
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_all_season_pa_rankings(player_type: str = "hitter") -> dict:
     """Load PA rankings for all available seasons (cached 1h).
 
