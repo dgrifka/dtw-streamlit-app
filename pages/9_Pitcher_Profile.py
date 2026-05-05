@@ -24,6 +24,7 @@ from utils.data_loader import (
     load_all_season_pa_rankings, compute_league_percentiles,
     load_player_evaluations_pa, load_player_metadata, load_pa_counts,
     load_player_projections, load_rate_stat_projections, load_pqs_projections,
+    load_xeb_pa_projections,
     resolve_player_id, build_player_display_list, get_cached_radar_data,
 )
 from utils.team_mappings import (
@@ -1472,6 +1473,79 @@ if len(all_season_pa_rankings) > 0 and player_id is not None:
                     xanchor="left", yanchor="top",
                     bgcolor="rgba(255,255,255,0.7)",
                 )
+
+                # Multi-year xEB/PA projections — same trajectory pattern as EB/PA
+                xeb_proj_points = []
+                _max_xeb_s = int(xeb_vals["season"].max())
+                for proj_season in range(_max_xeb_s + 1, _max_xeb_s + 4):
+                    xeb_proj_df = load_xeb_pa_projections(proj_season)
+                    if xeb_proj_df.empty:
+                        continue
+                    if "player_id" in xeb_proj_df.columns:
+                        proj_match = xeb_proj_df[xeb_proj_df["player_id"] == player_id]
+                    else:
+                        proj_match = pd.DataFrame()
+                    if proj_match.empty:
+                        proj_match = xeb_proj_df[xeb_proj_df["player"] == selected_pitcher]
+                    if not proj_match.empty:
+                        xeb_proj_points.append(
+                            proj_match.iloc[0].to_dict() | {"season": proj_season}
+                        )
+
+                if xeb_proj_points:
+                    pseasons = [p["season"] for p in xeb_proj_points]
+                    pvals = [p["projected_xeb_pa"] for p in xeb_proj_points]
+                    phi = [p["projected_xeb_pa_hdi_high"] for p in xeb_proj_points]
+                    plo = [p["projected_xeb_pa_hdi_low"] for p in xeb_proj_points]
+
+                    fig_xeb_tl.add_vrect(
+                        x0=_max_xeb_s + 0.5, x1=max(pseasons) + 0.5,
+                        fillcolor="rgba(180,180,220,0.10)", line_width=0, layer="below",
+                    )
+                    fig_xeb_tl.add_annotation(
+                        x=(_max_xeb_s + 0.5 + max(pseasons) + 0.5) / 2,
+                        y=1.0, yref="paper", yanchor="bottom",
+                        text="Projected", showarrow=False,
+                        font=dict(size=13, color="rgba(120,120,160,0.7)"),
+                    )
+                    fig_xeb_tl.add_trace(go.Scatter(
+                        x=pseasons, y=phi,
+                        mode="lines", line=dict(width=0),
+                        showlegend=False, hoverinfo="skip",
+                    ))
+                    fig_xeb_tl.add_trace(go.Scatter(
+                        x=pseasons, y=plo,
+                        mode="lines", line=dict(width=0), fill="tonexty",
+                        fillcolor=f"rgba({r},{g},{b},0.10)",
+                        showlegend=False, hoverinfo="skip",
+                    ))
+                    last_actual_xeb = xeb_vals[xeb_vals["season"] == _max_xeb_s].iloc[0]
+                    fig_xeb_tl.add_trace(go.Scatter(
+                        x=[_max_xeb_s, pseasons[0]],
+                        y=[last_actual_xeb[xeb_col], pvals[0]],
+                        mode="lines",
+                        line=dict(color=f"rgba({r},{g},{b},0.4)", width=1.5, dash="dot"),
+                        showlegend=False, hoverinfo="skip",
+                    ))
+                    if len(pseasons) > 1:
+                        fig_xeb_tl.add_trace(go.Scatter(
+                            x=pseasons, y=pvals, mode="lines",
+                            line=dict(color=f"rgba({r},{g},{b},0.5)", width=2, dash="dash"),
+                            showlegend=False, hoverinfo="skip",
+                        ))
+                    fig_xeb_tl.add_trace(go.Scatter(
+                        x=pseasons, y=pvals, mode="markers",
+                        name="Projection", showlegend=False,
+                        marker=dict(color="rgba(255,255,255,0)", size=12, symbol="diamond-open",
+                                    line=dict(width=2.5, color=primary_color)),
+                        customdata=[[p["projected_xeb_pa_hdi_low"],
+                                     p["projected_xeb_pa_hdi_high"]] for p in xeb_proj_points],
+                        hovertemplate=(
+                            "Projection %{x}<br>xEB/PA: %{y:.3f}"
+                            "<br>89% HDI: [%{customdata[0]:.3f}, %{customdata[1]:.3f}]<extra></extra>"
+                        ),
+                    ))
+
                 st.plotly_chart(fig_xeb_tl, width="stretch", config=PLOTLY_CONFIG)
 
 
