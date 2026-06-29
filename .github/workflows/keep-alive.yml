@@ -8,7 +8,12 @@ on:
 jobs:
   ping:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # allow the timestamp commit that keeps this workflow from being auto-disabled
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Install Selenium
         run: pip install selenium
 
@@ -57,3 +62,17 @@ jobs:
           finally:
               driver.quit()
           EOF
+
+      - name: Bump keep-alive timestamp
+        if: always()  # commit even if the ping step failed, so the workflow stays enabled
+        # GitHub auto-disables scheduled workflows after 60 days with no repo
+        # activity. Committing a timestamp each run resets that clock so this
+        # workflow stays enabled indefinitely. (Pushes via GITHUB_TOKEN do not
+        # re-trigger workflows, so this can't loop.)
+        run: |
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .keep-alive-timestamp
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .keep-alive-timestamp
+          git commit -m "chore: keep-alive timestamp [skip ci]"
+          git push
