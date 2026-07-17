@@ -28,7 +28,7 @@ def tombstone(target: str, note: str | None = None):
         f"<meta http-equiv='refresh' content='3; url={target}'>",
         unsafe_allow_html=True,
     )
-    st.title("⚾ Down to the Wire has moved")
+    st.title("⚾ The Deserve-To-Win-O-Meter has moved")
     st.markdown(
         f"This app now lives at **[dtwbaseball.com]({SITE})** — same simulations, "
         "standings, and player pages, updated daily."
