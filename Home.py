@@ -1,64 +1,82 @@
 """
-MLB "Deserve to Win" Simulator - Streamlit App
-Navigation entrypoint with grouped sidebar and landing page.
+MLB "Deserve to Win" Simulator - Streamlit App (SUNSET)
+
+This app moved to https://dtwbaseball.com on July 25, 2026. Every old page
+URL still resolves and redirects to its closest equivalent on the new site.
+The app stays deployed to hold the dtw-str subdomain and serve the redirect.
 """
 
 import streamlit as st
-import os
-import sys
 
-# Add the app root directory to Python path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
+SITE = "https://dtwbaseball.com"
 
-# Page configuration (shared across all pages via st.navigation)
 st.set_page_config(
-    page_title="MLB Deserve-to-Win Simulator",
+    page_title="Moved to dtwbaseball.com",
     page_icon="⚾",
-    layout="wide",
-    initial_sidebar_state="auto",
+    layout="centered",
 )
 
-# Logo (applies to all pages via st.navigation)
-_logo_path = os.path.join(current_dir, "assets", "mlb_simulator_logo.png")
-if os.path.exists(_logo_path):
-    st.logo(_logo_path)
 
-# ── Sunset banner (shown on every page via st.navigation) ──────────────────
+def tombstone(target: str, note: str | None = None):
+    """Render the moved-notice page and auto-redirect to `target`.
 
-st.warning(
-    "⚾ **Down to the Wire has a new home: [dtwbaseball.com](https://dtwbaseball.com).** "
-    "Everything here — game simulations, standings, player pages, the batted ball explorer — "
-    "now lives there, updated daily. This app shuts down on **Friday, July 25** and will "
-    "redirect automatically. Please update your bookmarks."
+    Meta-refresh is the only auto-redirect that works on Community Cloud:
+    st.markdown HTML lands in the main document (scripts don't execute, and
+    components.html iframes are sandboxed without allow-top-navigation).
+    """
+    st.markdown(
+        f"<meta http-equiv='refresh' content='3; url={target}'>",
+        unsafe_allow_html=True,
+    )
+    st.title("⚾ Down to the Wire has moved")
+    st.markdown(
+        f"This app now lives at **[dtwbaseball.com]({SITE})** — same simulations, "
+        "standings, and player pages, updated daily."
+    )
+    if note:
+        st.info(note)
+    st.markdown(f"Taking you to **{target}** in a few seconds…")
+    st.link_button("Take me there →", target)
+
+
+def _page(url_path: str, target: str, title: str, note: str | None = None, **kwargs):
+    def _render():
+        tombstone(target, note)
+
+    return st.Page(_render, title=title, url_path=url_path, **kwargs)
+
+
+def _home():
+    tombstone(SITE)
+
+
+def _game_detail():
+    game_pk = st.query_params.get("gamePk")
+    target = f"{SITE}/games/{game_pk}" if game_pk else f"{SITE}/games"
+    tombstone(target)
+
+
+COMPARISON_NOTE = (
+    "Side-by-side player comparison isn't on the new site yet — it's on the "
+    "roadmap. The player pages there cover the same profiles in more depth."
 )
-
-# ── Navigation ──────────────────────────────────────────────────────────────
 
 nav = st.navigation(
-    {
-        "": [
-            st.Page("_home.py", title="Home", default=True),
-            st.Page("pages/_Game_Detail.py", title="Game Detail", visibility="hidden"),
-        ],
-        "Games & Standings": [
-            st.Page("pages/1_Game_Simulations.py", title="Game Simulations"),
-            st.Page("pages/2_Team_Luck_Rankings.py", title="Team Luck Rankings"),
-            st.Page("pages/3_Playoff_Probabilities.py", title="Playoff Probabilities"),
-        ],
-        "Batted Ball Data": [
-            st.Page("pages/4_Batted_Ball_Explorer.py", title="Batted Ball Explorer"),
-            st.Page("pages/6_Player_Rankings.py", title="Player Rankings"),
-        ],
-        "Player Profiles": [
-            st.Page("pages/7_Hitter_Profile.py", title="Hitter Profile"),
-            st.Page("pages/8_Hitter_Comparison.py", title="Hitter Comparison"),
-            st.Page("pages/9_Pitcher_Profile.py", title="Pitcher Profile"),
-            st.Page("pages/11_Pitcher_Comparison.py", title="Pitcher Comparison"),
-            st.Page("pages/10_About.py", title="About"),
-        ],
-    },
+    [
+        st.Page(_home, title="Home", default=True),
+        st.Page(_game_detail, title="Game Detail", url_path="Game_Detail"),
+        _page("Game_Simulations", f"{SITE}/games", "Game Simulations"),
+        _page("Team_Luck_Rankings", f"{SITE}/teams", "Team Luck Rankings"),
+        _page("Playoff_Probabilities", f"{SITE}/standings", "Playoff Probabilities"),
+        _page("Batted_Ball_Explorer", f"{SITE}/tools/batted-ball-explorer", "Batted Ball Explorer"),
+        _page("Player_Rankings", f"{SITE}/hitters", "Player Rankings"),
+        _page("Hitter_Profile", f"{SITE}/hitters", "Hitter Profile"),
+        _page("Hitter_Comparison", f"{SITE}/hitters", "Hitter Comparison", note=COMPARISON_NOTE),
+        _page("Pitcher_Profile", f"{SITE}/pitchers", "Pitcher Profile"),
+        _page("Pitcher_Comparison", f"{SITE}/pitchers", "Pitcher Comparison", note=COMPARISON_NOTE),
+        _page("About", f"{SITE}/about", "About"),
+    ],
+    position="hidden",
 )
 
 nav.run()
