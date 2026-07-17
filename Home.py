@@ -25,6 +25,15 @@ _logo_path = os.path.join(current_dir, "assets", "mlb_simulator_logo.png")
 if os.path.exists(_logo_path):
     st.logo(_logo_path)
 
+# ── Sunset banner (shown on every page via st.navigation) ──────────────────
+
+st.warning(
+    "⚾ **Down to the Wire has a new home: [dtwbaseball.com](https://dtwbaseball.com).** "
+    "Everything here — game simulations, standings, player pages, the batted ball explorer — "
+    "now lives there, updated daily. This app shuts down on **Friday, July 25** and will "
+    "redirect automatically. Please update your bookmarks."
+)
+
 # ── Navigation ──────────────────────────────────────────────────────────────
 
 nav = st.navigation(

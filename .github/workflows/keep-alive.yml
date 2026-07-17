@@ -2,7 +2,7 @@ name: Keep Alive
 
 on:
   schedule:
-    - cron: '0 */4 * * *'  # Every 4 hours (3x within 12h sleep window)
+    - cron: '0 */8 * * *'  # Every 8 hours (still inside the 12h sleep window; app is sunset to a redirect page, so this only keeps the redirect instant)
   workflow_dispatch: # Allow manual trigger
 
 jobs:
