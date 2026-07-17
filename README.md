@@ -1,10 +1,14 @@
 # MLB Deserve-to-Win Simulator - Streamlit App
 
+> **⚠️ Sunset notice:** This app has moved to **[dtwbaseball.com](https://dtwbaseball.com)**.
+> The Streamlit app shuts down on **July 25, 2026** and `dtw-str.streamlit.app` becomes a
+> permanent redirect. This repo stays up to hold the subdomain and serve the redirect page.
+
 Interactive web app for exploring MLB game simulation results.
 
 ## Live App
 
-🔗 **[View the live app](https://dtw-str.streamlit.app)**
+🔗 **[View the live app](https://dtw-str.streamlit.app)** (redirects to [dtwbaseball.com](https://dtwbaseball.com) after July 25, 2026)
 
 ## Features
 
