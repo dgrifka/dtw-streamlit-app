@@ -31,7 +31,10 @@ st.warning(
     "⚾ **The Deserve-To-Win-O-Meter has a new home: [dtwbaseball.com](https://dtwbaseball.com).** "
     "Everything here — game simulations, standings, player pages, the batted ball explorer — "
     "now lives there, updated daily. This app shuts down on **Friday, July 25** and will "
-    "redirect automatically. Please update your bookmarks."
+    "redirect automatically. Please update your bookmarks. Using the CSV exports? The team "
+    "luck rankings are downloadable at "
+    "[dtwbaseball.com/downloads/team-luck.csv](https://dtwbaseball.com/downloads/team-luck.csv) "
+    "— a stable link that refreshes daily."
 )
 
 # ── Navigation ──────────────────────────────────────────────────────────────

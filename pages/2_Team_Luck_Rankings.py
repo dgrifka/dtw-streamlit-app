@@ -229,6 +229,11 @@ st.download_button(
     file_name=f"team_rankings_{selected_season}.csv",
     mime="text/csv"
 )
+st.caption(
+    "After July 25, this table lives at "
+    "[dtwbaseball.com/downloads/team-luck.csv](https://dtwbaseball.com/downloads/team-luck.csv) "
+    "— a stable link you can point scripts at."
+)
 
 # -----------------------------------------------------------------------------
 # METHODOLOGY NOTE
