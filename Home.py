@@ -61,12 +61,17 @@ COMPARISON_NOTE = (
     "roadmap. The player pages there cover the same profiles in more depth."
 )
 
+LUCK_CSV_NOTE = (
+    "Used the CSV export? The same table is downloadable at "
+    f"{SITE}/downloads/team-luck.csv — a stable link that refreshes daily."
+)
+
 nav = st.navigation(
     [
         st.Page(_home, title="Home", default=True),
         st.Page(_game_detail, title="Game Detail", url_path="Game_Detail"),
         _page("Game_Simulations", f"{SITE}/games", "Game Simulations"),
-        _page("Team_Luck_Rankings", f"{SITE}/teams", "Team Luck Rankings"),
+        _page("Team_Luck_Rankings", f"{SITE}/teams", "Team Luck Rankings", note=LUCK_CSV_NOTE),
         _page("Playoff_Probabilities", f"{SITE}/standings", "Playoff Probabilities"),
         _page("Batted_Ball_Explorer", f"{SITE}/tools/batted-ball-explorer", "Batted Ball Explorer"),
         _page("Player_Rankings", f"{SITE}/hitters", "Player Rankings"),
