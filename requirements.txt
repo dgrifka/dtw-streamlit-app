@@ -1,12 +1,2 @@
-# Core
+# Tombstone/redirect app only — keep deps minimal so post-sleep cold starts are fast.
 streamlit>=1.55.0
-
-# Data handling
-pandas>=2.0.0
-pyarrow>=14.0.0  # Required for parquet support
-
-# Interactive charts (Player Dashboard)
-plotly>=5.18.0
-
-# Clustering (player archetypes)
-scikit-learn>=1.3.0
