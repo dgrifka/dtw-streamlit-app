@@ -66,6 +66,14 @@ LUCK_CSV_NOTE = (
     f"{SITE}/downloads/team-luck.csv — a stable link that refreshes daily."
 )
 
+# The old Player Rankings page served hitters and pitchers behind one toggle, so
+# its note names both replacement exports.
+RANKINGS_CSV_NOTE = (
+    "Used the CSV export? The rankings are downloadable at "
+    f"{SITE}/downloads/hitter-rankings.csv and "
+    f"{SITE}/downloads/pitcher-rankings.csv — stable links that refresh daily."
+)
+
 nav = st.navigation(
     [
         st.Page(_home, title="Home", default=True),
@@ -74,7 +82,7 @@ nav = st.navigation(
         _page("Team_Luck_Rankings", f"{SITE}/teams", "Team Luck Rankings", note=LUCK_CSV_NOTE),
         _page("Playoff_Probabilities", f"{SITE}/standings", "Playoff Probabilities"),
         _page("Batted_Ball_Explorer", f"{SITE}/tools/batted-ball-explorer", "Batted Ball Explorer"),
-        _page("Player_Rankings", f"{SITE}/hitters", "Player Rankings"),
+        _page("Player_Rankings", f"{SITE}/hitters", "Player Rankings", note=RANKINGS_CSV_NOTE),
         _page("Hitter_Profile", f"{SITE}/hitters", "Hitter Profile"),
         _page("Hitter_Comparison", f"{SITE}/hitters", "Hitter Comparison", note=COMPARISON_NOTE),
         _page("Pitcher_Profile", f"{SITE}/pitchers", "Pitcher Profile"),
